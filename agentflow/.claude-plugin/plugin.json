@@ -1,0 +1,8 @@
+{
+  "name": "agentflow",
+  "version": "0.1.0",
+  "description": "Three-agent dev workflow (PO/DEV/QC) coordinated via GitHub Project Board.",
+  "author": "Your Team",
+  "license": "MIT",
+  "keywords": ["workflow", "agents", "github", "project-management"]
+}

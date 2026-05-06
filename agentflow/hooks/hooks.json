@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "^/(task|status|handoff)\\b",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "test -f .claude/agentflow.yaml || echo '[agentflow] no agentflow.yaml — run /agentflow-init first' >&2"
+          }
+        ]
+      }
+    ]
+  }
+}
