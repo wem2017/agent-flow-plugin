@@ -37,19 +37,3 @@ agents:
     test_command:        "{{TEST_COMMAND}}"
     lint_command:        "{{LINT_COMMAND}}"
     coverage_threshold:  {{COVERAGE_THRESHOLD}}
-
-notifications:
-  # List of channels to fan out to. Allowed: telegram | zalo | none
-  channels: {{NOTIFY_CHANNELS}}   # e.g. ["telegram"], ["telegram", "zalo"], ["none"]
-  telegram:
-    bot_token_env: "{{TELEGRAM_BOT_TOKEN_ENV}}"
-    chat_id: "{{TELEGRAM_CHAT_ID}}"
-    mention: "{{TELEGRAM_MENTION}}"
-  zalo:
-    # Zalo Official Account message/cs flow — recipient must follow the OA.
-    access_token_env: "{{ZALO_ACCESS_TOKEN_ENV}}"
-    user_id: "{{ZALO_USER_ID}}"
-    mention: "{{ZALO_MENTION}}"
-  triggers:
-    - review_ready
-    - build_failed

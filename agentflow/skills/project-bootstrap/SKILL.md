@@ -7,6 +7,8 @@ description: Create the GitHub Project v2, the standard columns and labels, and 
 
 End-to-end setup for a new repo. Idempotent — safe to re-run.
 
+v0.2 runs in terminal mode — the orchestrator break-out is the notification, so this skill does **not** ask for Telegram/Zalo credentials and the generated yaml has no `notifications:` block.
+
 ## Preconditions
 
 - `gh` CLI authenticated (`gh auth status`).
@@ -27,13 +29,6 @@ Ask the user one question at a time. Provide a default when sensible.
 | GitHub Project mode               | `create` — new Project v2 (alt: `link` an existing one) |
 | If `link`: project number or URL  | — accept `https://github.com/orgs/<owner>/projects/<n>`, `https://github.com/users/<user>/projects/<n>`, or bare `<n>` |
 | Default branch                    | detect via `git symbolic-ref refs/remotes/origin/HEAD` |
-| Notification channels (multi)     | `[telegram]`                           |
-| Telegram bot token env var name   | `TELEGRAM_BOT_TOKEN`                   |
-| Telegram chat ID                  | — (user must paste numeric ID)         |
-| Telegram mention handle           | empty                                  |
-| Zalo OA access token env var name | `ZALO_OA_ACCESS_TOKEN` (only if zalo selected) |
-| Zalo recipient user_id            | — (user must paste OA-scoped user_id)  |
-| Zalo mention handle               | empty                                  |
 | Test command                      | detect (see below)                     |
 | Lint command                      | detect (see below)                     |
 | Coverage threshold                | `80`                                   |
@@ -103,7 +98,7 @@ Print:
 ✅ AgentFlow ready for <repo>
    Board:  <project URL>
    Config: .claude/agentflow.yaml
-   Next:   /task <describe your first piece of work>
+   Next:   /start   (then chat with the team in this terminal)
 ```
 
 ## Failure recovery

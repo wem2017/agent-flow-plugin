@@ -11,13 +11,9 @@ Set up AgentFlow for this repository. Invoke the **project-bootstrap** skill, wh
    - GitHub Project v2 mode: `create` a new one, or `link` an existing one
      - if `link`: accept project number or URL (`/orgs/<owner>/projects/<n>` or `/users/<user>/projects/<n>`)
    - Default branch (default: detect from `git symbolic-ref refs/remotes/origin/HEAD`)
-   - Notification channels (multi-select: telegram, zalo, or none)
-   - Telegram bot token env var name (if telegram, default `TELEGRAM_BOT_TOKEN`)
-   - Telegram chat ID (if telegram — numeric user/group/channel ID)
-   - Zalo OA access token env var name (if zalo, default `ZALO_OA_ACCESS_TOKEN`)
-   - Zalo recipient user_id (if zalo — OA-scoped user_id, not phone)
    - Test command (default: detect — `flutter test` for Flutter, `npm test` for Node, `pytest` for Python, etc.)
    - Lint command (default: detect)
+
 4. **Create or link** on GitHub:
    - If `create`: new Project v2 with the 7 standard columns (Inbox, Refined, Ready for Dev, In Progress, In QC, Ready for Human Review, Done)
    - If `link`: resolve the URL/number to a node ID via `gh project view`, then add only the missing canonical columns to the existing Status field (don't rename or delete what's already there; warn about extra columns AgentFlow won't manage)
@@ -25,4 +21,4 @@ Set up AgentFlow for this repository. Invoke the **project-bootstrap** skill, wh
 5. **Generate** `.claude/agentflow.yaml` from the template, filled with answers above.
 6. **Generate** `README.agentflow.md` at repo root.
 7. **Create a verification issue** titled `[AgentFlow] Setup complete` and walk it through the columns to confirm the pipeline works end-to-end.
-8. Print a final summary with: board URL, config file path, and the next command the user should try (`/task ...`).
+8. Print a final summary with: board URL, config file path, and the next command the user should try (`/start` to enter terminal team mode).
