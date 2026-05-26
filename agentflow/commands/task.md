@@ -1,5 +1,5 @@
 ---
-description: Create a new task on the AgentFlow project board from a freeform description.
+description: Create a new AgentFlow work item (GitHub issue) from a freeform description.
 argument-hint: <description of the work>
 ---
 

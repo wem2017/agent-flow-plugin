@@ -2,11 +2,15 @@
   "hooks": {
     "UserPromptSubmit": [
       {
-        "matcher": "^/(task|status|handoff)\\b",
+        "matcher": "^/(start|task|status|handoff)\\b",
         "hooks": [
           {
             "type": "command",
             "command": "test -f .claude/agentflow.yaml || echo '[agentflow] no agentflow.yaml — run /agentflow-init first' >&2"
+          },
+          {
+            "type": "command",
+            "command": "test -n \"$GITHUB_TOKEN\" || echo '[agentflow] GITHUB_TOKEN not set — GitHub MCP calls will fail' >&2"
           }
         ]
       }
