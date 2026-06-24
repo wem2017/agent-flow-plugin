@@ -93,12 +93,13 @@ repo the token can reach — and all three agents share the one token.)
 ## 4. The daily loop
 
 ```text
-/start                                   # this terminal becomes the orchestrator
-> add a "share movie" button to the detail screen     # describe work in plain language
+/task add a "share movie" button to the detail screen   # file work → lands on the board
+/start                                                   # poll the board; drive PO → DEV → QC
 ```
 
-After `/start`, just describe work. The orchestrator routes **PO → DEV → QC** automatically and
-only breaks back to you when it needs something:
+File work with **`/task`** (or by dropping a card on the board), then **`/start`** to enter
+board-driven mode. `/start` polls the shared board and routes each card **PO → DEV → QC**
+automatically — it **does not** intake work — and only breaks back to you when it needs something:
 
 ```
 flow:inbox → flow:refined → flow:ready-for-dev → flow:in-progress → flow:in-qc
@@ -114,22 +115,23 @@ flow:inbox → flow:refined → flow:ready-for-dev → flow:in-progress → flow
   touched surface), and signs off `[QC] ✅` or rejects `[QC] ❌`. Two consecutive ❌ →
   auto-escalates with `needs-human`.
 - **You** review and merge. The orchestrator **never** merges without your explicit
-  `merge #<n>`.
+  `merge <owner/repo>#<n>`.
 
 ### Commands
 
 | Command | Does |
 |---------|------|
-| `/agentflow-init` | One-time (re-runnable) repo bootstrap. |
-| `/start` | Enter team mode; this session becomes the orchestrator. |
-| `/task <description>` | File a new work item (PO intake) without entering team mode. |
-| `/status` | Open-issue counts per `flow:*` state. |
-| `/handoff <issue#> <target>` | Manually reroute a card (`po`/`dev`/`qc`/`review`/a `flow:*` label). |
+| `/agentflow-init` | One-time (re-runnable) **per-repo** bootstrap. |
+| `/agentflow-program-init` | **Multi-repo**: create/link the shared board + manifest spanning several repos. |
+| `/start` | Enter board-driven mode; poll the shared board and chain the agents. **No intake.** |
+| `/task <description>` | File a new work item (PO intake) and add it to the board — without entering team mode. |
+| `/status` | Counts per status — board-wide + per-repo (program), or per `flow:*` state (single-repo). |
+| `/handoff <owner/repo> <issue#> <target>` | Manually reroute a card (`po`/`dev`/`qc`/`review`/a `flow:*` label), repo-qualified. |
 
 ### When the orchestrator breaks out to you
 
 You'll see a short message and the issue link when: PO needs clarification, DEV is blocked, a
-2-strike escalation fires (`needs-human`), or **a PR is ready** (reply `merge #<n>` to merge).
+2-strike escalation fires (`needs-human`), or **a PR is ready** (reply `merge <owner/repo>#<n>` to merge).
 
 ---
 

@@ -93,12 +93,13 @@ Then restart Claude Code (or reload plugins) so the MCP servers, agents, command
 ## Quick start
 
 ```text
-/agentflow-init      # one-time setup for this repo (connections, env, surfaces, skills, labels, optional board, config, README)
-/start               # enter team mode — this terminal becomes the orchestrator
-> add a CSV export button to the reports page    # describe work in plain text
+/agentflow-init           # one-time setup for THIS repo (connections, env, surfaces, skills, labels, config)
+/agentflow-program-init   # (multi-repo) create the shared board + manifest spanning several repos
+/task add a CSV export button to the reports page    # file work → it lands on the board
+/start                    # board-driven: poll the shared board and chain PO → DEV → QC
 ```
 
-After `/start`, just describe work in plain language. The orchestrator routes **PO → DEV → QC** automatically and only breaks back to you when it needs clarification, hits the 2-strike escalation, a DEV card is blocked, or a PR is ready to merge.
+**`/start` is board-driven** — it polls the shared GitHub Project board and routes each card through **PO → DEV → QC**, breaking back to you only when it needs clarification, hits the 2-strike escalation, a DEV card is blocked, or a PR is ready to merge. **`/start` does not intake work**; new work enters via **`/task <description>`** or by dropping a card on the board. You still do two things by hand: **describe the work** (`/task` / a board card) and **review/merge the PR**.
 
 ---
 
@@ -217,11 +218,12 @@ An agent loads the role-prefixed skills for its role that are relevant to the su
 
 | Command | What it does |
 |---------|--------------|
-| `/agentflow-init` | One-time repo bootstrap: configure `connections.*`, verify `env:` secrets, declare the `surfaces.*` you have with their commands, scaffold/register project skills, create `flow:*` + `type/*` + `component/<surface>` + aux labels, optionally create/link a Projects v2 board, generate `.claude/agentflow.yaml` and `README.agentflow.md`, and walk a verification ticket end-to-end. |
-| `/start` | Enter terminal team mode; the session becomes a thin orchestrator that chains the agents. |
-| `/task <description>` | File a new work item from a freeform description (PO owns intake). |
-| `/status` | Print open-issue counts per `flow:*` state. |
-| `/handoff <issue#> <target>` | Manually reroute a card to a specific agent or `flow:*` state. |
+| `/agentflow-init` | One-time **per-repo** bootstrap: configure `connections.*`, verify `env:` secrets, declare the `surfaces.*` you have with their commands, scaffold/register project skills, create `flow:*` + `type/*` + `component/<surface>` + aux labels, optionally create/link a Projects v2 board, generate `.claude/agentflow.yaml` and `README.agentflow.md`, and walk a verification ticket end-to-end. |
+| `/agentflow-program-init` | **Multi-repo** bootstrap: create/link ONE shared Projects v2 board that aggregates several repos, write the program manifest (board + `status_map` + members), and per-member run `/agentflow-init` + point each repo at the shared board. |
+| `/start` | Enter board-driven team mode; the session polls the shared board and chains the agents. **Does not intake work.** |
+| `/task <description>` | File a new work item from a freeform description (PO owns intake) and add it to the board. |
+| `/status` | Print counts per status — board-wide + per-repo (program mode), or per `flow:*` state (single-repo). |
+| `/handoff <owner/repo> <issue#> <target>` | Manually reroute a card to a specific agent or `flow:*` state (repo-qualified) and mirror to the board. |
 
 ---
 

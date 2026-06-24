@@ -21,6 +21,17 @@ project:
   summary: "{{PROJECT_SUMMARY}}"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# PROGRAM (optional) — set by /agentflow-program-init when this repo is a MEMBER
+# of a multi-repo program that shares ONE GitHub Projects v2 board. The back-pointer
+# lets tooling locate the program manifest from inside this single checkout. ABSENT
+# for a standalone repo. The shared board node id is mirrored into board.id below
+# (and connections.github_project.enabled: true). See skill: setup-agentflow.
+# ─────────────────────────────────────────────────────────────────────────────
+# program:
+#   name: "{{PROGRAM_NAME}}"            # e.g. "cinestar-agent-flow"
+#   manifest: "../../.claude/agentflow.program.yaml"   # relative to THIS file
+
+# ─────────────────────────────────────────────────────────────────────────────
 # CONNECTIONS — external services this project links to, fully specified.
 #
 # Each connection ties together, in ONE place: the secret it needs (auth.token_env,
