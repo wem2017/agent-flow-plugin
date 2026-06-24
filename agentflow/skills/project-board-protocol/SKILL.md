@@ -351,9 +351,71 @@ Get `<statusFieldId>` and the `<optionId>` for the target column from the `Statu
 field query above, matching on the option `name`. This mirror runs **after** the
 label swap, never instead of it; on any error, log and move on.
 
+## List actionable board items (orchestrator queue)
+
+**Board-driven mode only.** When a board spans many issues — and especially when it
+aggregates several repos as a **program** (see skill: `setup-agentflow` → program
+manifest) — the orchestrator needs to read the **whole** board in one shot to build
+its work queue. This is the one query that reads board state as a *queue*; everything
+else above writes a single item. Paginate over every item and pull, per item: the
+issue **number**, its **repo** (`repository.nameWithOwner` — this is the multi-repo
+attribution), the **item id** (reuse it directly in the mirror's
+`updateProjectV2ItemFieldValue`, skipping the `addProjectV2ItemById` round-trip), the
+issue's live **labels** (so you read the authoritative `flow:*` without a second call),
+the issue **state** (skip `CLOSED`), and the current **Status** option name.
+
+```bash
+gh api graphql -f query='
+  query($project:ID!, $cursor:String){
+    node(id:$project){ ... on ProjectV2 {
+      items(first:50, after:$cursor){
+        pageInfo{ hasNextPage endCursor }
+        nodes{
+          id
+          fieldValueByName(name:"Status"){
+            ... on ProjectV2ItemFieldSingleSelectValue { name optionId }
+          }
+          content{
+            ... on Issue {
+              number
+              state
+              url
+              repository{ nameWithOwner }
+              labels(first:20){ nodes{ name } }
+            }
+            ... on DraftIssue { title }   # draft cards have no issue → not routable
+          }
+        }
+      }
+    }}}' -F project="<board.id>" -F cursor="<endCursor|null>"
+# loop while .data.node.items.pageInfo.hasNextPage, passing endCursor as the next cursor
+```
+
+The list returns **all** board items; the orchestrator applies the *actionable* filter
+client-side (Status whose `status_map` owner is an agent, issue `state == OPEN`). A
+**draft** card (no `content.number`) is outside the label state machine — the
+orchestrator cannot route it; surface it to the human to convert to an issue. An item
+whose `repository.nameWithOwner` is not a known program member is skipped, not guessed.
+
+## Board-driven mode amendment (the one exception to "agents never read columns")
+
+The default protocol (top of this skill) makes the `flow:*` **label authoritative** and
+treats the board as a **human-only mirror** that agents never read. **Board-driven mode**
+relaxes this in exactly one place: the **orchestrator** (`/start`) reads board Status as
+its cross-repo **work queue** via the list query above. This is the *only* sanctioned
+reader of columns, and even it does not *trust* the column for state — after attributing
+an item to its repo it re-reads the issue's live `flow:*` label and routes off the
+**label** (label wins on any drift), then re-mirrors Status to match. PO/DEV/QC sub-agents
+still **never** read or write the board; all board writes stay at the orchestrator layer
+(`/start`, `/task`, `/handoff`). The board is a queue + mirror; the label is the truth.
+
 ## Scopes
 
 - Org board: `GITHUB_TOKEN` needs `project` **and** `read:org`.
 - User board: `GITHUB_TOKEN` needs `project`.
 - **Labels-only** mode (`board.id` = `""`): none of the above; the pipeline still
   works end to end. Prefer this when no human needs the visual board.
+- **Board-driven mode** (a program with a shared board): the board is on the agent
+  decision path, so `project` scope is **mandatory** — `/start` reads the board to build
+  its queue and stops at boot if the scope is missing. (Labels-only single-repo installs
+  keep `/task`/`/handoff`/agents without it; they just lose the board-driven `/start`.)

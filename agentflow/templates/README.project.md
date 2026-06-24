@@ -1,6 +1,6 @@
 # AgentFlow — quick reference for this repo
 
-This repo uses the **AgentFlow** plugin (v0.4) to coordinate a 3-agent dev workflow (PO → DEV → QC → human review) on GitHub. State lives in `flow:*` **labels** on each issue; a GitHub Projects v2 board is optional and only mirrors those labels for visual triage. Everything is configured in one file — `.claude/agentflow.yaml`, the single source of truth.
+This repo uses the **AgentFlow** plugin to coordinate a 3-agent dev workflow (PO → DEV → QC → human review) on GitHub. (The exact plugin version this config was authored against is pinned as `agentflow_version` in `.claude/agentflow.yaml`.) State lives in `flow:*` **labels** on each issue; a GitHub Projects v2 board is optional and only mirrors those labels for visual triage. Everything is configured in one file — `.claude/agentflow.yaml`, the single source of truth.
 
 You only do two things by hand: **describe the work, and review/merge the PR.** Everything in between happens through GitHub.
 

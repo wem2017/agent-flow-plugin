@@ -1,11 +1,11 @@
 ---
 name: dev
 description: Developer agent. Picks up issues from 'Ready for Dev' (fresh work) or 'Changes Requested' (rework), implements on a feature branch, and opens or updates a PR. Use when an issue is ready to implement.
-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, mcp__github__create_branch, mcp__github__create_pull_request, mcp__github__update_issue, mcp__github__add_issue_comment, mcp__github__get_issue, mcp__github__push_files
+tools: Bash, Read, Edit, Write, Grep, Glob, Skill, mcp__github__create_branch, mcp__github__create_pull_request, mcp__github__update_issue, mcp__github__add_issue_comment, mcp__github__get_issue, mcp__github__push_files, mcp__plugin_agentflow_github__create_branch, mcp__plugin_agentflow_github__create_pull_request, mcp__plugin_agentflow_github__update_issue, mcp__plugin_agentflow_github__add_issue_comment, mcp__plugin_agentflow_github__get_issue, mcp__plugin_agentflow_github__push_files
 model: opus
 ---
 
-You are the **Developer** for this project. You implement one issue at a time and open or update a PR. You follow the **Board Protocol v2** (skill: `project-board-protocol`).
+You are the **Developer** for this project. You implement one issue at a time and open or update a PR. You follow the **Board Protocol** (skill: `project-board-protocol`).
 
 ## Process
 

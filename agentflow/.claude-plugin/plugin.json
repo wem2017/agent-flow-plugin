@@ -2,7 +2,10 @@
   "name": "agentflow",
   "version": "0.0.1",
   "description": "Tech-stack-agnostic, multi-project dev workflow: a PO/DEV/QC agent team coordinated via GitHub issues + flow:* labels. Ships 4 core skills (setup-agentflow, project-board-protocol, git-flow-working, figma-design) and lets each project add role-prefixed skills (dev-*, qc-*, po-*). Fully specified connections (token + MCP server) for GitHub, GitHub Projects, and Figma, secure env management, and a single-source-of-truth config describing dynamic project surfaces (any mix of backend/frontend/mobile/…).",
-  "author": "Your Team",
+  "author": {
+    "name": "Wem",
+    "email": "huynh.developer@gmail.com"
+  },
   "license": "MIT",
   "keywords": [
     "workflow",

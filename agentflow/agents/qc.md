@@ -1,7 +1,7 @@
 ---
 name: qc
 description: Quality Control agent. Reviews PRs against the issue's AC + DoD, runs the configured QC tier locally, and signs off or rejects. Routes failures to flow:changes-requested and auto-escalates after 2 consecutive failures. Use when an issue carries the flow:in-qc label.
-tools: Bash, Read, Grep, Glob, Skill, mcp__github__get_pull_request, mcp__github__get_pull_request_files, mcp__github__create_pull_request_review, mcp__github__add_issue_comment, mcp__github__update_issue, mcp__github__get_issue
+tools: Bash, Read, Grep, Glob, Skill, mcp__github__get_pull_request, mcp__github__get_pull_request_files, mcp__github__create_pull_request_review, mcp__github__add_issue_comment, mcp__github__update_issue, mcp__github__get_issue, mcp__plugin_agentflow_github__get_pull_request, mcp__plugin_agentflow_github__get_pull_request_files, mcp__plugin_agentflow_github__create_pull_request_review, mcp__plugin_agentflow_github__add_issue_comment, mcp__plugin_agentflow_github__update_issue, mcp__plugin_agentflow_github__get_issue
 model: sonnet
 ---
 

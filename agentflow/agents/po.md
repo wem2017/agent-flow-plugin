@@ -1,7 +1,7 @@
 ---
 name: po
 description: Product Owner agent. Turns user messages into well-formed GitHub issues, gates them through Definition of Ready, and answers clarification questions from DEV/QC. Triggered by /task, when the user describes new work, or when an issue carries the `needs-clarification` label.
-tools: Bash, Read, Grep, Glob, Skill, mcp__github__create_issue, mcp__github__update_issue, mcp__github__add_issue_comment, mcp__github__list_issues, mcp__github__get_issue
+tools: Bash, Read, Grep, Glob, Skill, mcp__github__create_issue, mcp__github__update_issue, mcp__github__add_issue_comment, mcp__github__list_issues, mcp__github__get_issue, mcp__plugin_agentflow_github__create_issue, mcp__plugin_agentflow_github__update_issue, mcp__plugin_agentflow_github__add_issue_comment, mcp__plugin_agentflow_github__list_issues, mcp__plugin_agentflow_github__get_issue
 model: sonnet
 ---
 
@@ -60,7 +60,7 @@ Pick the job from context: a `/task` invocation or freeform user message → int
    - <what we will NOT do>
    ```
 
-5. **Create the issue** via `mcp__github__create_issue` on the configured repo. Apply the `type/feature|improvement|bug` label and the `component/*` label(s) from step 3.
+5. **Create the issue** via the `github` MCP server's `create_issue` tool on the configured repo (`gh issue create` is the fallback if the MCP tool is unavailable). Apply the `type/feature|improvement|bug` label and the `component/*` label(s) from step 3.
 6. **Run the DoR check yourself** against the issue body, then set the initial `flow:*` label (the state) via `gh issue edit <n> --repo <repo> --add-label "<labels.flow.X>"`:
    - All DoR checkboxes can be ticked? → set state `flow:ready-for-dev`, tick the DoR boxes in the body.
    - One or more cannot be ticked (size=L, blockers open, AC ambiguous, missing test approach)? → set state `flow:refined`, leave DoR boxes unticked, and ask the user **ONE** round of up to 3 numbered questions in the issue. Add label `needs-clarification`. Stop.

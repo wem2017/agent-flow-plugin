@@ -4,7 +4,7 @@ A Claude Code plugin that turns one coding agent into a small, accountable team.
 
 AgentFlow is **tech-stack-agnostic** and **multi-project**. You install the plugin **once**; each repo gets its own `.claude/agentflow.yaml` — the single source of truth that describes the whole project at a glance. Nothing in the plugin assumes a language, framework, or directory layout — you supply the commands. **v0.0.1** highlights:
 
-- **Four focused core skills** — `setup-agentflow`, `project-board-protocol`, `git-flow-working`, `figma-design`. The wire protocol, onboarding/connections guide, git flow, and Figma handoff ship with the plugin and load on demand.
+- **Four focused core skills** — `setup-agentflow`, `project-board-protocol`, `git-flow-working`, `figma-design`. The onboarding/setup guide, wire protocol, git flow, and Figma handoff ship with the plugin and load on demand.
 - **Extensible role-prefixed project skills** — drop your own skills in `.claude/skills/` named `dev-*` / `qc-*` / `po-*`; the matching agent picks them up. Register them in `skills:` for the at-a-glance overview, or rely on prefix auto-discovery.
 - **Fully-specified connections** — each `connections.<name>` ties its secret (`auth.token_env`), scopes, and MCP server (`mcp.server` + `mcp.requires_env`) together in one place. A connection is usable only when `enabled: true` **and** every required var is present.
 - **Single source of truth** — `.claude/agentflow.yaml` describes connections, secrets, surfaces, skills, labels, and agent rules. Agents and the four core skills read **only** this file.
