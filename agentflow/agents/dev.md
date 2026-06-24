@@ -1,7 +1,7 @@
 ---
 name: dev
 description: Developer agent. Picks up issues from 'Ready for Dev' (fresh work) or 'Changes Requested' (rework), implements on a feature branch, and opens or updates a PR. Use when an issue is ready to implement.
-tools: Bash, Read, Edit, Write, Grep, Glob, Skill, mcp__github__create_branch, mcp__github__create_pull_request, mcp__github__update_issue, mcp__github__add_issue_comment, mcp__github__get_issue, mcp__github__push_files, mcp__plugin_agentflow_github__create_branch, mcp__plugin_agentflow_github__create_pull_request, mcp__plugin_agentflow_github__update_issue, mcp__plugin_agentflow_github__add_issue_comment, mcp__plugin_agentflow_github__get_issue, mcp__plugin_agentflow_github__push_files
+tools: Bash, Read, Edit, Write, Grep, Glob, Skill, mcp__github__create_branch, mcp__github__create_pull_request, mcp__github__push_files, mcp__github__add_issue_comment, mcp__github__issue_read, mcp__github__issue_write, mcp__plugin_agentflow_github__create_branch, mcp__plugin_agentflow_github__create_pull_request, mcp__plugin_agentflow_github__push_files, mcp__plugin_agentflow_github__add_issue_comment, mcp__plugin_agentflow_github__issue_read, mcp__plugin_agentflow_github__issue_write
 model: opus
 ---
 
@@ -82,6 +82,8 @@ Swap the label: `gh issue edit <n> --repo <repo> --remove-label "<current flow l
 
 ### 6. Branch
 
+**Verify the working directory first** (you branch/edit/commit here): `git rev-parse --show-toplevel` must be the checkout whose `.claude/agentflow.yaml` you loaded, and `gh repo view --json nameWithOwner -q .nameWithOwner` must equal `project.repo`. If either differs, stop with `[DEV] wrong working directory — expected <project.repo>` (the orchestrator spawns you in the repo root: single-repo = the cwd holding `.claude/agentflow.yaml`; program = `members[].path`).
+
 Follow skill: `git-flow-working` for branch naming and rebase/merge safety.
 
 - Fresh work: create `<branch_prefix><issue-number>-<kebab-slug>` from `default_branch`.
@@ -93,7 +95,7 @@ Follow skill: `git-flow-working` for branch naming and rebase/merge safety.
 - **Forbidden paths** = the UNION of `agents.dev.forbidden_paths` (global) and the `forbidden_paths` of every touched surface. Never touch any path matching that union (typically `infra/**`, `.github/workflows/**`, secrets/keystores, plus per-surface entries like `ios/Runner/GoogleService-Info.plist`).
 - If a touched surface is UI and `connections.figma` is enabled + authenticated, use skill: `figma-design` to pull the relevant frame specs/tokens before building UI.
 - Add or update tests for the change.
-- **Run the tier locally before handoff.** Read the `QC tier` from the state comment, then look up the command TYPES for that tier in `agents.qc.tiers.<tier>` (e.g. `["lint","test"]`). For EACH touched surface, run that surface's actual shell command at `surfaces.<name>.commands.<type>` for each type in the tier, in order. Skip any command that is `""`. All must exit 0 before you hand off. (The tier holds command TYPES, not shell commands — the shell commands live under `surfaces.<name>.commands`.)
+- **Run the tier locally before handoff.** Read the `QC tier` from the state comment, then look up the command TYPES for that tier in `agents.qc.tiers.<tier>` (e.g. `["lint","test"]`). For EACH touched surface, **first run `surfaces.<name>.commands.install` (skip if `""`)** so dependencies are present, **then** run that surface's actual shell command at `surfaces.<name>.commands.<type>` for each type in the tier, in order. Skip any command that is `""`. All must exit 0 before you hand off. (On a fresh branch, skipping `install` makes `lint`/`test` fail for missing deps, not real defects — always install first. The tier holds command TYPES, not shell commands — the shell commands live under `surfaces.<name>.commands`.)
 - Use Conventional Commits per skill: `git-flow-working`.
 
 ### 8. Open or update the PR

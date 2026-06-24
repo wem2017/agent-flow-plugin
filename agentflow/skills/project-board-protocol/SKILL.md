@@ -1,6 +1,6 @@
 ---
 name: project-board-protocol
-description: The GitHub wire protocol agents use to communicate — the flow:* state label, comment prefixes, Definition of Ready/Done, state-comment format, rework loop, and trust rules — plus the OPTIONAL GitHub Projects v2 board (a human-only visual mirror of the labels). Read this before reading or writing any board artifact.
+description: Defines the GitHub wire protocol the PO/DEV/QC agents communicate through — the authoritative flow:* state label, mandatory comment prefixes, Definition of Ready/Done, the sticky state comment, the rework loop, and trust rules. The optional GitHub Projects v2 board (a human-only mirror) lives in reference/projects-v2-board.md. Use when an agent reads issue state, posts a comment, swaps a flow:* label, or touches any board artifact.
 ---
 
 # AgentFlow Project Board Protocol
@@ -11,7 +11,7 @@ This is the contract every PO/DEV/QC agent must follow. There is no message bus 
 2. **Issue comments** with mandatory prefixes — the conversation.
 3. **The sticky `AGENTFLOW-STATE` comment** — the agent's working memory between runs.
 
-A GitHub Projects v2 board is **optional** and **for humans only**: it mirrors the state labels for visual triage. Agents never read or move board columns — moving a Projects v2 card requires GraphQL and is not on the agent path. **Routing always reads the label.** The full board mechanics live in the "Optional GitHub Projects v2 board (human mirror)" section at the end of this skill.
+A GitHub Projects v2 board is **optional** and **for humans only**: it mirrors the state labels for visual triage. Agents never read or move board columns — moving a Projects v2 card requires GraphQL and is not on the agent path. **Routing always reads the label.** The full board mechanics (resolve/create/link, the mirror, the orchestrator queue, scopes, and helper scripts) live in the bundled reference **`reference/projects-v2-board.md`** — read it only when `board.id` is non-empty and you actually need to touch the board.
 
 This skill is the GitHub wire protocol; for the surrounding concerns see the sibling skills: `setup-agentflow` (external services / env / MCP gating / project-skills registry), `git-flow-working` (branching, commits, PRs), and `figma-design` (design context).
 
@@ -108,6 +108,7 @@ Every issue has exactly one comment starting with `<!-- AGENTFLOW-STATE v2 -->`.
 <!-- AGENTFLOW-STATE v2 -->
 ## Current state
 <flow:* label> [(rework #N)]
+consecutive_fail: <C>   # back-to-back QC ❌; resets to 0 on any pass or PO clarification re-gate. Drives the 2-strike escalation.
 
 ## Resume hints
 <one or two sentences telling the next agent what to do first>
@@ -130,6 +131,17 @@ quick | full | regression
 ```
 
 Sections that have no content show `(none)`. The event log is append-only; never rewrite history. To keep this comment from bloating context over many reworks, retain at most the **last 3** `QC rejections` attempts in full; collapse older ones to a one-line `### Attempt N — <date> (resolved)`.
+
+### Sticky comment: upsert & reconcile (exactly one, always)
+
+The "exactly one" invariant only holds if every agent **upserts** rather than posts. When writing the state comment:
+
+1. **Find** the comment whose body begins with `<!-- AGENTFLOW-STATE v2 -->` (`gh issue view <n> --json comments` then match the marker).
+2. **Exactly one** → **edit it in place** (`gh issue comment --edit-last` is not reliable here; use the comment id: `gh api -X PATCH repos/<repo>/issues/comments/<id> -f body=...`). Never post a second copy.
+3. **Zero** → create it once from the template.
+4. **More than one** (a prior half-write forked it) → edit the **oldest** to the correct current content, **delete** the rest, and append a `[SYSTEM] reconciled duplicate AGENTFLOW-STATE comments` line to its event log.
+
+**Label ↔ comment reconcile (run on pickup).** The `flow:*` **label is authoritative**. Any agent picking up an issue MUST compare `Current state` in the sticky comment against the live `flow:*` label; if they disagree (a transition that half-completed — comment updated but label not swapped, or vice-versa), **the label wins**: rewrite `Current state` to match the label and append a `[SYSTEM] reconciled state comment to label <flow:*>` event. To minimize the window, follow the write order below (comment first, then label swap) so a crash leaves the label — the source of truth — un-swapped and the work simply re-runs.
 
 ## Read order for any agent picking up an issue
 
@@ -158,9 +170,11 @@ In terminal mode all three agents run under **one** GitHub identity, so assignee
 
 ## Rework loop and 2-strike escalation
 
-- `flow:in-qc` ❌ → state becomes `flow:changes-requested` (NOT `flow:in-progress`). State comment increments `rework #N`.
+- `flow:in-qc` ❌ → state becomes `flow:changes-requested` (NOT `flow:in-progress`). State comment increments both `rework #N` (cumulative history) **and** `consecutive_fail` (the escalation counter).
 - DEV picking up from `flow:changes-requested` MUST read the latest entry in `QC rejections` before any code change. Failure to address it counts toward the strike.
-- After **2 consecutive QC ❌** on the same issue, set state `flow:ready-for-human-review`, add label `needs-human`, post `[SYSTEM] auto-escalated after 2 consecutive ❌`, and the orchestrator breaks out to the user. No further DEV/QC attempts until the user intervenes.
+- **`consecutive_fail` is back-to-back only.** It increments on each QC ❌ and **resets to 0** on (a) any QC ✅ pass and (b) any PO clarification that re-gates the issue (a clarification round is not a failure). `rework #N` never resets — it is the lifetime attempt count for history/labeling. Escalation keys on `consecutive_fail`, never on `rework #N`.
+- After **`consecutive_fail` reaches 2** on the same issue, set state `flow:ready-for-human-review`, add label `needs-human`, post `[SYSTEM] auto-escalated after 2 consecutive ❌`, and the orchestrator breaks out to the user. No further DEV/QC attempts until the user intervenes.
+- An **infra** failure (`[QC] ❌ infra:`) and a clarification round never increment `consecutive_fail` — they are not implementation failures.
 
 ## Clarification loop (DEV/QC ↔ PO)
 
@@ -198,224 +212,16 @@ When reading comments, an agent must filter out comments whose prefix is its own
 
 # Optional GitHub Projects v2 board (human mirror)
 
-**Read this first, and treat it as the one rule that overrides everything below:**
-the `flow:*` **LABEL is authoritative** for routing. The Projects v2 board is a
-**human-only visual mirror**. Agents decide what to do next by reading the issue's
-`flow:*` label (see the protocol above) — they **never** read a board column to make
-a decision. Syncing the board is **optional, best-effort, and may lag**. If a mirror
-write fails, log it and continue; the pipeline is unaffected.
+The board is **optional** and **human-only** — a visual mirror of the `flow:*` labels. The
+**label is always authoritative**; agents never read a column to decide what to do next, and
+syncing is best-effort. When `board.id` is `""` (labels-only mode) there is **nothing to do here** —
+the full PO/DEV/QC pipeline runs on labels alone and `GITHUB_TOKEN` needs no `project` scope.
 
-When `board.id` is `""` (labels-only mode), skip this section entirely: the full
-PO/DEV/QC pipeline works with labels alone, and `GITHUB_TOKEN` needs **no**
-`project` scope.
+All board mechanics — how Projects v2 is driven (GraphQL vs the official `github` MCP `projects`
+toolset), resolving/creating/linking a board, the single-select Status field, mirroring a `flow:*`
+label to a column, the orchestrator's board-wide queue query, board-driven mode, scopes, and the
+bundled `scripts/` helpers — live in the reference file, split out so this common-path protocol
+stays lean:
 
-## Why GraphQL
-
-Projects v2 is **GraphQL-only**. `gh issue edit` can swap a label but **cannot**
-move a card — there is no REST path for Projects v2 items. Every board operation
-below goes through `gh api graphql -f query='…'`. This is exactly why moving a card
-is off the agent decision path: it is heavier than a label swap and only ever
-reflects state that the label already decided.
-
-Connection config: `connections.github_project` toggles the link (`enabled`, `owner`,
-`owner_type`, `auth.token_env`, `auth.scopes`, `mcp.server`) and `board.id` /
-`board.columns` carry the node id and the eight column names. A connection is usable
-only when `enabled:true` AND every var in its auth/mcp requirements is present (see
-skill: `setup-agentflow`).
-
-## Resolve the board
-
-A board has a **node id** of the form `PVT_xxx`. Resolve it from
-`connections.github_project.owner` + `owner_type` and the board **number**:
-
-```bash
-# owner_type: org
-gh api graphql -f query='
-  query($login:String!, $number:Int!){
-    organization(login:$login){ projectV2(number:$number){ id title } }
-  }' -F login="<owner>" -F number=<N>
-
-# owner_type: user
-gh api graphql -f query='
-  query($login:String!, $number:Int!){
-    user(login:$login){ projectV2(number:$number){ id title } }
-  }' -F login="<owner>" -F number=<N>
-```
-
-The returned `id` (`PVT_…`) is what belongs in `board.id`. A human-facing project
-**number** (the `/projects/<N>` URL) maps to exactly one node id via the query
-above; store the node id, not the number, so later calls skip the lookup.
-
-## Create a board (init: `github_project=create`)
-
-Used by /agentflow-init when the user opts to create a board. Two steps: create
-the project, then give its **Status** field options that match `board.columns`.
-
-1. Create the Projects v2 project under the resolved owner node id:
-
-```bash
-# get the owner node id first
-gh api graphql -f query='query($l:String!){ organization(login:$l){ id } }' -F l="<owner>"
-
-gh api graphql -f query='
-  mutation($owner:ID!, $title:String!){
-    createProjectV2(input:{ ownerId:$owner, title:$title }){
-      projectV2{ id number }
-    }
-  }' -F owner="<ownerNodeId>" -F title="<project.name>"
-```
-
-Persist the returned `projectV2.id` to `board.id` and set
-`connections.github_project.enabled: true`.
-
-2. Locate or create the single-select **Status** field. A new project ships with a
-   default `Status` field carrying `Todo/In Progress/Done`. AgentFlow needs the
-   **eight** options in `board.columns` (Inbox, Refined, Ready for Dev, In Progress,
-   In QC, Changes Requested, Ready for Human Review, Done). Recreate the field with
-   exactly those options, in order:
-
-```bash
-gh api graphql -f query='
-  mutation($project:ID!){
-    createProjectV2Field(input:{
-      projectId:$project,
-      dataType: SINGLE_SELECT,
-      name: "Status",
-      singleSelectOptions: [
-        { name: "Inbox",                  color: GRAY,   description: "" },
-        { name: "Refined",                color: PURPLE, description: "" },
-        { name: "Ready for Dev",          color: BLUE,   description: "" },
-        { name: "In Progress",            color: YELLOW, description: "" },
-        { name: "In QC",                  color: ORANGE, description: "" },
-        { name: "Changes Requested",      color: RED,    description: "" },
-        { name: "Ready for Human Review", color: PINK,   description: "" },
-        { name: "Done",                   color: GREEN,  description: "" }
-      ]
-    }){ projectV2Field { ... on ProjectV2SingleSelectField { id options { id name } } } }
-  }' -F project="<board.id>"
-```
-
-The option `name` strings MUST equal the values under `board.columns` one-to-one —
-that string match is how a `flow:*` label is mapped to an option later.
-
-## Link an existing board
-
-Used by /agentflow-init when the user provides a board number/id. Validate, do not
-mutate the user's data:
-
-1. Resolve the id (Resolve the board, above). If it does not resolve under
-   `owner`/`owner_type`, stop and tell the user.
-2. Read its `Status` field and confirm an option exists for each of the eight
-   `board.columns` values:
-
-```bash
-gh api graphql -f query='
-  query($id:ID!){ node(id:$id){ ... on ProjectV2 {
-    field(name:"Status"){ ... on ProjectV2SingleSelectField { id options { id name } } }
-  }}}' -F id="<board.id>"
-```
-
-3. If any column is missing, do NOT silently rewrite the board — list the missing
-   option names and guide the user to add them (or to let init recreate the field).
-
-## Mirror a flow:* label → column
-
-Given an issue and its current `flow:*` label, mirror it to the board. Map
-`labels.flow.<key>` → `board.columns.<key>` **one-to-one** (same `<key>`: e.g.
-`flow:in-qc` → key `in_qc` → `board.columns.in_qc` = "In QC"). Three ids are needed:
-the **item id** (the issue's card), the Status **field id**, and the target
-**option id**.
-
-```bash
-# 1. add the issue to the project (idempotent; returns the existing item if present)
-gh api graphql -f query='
-  mutation($project:ID!, $content:ID!){
-    addProjectV2ItemById(input:{ projectId:$project, contentId:$content }){
-      item { id }
-    }
-  }' -F project="<board.id>" -F content="<issueNodeId>"
-
-# 2. set its Status to the option whose name == board.columns.<key>
-gh api graphql -f query='
-  mutation($project:ID!, $item:ID!, $field:ID!, $option:String!){
-    updateProjectV2ItemFieldValue(input:{
-      projectId:$project, itemId:$item, fieldId:$field,
-      value:{ singleSelectOptionId:$option }
-    }){ projectV2Item { id } }
-  }' -F project="<board.id>" -F item="<itemId>" \
-     -F field="<statusFieldId>" -F option="<optionId>"
-```
-
-Resolve `<issueNodeId>` with `gh issue view <n> --json id` (or the GitHub MCP).
-Get `<statusFieldId>` and the `<optionId>` for the target column from the `Status`
-field query above, matching on the option `name`. This mirror runs **after** the
-label swap, never instead of it; on any error, log and move on.
-
-## List actionable board items (orchestrator queue)
-
-**Board-driven mode only.** When a board spans many issues — and especially when it
-aggregates several repos as a **program** (see skill: `setup-agentflow` → program
-manifest) — the orchestrator needs to read the **whole** board in one shot to build
-its work queue. This is the one query that reads board state as a *queue*; everything
-else above writes a single item. Paginate over every item and pull, per item: the
-issue **number**, its **repo** (`repository.nameWithOwner` — this is the multi-repo
-attribution), the **item id** (reuse it directly in the mirror's
-`updateProjectV2ItemFieldValue`, skipping the `addProjectV2ItemById` round-trip), the
-issue's live **labels** (so you read the authoritative `flow:*` without a second call),
-the issue **state** (skip `CLOSED`), and the current **Status** option name.
-
-```bash
-gh api graphql -f query='
-  query($project:ID!, $cursor:String){
-    node(id:$project){ ... on ProjectV2 {
-      items(first:50, after:$cursor){
-        pageInfo{ hasNextPage endCursor }
-        nodes{
-          id
-          fieldValueByName(name:"Status"){
-            ... on ProjectV2ItemFieldSingleSelectValue { name optionId }
-          }
-          content{
-            ... on Issue {
-              number
-              state
-              url
-              repository{ nameWithOwner }
-              labels(first:20){ nodes{ name } }
-            }
-            ... on DraftIssue { title }   # draft cards have no issue → not routable
-          }
-        }
-      }
-    }}}' -F project="<board.id>" -F cursor="<endCursor|null>"
-# loop while .data.node.items.pageInfo.hasNextPage, passing endCursor as the next cursor
-```
-
-The list returns **all** board items; the orchestrator applies the *actionable* filter
-client-side (Status whose `status_map` owner is an agent, issue `state == OPEN`). A
-**draft** card (no `content.number`) is outside the label state machine — the
-orchestrator cannot route it; surface it to the human to convert to an issue. An item
-whose `repository.nameWithOwner` is not a known program member is skipped, not guessed.
-
-## Board-driven mode amendment (the one exception to "agents never read columns")
-
-The default protocol (top of this skill) makes the `flow:*` **label authoritative** and
-treats the board as a **human-only mirror** that agents never read. **Board-driven mode**
-relaxes this in exactly one place: the **orchestrator** (`/start`) reads board Status as
-its cross-repo **work queue** via the list query above. This is the *only* sanctioned
-reader of columns, and even it does not *trust* the column for state — after attributing
-an item to its repo it re-reads the issue's live `flow:*` label and routes off the
-**label** (label wins on any drift), then re-mirrors Status to match. PO/DEV/QC sub-agents
-still **never** read or write the board; all board writes stay at the orchestrator layer
-(`/start`, `/task`, `/handoff`). The board is a queue + mirror; the label is the truth.
-
-## Scopes
-
-- Org board: `GITHUB_TOKEN` needs `project` **and** `read:org`.
-- User board: `GITHUB_TOKEN` needs `project`.
-- **Labels-only** mode (`board.id` = `""`): none of the above; the pipeline still
-  works end to end. Prefer this when no human needs the visual board.
-- **Board-driven mode** (a program with a shared board): the board is on the agent
-  decision path, so `project` scope is **mandatory** — `/start` reads the board to build
-  its queue and stops at boot if the scope is missing. (Labels-only single-repo installs
-  keep `/task`/`/handoff`/agents without it; they just lose the board-driven `/start`.)
+> **`reference/projects-v2-board.md`** — read it only when `board.id` is non-empty and you actually
+> need to touch the board.

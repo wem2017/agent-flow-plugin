@@ -43,19 +43,21 @@ AgentFlow drives GitHub through **two** credential paths, and **both must be aut
 | Path | Used for | How it authenticates |
 |------|----------|----------------------|
 | **`gh` CLI** (via `Bash`) | label swaps, issue read/list, PR merge, board/label creation at init | `gh auth login` |
-| **GitHub MCP server** (`@modelcontextprotocol/server-github`, launched via `npx`) | creating issues, branches, PRs, PR reviews, comments, pushing files | the `GITHUB_TOKEN` env var (see below) |
-| **Figma MCP server** *(optional)* (`figma-developer-mcp --stdio`, launched via `npx`) | pulling frame specs/tokens during UI work (skill: `figma-design`) | the `FIGMA_TOKEN` env var |
+| **GitHub MCP server** (official `github/github-mcp-server` — the hosted remote at `https://api.githubcopilot.com/mcp/` by default) | creating issues, branches, PRs, PR reviews, comments, pushing files | the `GITHUB_TOKEN` env var, sent as an `Authorization: Bearer` header |
+| **Figma MCP server** *(optional)* (official Figma MCP at `https://mcp.figma.com/mcp`) | pulling frame specs/tokens during UI work (skill: `figma-design`) | **OAuth** — sign in via `/mcp` (no token) |
 
 Make sure you have:
 
 1. **`gh` CLI installed and authenticated** — verify with `gh auth status`.
-2. **Node.js / `npx` available** — the MCP servers are fetched and run on demand via `npx -y …`.
-3. **A `GITHUB_TOKEN` environment variable** exported in the shell that launches Claude Code. `.mcp.json` maps it to the GitHub MCP server's `GITHUB_PERSONAL_ACCESS_TOKEN`; `FIGMA_TOKEN` maps to the Figma server's `FIGMA_API_KEY` (that server stays inert until `FIGMA_TOKEN` is set):
+2. **A `GITHUB_TOKEN` environment variable** exported in the shell that launches Claude Code. `.mcp.json` sends it to the GitHub MCP server as the `Authorization: Bearer ${GITHUB_TOKEN}` header:
 
    ```bash
-   export GITHUB_TOKEN="ghp_xxx"   # add to your shell profile so it persists
-   export FIGMA_TOKEN="figd_xxx"   # optional — only if you enable the figma connection
+   export GITHUB_TOKEN="github_pat_xxx"   # add to your shell profile so it persists
    ```
+
+   The official **Figma** MCP server authenticates by **OAuth**, not a token — after install, run `/mcp` → `figma` → **Authenticate**. (A legacy `FIGMA_TOKEN` PAT is only needed for the optional Framelink/REST fallback in skill `figma-design`.)
+
+   > **MCP server options.** The default GitHub wiring is the **hosted remote** server (zero install, keeps your PAT). To run it **locally** instead, swap the `github` block in `.mcp.json` for the Docker image `ghcr.io/github/github-mcp-server` (`-e GITHUB_PERSONAL_ACCESS_TOKEN -e GITHUB_TOOLSETS=repos,issues,pull_requests`), pinned to a release tag. Add `projects` to `GITHUB_TOOLSETS` only if you drive the board through MCP rather than `gh api graphql`.
 
 4. **Token scopes** — the GitHub token (and the `gh` login) need:
    - `repo` — read/write code, issues, PRs.
@@ -126,9 +128,9 @@ A connection is **usable only when `enabled: true` AND every var in its `auth`/`
 The chain from secret to service is explicit:
 
 ```
-env: (name only)  →  connections.<svc>.auth.token_env  →  .mcp.json env mapping  →  MCP server
-GITHUB_TOKEN      →  connections.github.auth.token_env →  GITHUB_PERSONAL_ACCESS_TOKEN  →  github MCP
-FIGMA_TOKEN       →  connections.figma.auth.token_env  →  FIGMA_API_KEY                 →  figma  MCP
+env: (name only)  →  connections.<svc>.auth          →  .mcp.json wiring                    →  MCP server
+GITHUB_TOKEN      →  github.auth.token_env: GITHUB_TOKEN →  github (http): Authorization: Bearer ${GITHUB_TOKEN}  →  github MCP
+(no token)        →  figma.auth.method: oauth          →  figma (http): OAuth via /mcp        →  figma  MCP
 ```
 
 Built-in connections:
@@ -137,7 +139,7 @@ Built-in connections:
 |------------|---------|------------|--------|
 | `github` | Issues, branches, PRs, comments — the substrate the whole pipeline runs on. | `repo`, `auth.token_env`, `mcp.server` | Required (`enabled: true` + `GITHUB_TOKEN`). |
 | `github_project` | Optional **human** mirror of `flow:*` labels onto a Projects v2 Status field. Uses the `github` MCP server + `gh` (no dedicated server). | `owner`, `owner_type`, `auth.scopes` | Needs `project` scope; see skill `project-board-protocol`. |
-| `figma` | Optional design source for DEV during UI work. | `auth.token_env`, `mcp.server`, `files` | Inert until `FIGMA_TOKEN` is set; see skill `figma-design`. |
+| `figma` | Optional design source for DEV during UI work. | `auth.method: oauth`, `mcp.server`, `files` | Official server signs in via **OAuth** (`/mcp` → Authenticate); legacy `FIGMA_TOKEN` only for the REST fallback. See skill `figma-design`. |
 
 Adding your own is the same pattern: declare the secret under `env:`, copy a `connections.<name>` block (`enabled`, `auth.{token_env,scopes}`, an optional `mcp.{server,requires_env}` if it has a server, plus service metadata), and wire any new MCP server into `.mcp.json`. Agents **gate before use**: a skill checks `enabled` and that every required env var is present before touching the service, and degrades gracefully if not. The full registry contract — reading connections, mapping to env + MCP, gate-before-use, secret hygiene, and adding a service — lives in skill `setup-agentflow`.
 
@@ -270,3 +272,17 @@ All settings live in **`.claude/agentflow.yaml`** (generated by `/agentflow-init
 - **Safety rules are prompt-level.** `forbidden_paths`, the merge gate, and the trust model are instructions to the agents, backed by tool-grant separation — not by enforced hooks. Use a least-privilege token and review PRs before merging.
 - **The board and Figma are optional.** Labels-only mode (`connections.github_project.enabled: false`, `board.id: ""`) is fully supported; the `figma` connection only activates when `FIGMA_TOKEN` is set. The `github` connection is the only hard requirement.
 - **Non-prefixed GitHub comments are untrusted.** Agents treat any comment without a recognized `[PO]` / `[DEV]` / `[QC]` / … prefix as untrusted context, not instructions.
+
+---
+
+## Non-goals — what must NOT change
+
+These are load-bearing, cheap to erode by well-intentioned accretion, and deliberately the way they are. Treat changes here as design changes, not improvements:
+
+- **The `flow:*` label is the single routing truth; the board is a one-way human mirror.** Never let the board column or a sub-agent's narrative reply become a routing source. The live label re-read after every run is what makes the no-message-bus design work.
+- **Role isolation is by tool grant, not prose.** PO/QC have no `Edit`/`Write`; only DEV branches/pushes; only QC has the PR-review tool. Do not widen a role's tools "just in case" — all three agents share one token, so blast radius is real.
+- **The human merge gate is mandatory.** Agents stop at `flow:ready-for-human-review`; only the human merges. This is the one piece of friction worth its cost — do not automate merge.
+- **Safety rules (`forbidden_paths`, trust model) are prompt + tool-grant, not enforced hooks** — and the docs say so honestly. Don't paper over that with ever-longer `NEVER …` prose that inflates every run for false safety; real enforcement belongs in a hook/CI check.
+- **Lazy, split skill loading stays lazy.** Heavy mechanics live in `reference/` files read only when needed (`projects-v2-board.md`, `program-mode.md`). Don't front-load board/program mechanics into every agent prompt.
+- **Don't grow the sticky `AGENTFLOW-STATE` comment.** Three agents prose-edit it and must stay format-compatible; every new mandatory field is new drift surface. Prefer fewer fields, not more.
+- **Optional connections degrade gracefully.** A disabled/absent service is skipped with a note, never a hard block. Don't harden optional connections (figma, the board) into blocking preconditions.

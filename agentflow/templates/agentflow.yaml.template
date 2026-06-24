@@ -70,14 +70,17 @@ connections:
 
   figma:
     # OPTIONAL design source. DEV pulls frame specs/tokens during UI work.
-    # See skill: figma-design
+    # PREFERRED: the OFFICIAL Figma MCP server (OAuth — no token in env). Enable once:
+    #   claude mcp add --transport http figma https://mcp.figma.com/mcp
+    #   then /mcp → figma → Authenticate.  See skill: figma-design
     enabled: {{FIGMA_ENABLED}}
     auth:
-      token_env: "FIGMA_TOKEN"
-      docs: "Figma → Settings → Personal access tokens"
+      method: "oauth"                     # official server signs in via OAuth (no token_env)
+      docs: "/mcp → figma → Authenticate (or: claude mcp add --transport http figma https://mcp.figma.com/mcp)"
+      fallback_token_env: "FIGMA_TOKEN"   # OPTIONAL — only for the legacy Framelink/REST fallback path
     mcp:
-      server: "figma"                     # → .mcp.json mcpServers.figma
-      requires_env: ["FIGMA_TOKEN"]       # server is inert until this is set
+      server: "figma"                     # → .mcp.json mcpServers.figma (http, OAuth)
+      # official server needs no env var; the legacy Framelink server would need FIGMA_TOKEN
     files: []                             # e.g. [{ name: "Design System", key: "AbC123xyz" }]
 
   # Add your own, e.g.:
@@ -102,7 +105,7 @@ env:
   - name: "FIGMA_TOKEN"
     required: false
     used_by: ["figma"]
-    description: "Figma personal access token. Only needed if connections.figma.enabled."
+    description: "Figma PAT — ONLY for the legacy Framelink/REST fallback path. The official Figma MCP server uses OAuth and needs no token."
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SURFACES — the buildable parts of THIS project. OPEN MAP: declare only what you

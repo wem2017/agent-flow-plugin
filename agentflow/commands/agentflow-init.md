@@ -26,13 +26,15 @@ Run these and stop on the first failure with a precise fix:
 git rev-parse --is-inside-work-tree     # must be a git repo
 git remote get-url origin               # must resolve to a GitHub remote
 gh auth status                          # must be authenticated
-node --version && npx --version         # needed for the github/figma MCP servers
 ```
 
 - Not a git repo → "Run `git init` and add a GitHub `origin` remote first."
 - No `origin` → "Add a remote: `git remote add origin git@github.com:OWNER/REPO.git`."
 - `gh` not authenticated → "Run `gh auth login` (same account as your token) and retry."
-- `node`/`npx` missing → "Install Node.js (provides `npx`) so the github/figma MCP servers can run."
+
+The `github` and `figma` MCP servers are **HTTP** servers (hosted GitHub remote; official Figma
+server) — no Node/`npx` install is needed. The optional `figma` server signs in via OAuth
+(`/mcp` → figma → Authenticate) after the plugin loads.
 
 ## 2. Resolve project
 

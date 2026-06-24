@@ -15,12 +15,14 @@ A practical, end-to-end walkthrough: install the plugin once, onboard a repo, an
 | Need | Check | Fix |
 |------|-------|-----|
 | `gh` CLI authenticated | `gh auth status` | `gh auth login` (same account as your token) |
-| Node.js / `npx` | `node -v && npx -v` | install Node.js (the GitHub/Figma MCP servers run via `npx`) |
 | `GITHUB_TOKEN` exported | `[ -n "$GITHUB_TOKEN" ] && echo set` | see [§3](#3-secrets) |
 | A GitHub remote | `git remote get-url origin` | AgentFlow only works on GitHub repos |
 
 `gh` and the GitHub MCP server **must be the same account with the same scopes**. The token
-needs `repo` + `read:org` (add `project` only if you enable a Projects v2 board).
+needs `repo` + `read:org` (add `project` only if you enable a Projects v2 board). The default
+GitHub MCP server is the **hosted remote** (`https://api.githubcopilot.com/mcp/`) — nothing to
+install; it reads your `GITHUB_TOKEN` from the `Authorization` header. (If you prefer a local
+server, see the **MCP server options** note in [`README.md`](./README.md) for the Docker image.)
 
 ---
 
@@ -38,8 +40,10 @@ MCP servers register. Confirm the MCP servers came up:
 /mcp
 ```
 
-You should see `github` (and `figma` if a `FIGMA_TOKEN` is set). **Note the exact tool names
-shown for the `github` server** — see the [MCP tool-name caveat](#caveat-mcp-tool-names) below.
+You should see `github`. For the optional **`figma`** server, run `/mcp` → `figma` →
+**Authenticate** to complete the OAuth sign-in (the official Figma server uses OAuth, not a
+token). **Note the exact tool names shown for the `github` server** — see the
+[MCP tool-name caveat](#caveat-mcp-tool-names) below.
 
 ---
 
@@ -71,18 +75,19 @@ put the **values** somewhere git-ignored. Two supported homes:
 ```bash
 # (a) shell profile (~/.zshrc) — exported before launching Claude Code
 export GITHUB_TOKEN="github_pat_xxx"   # fine-grained, scoped to this repo, is preferred
-export FIGMA_TOKEN="figd_xxx"          # optional
+export FIGMA_TOKEN="figd_xxx"          # OPTIONAL — only for the legacy Figma REST fallback
 ```
 
 ```jsonc
 // (b) .claude/settings.local.json (git-ignored) — read into the session env at startup
-{ "env": { "GITHUB_TOKEN": "github_pat_xxx", "FIGMA_TOKEN": "figd_xxx" } }
+{ "env": { "GITHUB_TOKEN": "github_pat_xxx" } }
 ```
 
-The plugin's `.mcp.json` maps `${GITHUB_TOKEN}` → the GitHub server's
-`GITHUB_PERSONAL_ACCESS_TOKEN`, and `${FIGMA_TOKEN}` → the Figma server's `FIGMA_API_KEY`. If a
-var is unset the server starts **unauthenticated** and calls 401 at runtime — so a `UserPromptSubmit`
-hook warns you when `GITHUB_TOKEN` is missing in an AgentFlow repo.
+The plugin's `.mcp.json` sends `${GITHUB_TOKEN}` to the GitHub MCP server as the
+`Authorization: Bearer ${GITHUB_TOKEN}` header. If it is unset the server calls 401 at runtime —
+so a `UserPromptSubmit` hook warns you when `GITHUB_TOKEN` is missing in an AgentFlow repo. The
+**Figma** server needs **no token** — it signs in via OAuth (`/mcp` → `figma` → Authenticate);
+`FIGMA_TOKEN` is only consulted by the optional REST fallback in skill `figma-design`.
 
 **Hygiene:** never commit a token, never paste a value into `agentflow.yaml`, prefer a
 **fine-grained** token scoped to the one repo. (Classic `ghp_…` PATs grant broad write to every
@@ -202,13 +207,16 @@ MCP calls fail, open `/mcp`, read the real tool ids for the `github` server, and
 `tools:` line in `agents/po.md` / `dev.md` / `qc.md`. The agents also have `gh` + `git` via
 `Bash` as a fallback path for most operations.
 
-**GitHub MCP server is deprecated (but works).** `.mcp.json` pins
-`@modelcontextprotocol/server-github@2025.4.8` — functional today, frozen, no longer maintained.
-The future-proof option is the official `github/github-mcp-server` (a Go binary / Docker /
-remote `https://api.githubcopilot.com/mcp/`). **If you migrate, you must also rename the tool
-grants** (`issue_read` / `issue_write` / `pull_request_read` / `pull_request_review_write`, …),
-because that server consolidated the tool names — flipping the server without updating the agents
-would break the pipeline.
+**GitHub MCP server (official).** `.mcp.json` wires the official `github/github-mcp-server` — the
+hosted remote at `https://api.githubcopilot.com/mcp/`, authenticated by the
+`Authorization: Bearer ${GITHUB_TOKEN}` header. It uses **consolidated** tool names
+(`issue_read` / `issue_write` / `pull_request_read` / `pull_request_review_write`, plus unchanged
+`create_branch` / `push_files` / `create_pull_request` / `add_issue_comment` / `list_issues`),
+which the agent `tools:` grants already match. To run it **locally** instead, swap the `github`
+block for the Docker image `ghcr.io/github/github-mcp-server` (pin a release tag) — the tool names
+are identical, so no agent change is needed. Projects v2 board ops still go through `gh api graphql`
+(skill `project-board-protocol` → `reference/projects-v2-board.md`); enable the server's `projects`
+toolset only if you choose to drive the board through MCP instead.
 
 **Common stops.**
 
@@ -218,7 +226,7 @@ would break the pipeline.
 | GitHub calls 401 mid-run | `GITHUB_TOKEN` unset or wrong scopes — see [§3](#3-secrets). |
 | QC runs zero commands / treats every issue as ambiguous | Config has no `surfaces:` or no `component/<surface>` labels — re-run `/agentflow-init` (an old `tiers.<tier>.commands` config is incompatible with v0.0.1). |
 | Maestro tier fails | Needs a booted simulator/emulator with the app installed; QC reports it as `infra`, not a strike. |
-| Figma lookups skipped | `connections.figma.enabled:false` or `FIGMA_TOKEN` unset — DEV builds from the written AC and says so. |
+| Figma lookups skipped | `connections.figma.enabled:false`, or the `figma` MCP server isn't authenticated (`/mcp` → figma → Authenticate) and no `FIGMA_TOKEN` fallback — DEV builds from the written AC and says so. |
 
 **Operational limits.** Single-session, synchronous, human-in-the-loop. Don't run two `/start`
 sessions against the same repo at once (the `flow:*` label is a *soft* lock). `forbidden_paths`,

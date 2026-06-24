@@ -1,6 +1,6 @@
 ---
 name: git-flow-working
-description: Tech-agnostic git conventions every agent (mainly DEV) follows — branching off default_branch, Conventional Commits, PR shape, rebase/sync, and the hard safety rules (no force-push, no merge, no touching forbidden_paths). Read this before creating a branch, committing, or opening/updating a PR.
+description: Applies tech-agnostic git conventions for AgentFlow agents (mainly DEV) — branching off the default branch, Conventional Commits (full type set + breaking-change notation), PR shape and issue-linking keywords, rebase-first sync, and the hard safety rules (no force-push to shared branches, no merge, no touching forbidden_paths). Use when an agent creates a branch, commits, or opens/updates a PR.
 ---
 
 # AgentFlow Git Flow
@@ -36,19 +36,24 @@ git switch agent/dev/42-csv-export   # already exists from the first attempt
 
 ## Commits
 
-Use [Conventional Commits](https://www.conventionalcommits.org/): `<type>(<scope>): <subject>`.
+Use [Conventional Commits 1.0.0](https://www.conventionalcommits.org/): `<type>(<scope>): <subject>`. The spec recognizes `feat` and `fix`; the rest below are the conventional (Angular) set tooling expects — use them so changelog/semver automation classifies each commit correctly.
 
-| type        | use for                                  |
-|-------------|------------------------------------------|
-| `feat:`     | a new capability                         |
-| `fix:`      | a bug fix                                 |
-| `refactor:` | behavior-preserving restructuring        |
-| `test:`     | adding or fixing tests only              |
-| `docs:`     | docs / comments only                     |
-| `chore:`    | build, deps, tooling                     |
+| type        | use for                                                        |
+|-------------|----------------------------------------------------------------|
+| `feat:`     | a new capability (→ MINOR bump)                                |
+| `fix:`      | a bug fix (→ PATCH bump)                                        |
+| `refactor:` | behavior-preserving restructuring                              |
+| `perf:`     | a behavior-preserving performance improvement                  |
+| `test:`     | adding or fixing tests only                                    |
+| `docs:`     | docs / comments only                                           |
+| `build:`    | build system or dependency changes (e.g. lockfiles, packaging) |
+| `ci:`       | CI configuration and scripts                                   |
+| `style:`    | formatting only — whitespace, semicolons (no logic change)     |
+| `chore:`    | other maintenance not covered above                            |
 
 - Subject in the **imperative** mood, no trailing period, ≤ ~72 chars: `feat(reports): add CSV export endpoint`.
 - `scope` is optional; prefer a surface or module name matching a declared surface key or module (`reports`, `auth`, or any `surfaces.<name>` key).
+- **Breaking change:** append `!` after the type/scope **and/or** add a `BREAKING CHANGE:` footer (uppercase, or `BREAKING-CHANGE:`) describing the break — e.g. `feat(api)!: drop v1 auth header`. This signals an API break to QC and humans (→ MAJOR bump). Don't break API silently.
 - Reference the issue in the body, not the subject: `Refs #42` (let the PR carry `Closes #42`).
 - Keep commits **small and reviewable** — one logical change each. Don't bundle a refactor with a feature.
 
@@ -63,7 +68,7 @@ Open the PR as soon as there is something to review. Shape:
 
 - **Title:** `<type>(#<issue>): <summary>` — e.g. `feat(#42): CSV export for reports`.
 - **Body must include:**
-  - `Closes #<issue>` (auto-links and auto-closes on merge).
+  - `Closes #<issue>` (auto-links and auto-closes on merge). Any closing keyword works, case-insensitive: `close/closes/closed`, `fix/fixes/fixed`, `resolve/resolves/resolved`. **Auto-close fires only when the PR's base is the default branch** — AgentFlow always targets `project.default_branch`, so this holds; keep it that way. For an issue in **another** repo use the qualified form `Closes owner/repo#<n>`.
   - The issue's Acceptance Criteria mirrored as a checklist (tick items as they land — this feeds the DoD in skill: project-board-protocol).
   - Which surface(s) it touches (the `component/*` labels) and how to run each — one project may have a single surface or many.
 - **Request no reviewers.** QC reviews on the PR and a human merges; do not add GitHub reviewers or auto-merge.
@@ -107,8 +112,9 @@ git add <resolved-files>
 git rebase --continue
 ```
 
-- **Rebase is preferred** for a linear history. If the team's convention is merge commits, `git merge origin/<default_branch>` is acceptable — pick one and be consistent.
+- **Rebase is the default** — it keeps a linear history. Use `git merge origin/<default_branch>` **only** when the project's documented convention requires merge commits (stated in `CLAUDE.md`, or branch-protection that mandates them); otherwise always rebase.
 - Resolve conflicts **locally**; never push a branch with conflict markers.
+- A rebase rewrites your branch, so the follow-up push needs a lease, not a plain force: `git fetch origin` immediately before, then `git push --force-with-lease --force-if-includes` (lease + include-check guard against clobbering work you haven't seen). Never on a branch someone else shares — see Safety rules.
 - **After any sync, re-run the touched surface's tier commands** (the types in `agents.qc.tiers.<tier>`, mapped to `surfaces.<name>.commands`) — a clean rebase can still break behavior.
 
 ## Safety rules (hard — never violate)
@@ -137,13 +143,16 @@ If a needed change falls inside a forbidden path, **stop and escalate** to the h
 
 An issue may carry one `component/*` label or several. Keep it in **one branch and one PR** regardless — do not split by surface. But run each touched surface's commands independently:
 
-- DEV: while coding, run the relevant `surfaces.<name>.commands` for every surface you changed (skip any command set to `""`).
-- QC: for the issue's tier, run each type in `agents.qc.tiers.<tier>` against **every** touched surface, in order; all must exit 0 (see skill: project-board-protocol).
+- DEV: while coding, run the relevant `surfaces.<name>.commands` for every surface you changed (skip any command set to `""`). On a fresh or rebased branch, run `commands.install` **first** so deps are present before lint/test.
+- QC: for the issue's tier, run each type in `agents.qc.tiers.<tier>` against **every** touched surface, in order; all must exit 0 (see skill: project-board-protocol). QC also runs `commands.install` first on its fresh PR-head checkout.
 
 ```bash
 # For each surface S named by the issue's component/* labels (could be one, could be many):
 for S in <the touched surface keys>; do
-  ( cd <surfaces.$S.path> && <surfaces.$S.commands.lint> && <surfaces.$S.commands.test> )   # skip "" commands
+  ( cd <surfaces.$S.path> \
+      && <surfaces.$S.commands.install> \   # FIRST — skip if "" (missing deps cause false-fail lint/test)
+      && <surfaces.$S.commands.lint> \
+      && <surfaces.$S.commands.test> )      # skip any "" command
 done
 ```
 

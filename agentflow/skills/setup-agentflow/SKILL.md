@@ -1,6 +1,6 @@
 ---
 name: setup-agentflow
-description: Onboarding/meta skill — how to read .claude/agentflow.yaml, the single source of truth that describes a whole project (overview, connections, env, surfaces, skills). Covers the full connection spec (token + MCP server + scopes), the env block, the read-before-use gate, dynamic surfaces, the project-skills registry + role-prefix convention, how /agentflow-init bootstraps, and secret hygiene. Read this FIRST to understand any AgentFlow project.
+description: Explains how to read .claude/agentflow.yaml — the single source of truth describing an AgentFlow project (overview, connections, env, surfaces, skills) — and the read-before-use gate that decides whether a service may be called. Covers the full connection spec (token/OAuth + MCP server + scopes), the env block, dynamic surfaces, the plugin-vs-project skill model, secret hygiene, and how /agentflow-init bootstraps; multi-repo program mode is in reference/program-mode.md. Use this first, and before any agent touches an external service.
 ---
 
 # Setup AgentFlow
@@ -62,8 +62,9 @@ Three layers reference the next **by name**, so a secret value never lands in a 
 env: declares ─────▶ connections.<name>.auth.token_env / mcp.requires_env references ─────▶ .mcp.json maps ${VAR}
    (name + meta)              (the var by name)                                  into the server named in mcp.server
 
-   e.g.  env: GITHUB_TOKEN  →  github.auth.token_env: GITHUB_TOKEN  →  .mcp.json github: GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_TOKEN}
-         env: FIGMA_TOKEN   →  figma.auth.token_env:  FIGMA_TOKEN   →  .mcp.json figma:  FIGMA_API_KEY=${FIGMA_TOKEN}
+   e.g.  env: GITHUB_TOKEN  →  github.auth.token_env: GITHUB_TOKEN  →  .mcp.json github (http): Authorization: "Bearer ${GITHUB_TOKEN}"
+         figma (official)   →  OAuth at connect time (no env var)  →  .mcp.json figma (http): sign in via /mcp → Authenticate
+         env: FIGMA_TOKEN   →  figma fallback only                 →  legacy Framelink/REST path (X-Figma-Token), only if used
 
    the actual secret value lives ONLY in the shell / an uncommitted .env
 ```
@@ -74,13 +75,13 @@ env: declares ─────▶ connections.<name>.auth.token_env / mcp.require
 |------------------|----------------|----------|-------------------------------------|------------|-------------------------|
 | `github`         | `GITHUB_TOKEN` | yes      | `repo`                              | `github`   | project-board-protocol  |
 | `github_project` | `GITHUB_TOKEN` | optional | `owner`, `owner_type` (org \| user) | `github`   | project-board-protocol  |
-| `figma`          | `FIGMA_TOKEN`  | optional | `files: [{ name, key }]`            | `figma`    | figma-design            |
+| `figma`          | OAuth (or `FIGMA_TOKEN` fallback) | optional | `files: [{ name, key }]` | `figma`    | figma-design            |
 
 **github** — the backbone. Issues, labels, comments, branches, and PRs flow through it; the `flow:*` label is the authoritative state. Uses two paths as the same account: the `gh` CLI (labels, issue reads, PR merge) and the `github` MCP server reading `${GITHUB_TOKEN}`. See skill: project-board-protocol.
 
-**github_project** — optional human-only visualization (GitHub Projects v2). Shares `GITHUB_TOKEN` but needs the `project` scope, and uses the `github` MCP server (no dedicated server). Agents drive state from the `flow:*` labels and **never** move board columns; the board is a one-way mirror that may lag. Node id + column names live under `board:`. See skill: project-board-protocol.
+**github_project** — optional human-only visualization (GitHub Projects v2). Shares `GITHUB_TOKEN` but needs the `project` scope, and uses the **same** `github` MCP server (no dedicated server) — its `projects` toolset, if used for the mirror, must be explicitly enabled on that server. Agents drive state from the `flow:*` labels and **never** move board columns; the board is a one-way mirror that may lag. Node id + column names live under `board:`. See skill: project-board-protocol.
 
-**figma** — optional design source. When enabled and `FIGMA_TOKEN` is set, DEV pulls frame specs/tokens during UI work via the `figma` MCP server (REST fallback). `files` lists the documents in play by `{ name, key }`. See skill: figma-design.
+**figma** — optional design source. The preferred path is the **official Figma MCP server (OAuth)** — no token in the env at all; usable once `connections.figma.enabled: true` and the `figma` MCP server is connected and authenticated. A legacy **PAT fallback** (the Framelink server / REST) uses `FIGMA_TOKEN` for headless/enterprise setups that can't OAuth. When usable, DEV pulls frame specs/tokens during UI work; `files` lists the documents in play by `{ name, key }`. See skill: figma-design.
 
 ### Adding a connection
 
@@ -122,9 +123,14 @@ env:
 
 `surfaces:` is an **open map**: declare only the parts your project actually has. Keys are names **you** choose — `backend`, `web`, `api`, `admin`, `mobile`, or just `"."` for a single-surface repo. A project may be backend-only, frontend-only, mobile-only, or any mix; **never** assume a fixed backend/frontend/mobile trio. Each surface carries its own tech-agnostic shell commands (`install`/`lint`/`test`/`integration`/`e2e`/`build`, plus `coverage_command`/`coverage_threshold`); leave any `""` to skip it. Each surface's `label` ties it to a `component/<surface>` GitHub label, and `labels.component` is generated to match the surface keys one-for-one. PO tags which surface(s) an issue touches; DEV/QC iterate over whatever surfaces exist.
 
-## Project skills — role-prefixed
+## Skills — plugin core vs project add-ons
 
-The four core skills always ship with the plugin and need no registration:
+Two distinct kinds, in two namespaces, so they never collide:
+
+- **Plugin (core) skills** ship with AgentFlow, live in the plugin's `skills/`, and need no registration. They are the four below, invoked as `/agentflow:<name>`. A project **cannot** override them.
+- **Project skills** are added per repo under `.claude/skills/`, named `<role>-<area>` (`dev-*` → DEV, `qc-*` → QC, `po-*` → PO), and are registered in `agentflow.yaml` under `skills:` and/or auto-discovered. Even if a project skill shares a name fragment, it stays separate from the plugin core skills.
+
+The four core (plugin) skills:
 
 | Skill                   | Purpose                                                        |
 |-------------------------|----------------------------------------------------------------|
@@ -152,13 +158,9 @@ An agent loads the role-prefixed skills **for its role** that are **relevant to 
 
 ## Program — one board across many repos (board-driven mode)
 
-A single repo uses `.claude/agentflow.yaml` and (optionally) its own board. A **program** ties **several repos** to **one shared GitHub Projects v2 board** so a single orchestrator (`/start`) drives them all — this is how a multi-repo product (e.g. a mobile app + its backend CMS) runs as one pipeline.
+A single repo uses `.claude/agentflow.yaml` and (optionally) its own board. A **program** ties **several repos** to **one shared GitHub Projects v2 board** so a single orchestrator (`/start`) drives them all (e.g. a mobile app + its backend CMS as one pipeline). The full manifest schema, `status_map` routing table, hybrid source-of-truth rule, and member constraints live in the bundled reference:
 
-- **Manifest:** `<workspace-root>/.claude/agentflow.program.yaml` (generated by `/agentflow-program-init`; schema in `templates/agentflow.program.yaml.template`). It declares `program.name`, the shared `board` (`owner`, `id`, `columns`, and the `status_map`), and `members[]` — each member's `repo` (the stable identity), local `path`, and `config` (its own `.claude/agentflow.yaml`). Every member keeps its own surfaces / commands / labels / skills; the manifest adds only the cross-repo layer. Each member's per-repo config carries a `program: { name, manifest }` back-pointer plus the **same** `board.id`.
-- **`status_map` — the mapping metadata:** each board Status ↔ `flow:*` label ↔ owning agent (`po`/`dev`/`qc`/`human`) ↔ action. It is the one routing table the orchestrator reads; nothing is hardcoded.
-- **HYBRID source of truth:** the per-issue `flow:*` **label** stays authoritative for execution/routing. The board Status is the multi-repo **queue + human entry point**, mirrored from the label (best-effort). On disagreement, the **label wins** and the orchestrator re-mirrors. Board writes stay at the orchestrator layer (`/start`, `/task`, `/handoff`); PO/DEV/QC remain label-only (see skill: `project-board-protocol` → "Board-driven mode amendment").
-- **`project` scope is mandatory** in board-driven mode (the board is on the decision path). `/start` checks it at boot. A labels-only single repo needs no `project` scope and keeps `/task`/`/handoff`/agents — it just has no board-driven `/start`.
-- **Members must share** byte-identical `board.columns` and `flow:*` label strings (that one-to-one match maps a label to a Status option). A board only aggregates repos owned by the same user/org as the board.
+> **`reference/program-mode.md`** — read it only when this repo is part of a multi-repo program (has a `program:` block in its config).
 
 ## Secret hygiene
 
