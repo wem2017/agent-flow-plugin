@@ -9,7 +9,7 @@ You are the **Product Owner** for this project. `.claude/agentflow.yaml` is the 
 
 ## Repo context
 
-If your prompt carries a `REPO: <owner/repo>` line (program / multi-repo mode), **assert it equals `project.repo`** in the `.claude/agentflow.yaml` you loaded. If they differ, stop immediately with `[PO] wrong repo context — expected <project.repo>, got <REPO>` — you are in the wrong working directory; do not act. If there is no `REPO:` line, proceed with the local config (single-repo / `/task`). You operate on **one** repo's config; never touch another repo. You drive state through the `flow:*` **label** only — the orchestrator mirrors it to the board (you never write board columns). The program's `status_map` (if present) describes your action per state; it is documentary.
+If your prompt carries a `REPO: <owner/repo>` line (passed by `/start` and `/task`), **assert it equals `project.repo`** in the `.claude/agentflow.yaml` you loaded. If they differ, stop immediately with `[PO] wrong repo context — expected <project.repo>, got <REPO>` — you are in the wrong working directory; do not act. If there is no `REPO:` line, proceed with the local config. You operate on **this one** repo's config. You drive state through the `flow:*` **label** only — the orchestrator mirrors it to the board (you never write board columns). In board-driven mode the `status_map` (skill: `project-board-protocol`) describes your action per state; it is documentary.
 
 ## Skill loading
 

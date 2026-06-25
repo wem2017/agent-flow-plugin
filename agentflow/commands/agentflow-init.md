@@ -63,11 +63,11 @@ The `env:` list in `templates/agentflow.yaml.template` declares every secret by 
 [ -n "${FIGMA_TOKEN:-}" ]  && echo "FIGMA_TOKEN: set"  || echo "FIGMA_TOKEN: absent"
 ```
 
-- **`GITHUB_TOKEN` (required):** if unset → tell the user to
-  `export GITHUB_TOKEN=...` (fine-grained PAT, scopes `repo` + `read:org`, plus `project` if
-  they want a board) in the shell that launches Claude Code, then re-run. **Stop.**
-- **`FIGMA_TOKEN` (optional):** if absent, note that the `figma` connection stays disabled
-  (its MCP server is inert until set) and continue.
+- **`GITHUB_TOKEN` (required):** if unset → tell the user to put it in `.env`
+  (`cp .env.example .env`, fill `GITHUB_TOKEN=…` with a fine-grained PAT, scopes `repo` + `read:org`,
+  plus `project` if they want a board), `source` it before launching Claude Code, then re-run. **Stop.**
+- **`FIGMA_TOKEN` (optional, legacy only):** the official Figma MCP server uses **OAuth** (no token),
+  so this is not required. Leave it unset unless running the legacy Framelink/REST fallback; note and continue.
 
 Never print, log, or interpolate a token value. Reference vars only as `${GITHUB_TOKEN}` /
 `${FIGMA_TOKEN}`. See skill: **setup-agentflow** for how env names map to connections and MCP servers.
@@ -86,10 +86,12 @@ present. Confirm each:
   *skip*. Sets `enabled` for Step 7. Needs the `project` scope on `GITHUB_TOKEN`.
   `auth.scopes: ["project","read:org"]`, `mcp: { server: "github", requires_env: ["GITHUB_TOKEN"] }`,
   plus `owner`/`owner_type` from Step 2.
-- **figma** — only offer if `FIGMA_TOKEN` is set (Step 3). If enabling, seed
-  `connections.figma.files` with any known file keys (e.g. `[{ name: "Design System", key: "AbC123xyz" }]`),
-  else `[]`. `auth: { token_env: FIGMA_TOKEN, docs: "..." }`,
-  `mcp: { server: "figma", requires_env: ["FIGMA_TOKEN"] }`. If `FIGMA_TOKEN` absent → `enabled: false`, skip the prompt.
+- **figma** — optional design source via the **official Figma MCP server (OAuth — no token)**. Offer it
+  regardless of `FIGMA_TOKEN`. If enabling, set `enabled: true`,
+  `auth: { method: oauth, fallback_token_env: FIGMA_TOKEN, docs: "/mcp → figma → Authenticate" }`,
+  `mcp: { server: "figma" }`, and seed `connections.figma.files` with any known file keys
+  (e.g. `[{ name: "Design System", key: "AbC123xyz" }]`), else `[]`. Tell the user to authenticate once via
+  `/mcp → figma → Authenticate`. If they decline → `enabled: false`.
 
 **Validate** each enabled connection: confirm every var in its `auth.token_env` + `mcp.requires_env`
 is present (presence only, from Step 3). If an enabled connection is missing a required var, warn
@@ -251,7 +253,7 @@ mkdir -p .claude
 | `{{DEFAULT_BRANCH}}`                        | default branch from Step 2                                   |
 | `{{GITHUB_PROJECT_ENABLED}}`                | `true`/`false` — must match `board.id` being set vs `""`     |
 | `{{PROJECT_OWNER}}` / `{{PROJECT_OWNER_TYPE}}` | owner login / `org`\|`user`                               |
-| `{{FIGMA_ENABLED}}`                         | `true` only if `FIGMA_TOKEN` set AND user enabled it         |
+| `{{FIGMA_ENABLED}}`                         | `true` if the user enabled figma (OAuth — no token needed)   |
 | `{{PROJECT_ID}}`                            | board node id from Step 7, or `""`                           |
 | `surfaces:` block                           | one block per **detected** surface (Step 5): `path`, `label`, six `commands`, `coverage_command`, `coverage_threshold`, `forbidden_paths`. Delete the template's example/placeholder surface entirely. |
 | `labels.component`                          | one `<surface>: "component/<surface>"` per declared surface  |
@@ -266,7 +268,7 @@ template lacks. Confirm `{{GITHUB_PROJECT_ENABLED}}` and `{{PROJECT_ID}}` agree,
 
 Write `README.agentflow.md` into the repo root from `templates/README.project.md` (substitute any
 project-specific values, otherwise copy verbatim). This is the per-repo quick reference pointing
-users at `/start`, `/task`, `/status`, `/handoff`, and re-running `/agentflow-init`.
+users at `/start`, `/task`, `/status`, and re-running `/agentflow-init`.
 
 ## 11. Verify (light smoke check)
 
@@ -298,7 +300,7 @@ Print a tight report:
 AgentFlow initialized on <OWNER/REPO> (v0.0.1)
 
 Project     : <name> — <summary>
-Connections : github ✓   github_project <on PVT_… | off>   figma <on | off (FIGMA_TOKEN absent)>
+Connections : github ✓   github_project <on PVT_… | off>   figma <on (OAuth) | off>
 Env         : GITHUB_TOKEN set ✓   FIGMA_TOKEN <set | absent>
 Surfaces    : <key>=<path> [, <key>=<path> …]   (only the surfaces that exist)
               command coverage per surface: lint/test/integration/e2e/build

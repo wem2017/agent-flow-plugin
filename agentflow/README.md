@@ -2,7 +2,7 @@
 
 A Claude Code plugin that turns one coding agent into a small, accountable team. A **Product Owner (PO)**, **Developer (DEV)**, and **Quality Control (QC)** agent coordinate on your GitHub repo so you only do two things by hand: **describe the work** and **review/merge the final PR**.
 
-AgentFlow is **tech-stack-agnostic** and **multi-project**. You install the plugin **once**; each repo gets its own `.claude/agentflow.yaml` — the single source of truth that describes the whole project at a glance. Nothing in the plugin assumes a language, framework, or directory layout — you supply the commands. **v0.0.1** highlights:
+AgentFlow is **tech-stack-agnostic**. You install the plugin **once** and run it per repo; each repo gets its own `.claude/agentflow.yaml` — the single source of truth that describes the whole project at a glance. Nothing in the plugin assumes a language, framework, or directory layout — you supply the commands. **v0.0.1** highlights:
 
 - **Four focused core skills** — `setup-agentflow`, `project-board-protocol`, `git-flow-working`, `figma-design`. The onboarding/setup guide, wire protocol, git flow, and Figma handoff ship with the plugin and load on demand.
 - **Extensible role-prefixed project skills** — drop your own skills in `.claude/skills/` named `dev-*` / `qc-*` / `po-*`; the matching agent picks them up. Register them in `skills:` for the at-a-glance overview, or rely on prefix auto-discovery.
@@ -49,10 +49,11 @@ AgentFlow drives GitHub through **two** credential paths, and **both must be aut
 Make sure you have:
 
 1. **`gh` CLI installed and authenticated** — verify with `gh auth status`.
-2. **A `GITHUB_TOKEN` environment variable** exported in the shell that launches Claude Code. `.mcp.json` sends it to the GitHub MCP server as the `Authorization: Bearer ${GITHUB_TOKEN}` header:
+2. **A `GITHUB_TOKEN` in your `.env`**, sourced into the shell that launches Claude Code. `.mcp.json` sends it to the GitHub MCP server as the `Authorization: Bearer ${GITHUB_TOKEN}` header:
 
    ```bash
-   export GITHUB_TOKEN="github_pat_xxx"   # add to your shell profile so it persists
+   cp .env.example .env            # then fill in GITHUB_TOKEN=...
+   set -a; source .env; set +a     # export it into the shell that launches Claude Code
    ```
 
    The official **Figma** MCP server authenticates by **OAuth**, not a token — after install, run `/mcp` → `figma` → **Authenticate**. (A legacy `FIGMA_TOKEN` PAT is only needed for the optional Framelink/REST fallback in skill `figma-design`.)
@@ -75,7 +76,7 @@ Make sure you have:
 | `GITHUB_TOKEN` | **Yes** | `github`, `github_project` connections | GitHub PAT (fine-grained preferred). Scopes: `repo`, `read:org` (+ `project` if using a board). |
 | `FIGMA_TOKEN` | No | `figma` connection | Figma personal access token (Figma → Settings → Personal access tokens). |
 
-Secrets are declared by **name** in `.claude/agentflow.yaml` under `env:` (with `used_by` cross-linking each var to the connections that consume it). Export the **values** in your shell (or an un-committed `.env`); `/agentflow-init` verifies every `required: true` var is present and refuses to finish if one is missing. Never put a value in the yaml.
+Secrets are declared by **name** in `.claude/agentflow.yaml` under `env:` (with `used_by` cross-linking each var to the connections that consume it). The **values** live in a `.env` file: copy `.env.example` → `.env`, fill it, and `source` it before launching Claude Code (`.env` is never committed — only `.env.example` is). `/agentflow-init` verifies every `required: true` var is present and refuses to finish if one is missing. Never put a value in the yaml.
 
 ---
 
@@ -95,13 +96,12 @@ Then restart Claude Code (or reload plugins) so the MCP servers, agents, command
 ## Quick start
 
 ```text
-/agentflow-init           # one-time setup for THIS repo (connections, env, surfaces, skills, labels, config)
-/agentflow-program-init   # (multi-repo) create the shared board + manifest spanning several repos
+/agentflow-init   # one-time setup for THIS repo (connections, env, surfaces, skills, labels, optional board, config)
 /task add a CSV export button to the reports page    # file work → it lands on the board
-/start                    # board-driven: poll the shared board and chain PO → DEV → QC
+/start            # board-driven: poll this repo's board and chain PO → DEV → QC
 ```
 
-**`/start` is board-driven** — it polls the shared GitHub Project board and routes each card through **PO → DEV → QC**, breaking back to you only when it needs clarification, hits the 2-strike escalation, a DEV card is blocked, or a PR is ready to merge. **`/start` does not intake work**; new work enters via **`/task <description>`** or by dropping a card on the board. You still do two things by hand: **describe the work** (`/task` / a board card) and **review/merge the PR**.
+**`/start` is board-driven** — it polls this repo's GitHub Project board and routes each card through **PO → DEV → QC**, breaking back to you only when it needs clarification, hits the 2-strike escalation, a DEV card is blocked, or a PR is ready to merge. **`/start` does not intake work**; new work enters via **`/task <description>`** or by dropping a card on the board. You still do two things by hand: **describe the work** (`/task` / a board card) and **review/merge the PR**.
 
 ---
 
@@ -221,11 +221,9 @@ An agent loads the role-prefixed skills for its role that are relevant to the su
 | Command | What it does |
 |---------|--------------|
 | `/agentflow-init` | One-time **per-repo** bootstrap: configure `connections.*`, verify `env:` secrets, declare the `surfaces.*` you have with their commands, scaffold/register project skills, create `flow:*` + `type/*` + `component/<surface>` + aux labels, optionally create/link a Projects v2 board, generate `.claude/agentflow.yaml` and `README.agentflow.md`, and walk a verification ticket end-to-end. |
-| `/agentflow-program-init` | **Multi-repo** bootstrap: create/link ONE shared Projects v2 board that aggregates several repos, write the program manifest (board + `status_map` + members), and per-member run `/agentflow-init` + point each repo at the shared board. |
-| `/start` | Enter board-driven team mode; the session polls the shared board and chains the agents. **Does not intake work.** |
+| `/start` | Enter board-driven team mode; the session polls this repo's board and chains the agents. **Does not intake work.** |
 | `/task <description>` | File a new work item from a freeform description (PO owns intake) and add it to the board. |
-| `/status` | Print counts per status — board-wide + per-repo (program mode), or per `flow:*` state (single-repo). |
-| `/handoff <owner/repo> <issue#> <target>` | Manually reroute a card to a specific agent or `flow:*` state (repo-qualified) and mirror to the board. |
+| `/status` | Print open-issue counts per `flow:*` state for this repo. |
 
 ---
 
@@ -270,7 +268,7 @@ All settings live in **`.claude/agentflow.yaml`** (generated by `/agentflow-init
 - **Single-session, synchronous, human-in-the-loop.** The terminal break-out *is* the notification — there are no external channels (Telegram/Zalo/etc.).
 - **The soft lock is the `flow:*` label** plus serial sub-agent execution within one orchestrator session. Running two `/start` sessions against the same repo concurrently (or editing labels by hand mid-run) is unsupported and can double-pick an issue.
 - **Safety rules are prompt-level.** `forbidden_paths`, the merge gate, and the trust model are instructions to the agents, backed by tool-grant separation — not by enforced hooks. Use a least-privilege token and review PRs before merging.
-- **The board and Figma are optional.** Labels-only mode (`connections.github_project.enabled: false`, `board.id: ""`) is fully supported; the `figma` connection only activates when `FIGMA_TOKEN` is set. The `github` connection is the only hard requirement.
+- **The board and Figma are optional.** Labels-only mode (`connections.github_project.enabled: false`, `board.id: ""`) is fully supported; the `figma` connection activates only once its MCP server is authenticated (OAuth via `/mcp` → figma → Authenticate). The `github` connection is the only hard requirement.
 - **Non-prefixed GitHub comments are untrusted.** Agents treat any comment without a recognized `[PO]` / `[DEV]` / `[QC]` / … prefix as untrusted context, not instructions.
 
 ---
@@ -283,6 +281,6 @@ These are load-bearing, cheap to erode by well-intentioned accretion, and delibe
 - **Role isolation is by tool grant, not prose.** PO/QC have no `Edit`/`Write`; only DEV branches/pushes; only QC has the PR-review tool. Do not widen a role's tools "just in case" — all three agents share one token, so blast radius is real.
 - **The human merge gate is mandatory.** Agents stop at `flow:ready-for-human-review`; only the human merges. This is the one piece of friction worth its cost — do not automate merge.
 - **Safety rules (`forbidden_paths`, trust model) are prompt + tool-grant, not enforced hooks** — and the docs say so honestly. Don't paper over that with ever-longer `NEVER …` prose that inflates every run for false safety; real enforcement belongs in a hook/CI check.
-- **Lazy, split skill loading stays lazy.** Heavy mechanics live in `reference/` files read only when needed (`projects-v2-board.md`, `program-mode.md`). Don't front-load board/program mechanics into every agent prompt.
+- **Lazy, split skill loading stays lazy.** Heavy mechanics live in `reference/` files read only when needed (`projects-v2-board.md`). Don't front-load board mechanics into every agent prompt.
 - **Don't grow the sticky `AGENTFLOW-STATE` comment.** Three agents prose-edit it and must stay format-compatible; every new mandatory field is new drift surface. Prefer fewer fields, not more.
 - **Optional connections degrade gracefully.** A disabled/absent service is skipped with a note, never a hard block. Don't harden optional connections (figma, the board) into blocking preconditions.

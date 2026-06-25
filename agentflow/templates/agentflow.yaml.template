@@ -21,17 +21,6 @@ project:
   summary: "{{PROJECT_SUMMARY}}"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PROGRAM (optional) — set by /agentflow-program-init when this repo is a MEMBER
-# of a multi-repo program that shares ONE GitHub Projects v2 board. The back-pointer
-# lets tooling locate the program manifest from inside this single checkout. ABSENT
-# for a standalone repo. The shared board node id is mirrored into board.id below
-# (and connections.github_project.enabled: true). See skill: setup-agentflow.
-# ─────────────────────────────────────────────────────────────────────────────
-# program:
-#   name: "{{PROGRAM_NAME}}"            # e.g. "cinestar-agent-flow"
-#   manifest: "../../.claude/agentflow.program.yaml"   # relative to THIS file
-
-# ─────────────────────────────────────────────────────────────────────────────
 # CONNECTIONS — external services this project links to, fully specified.
 #
 # Each connection ties together, in ONE place: the secret it needs (auth.token_env,
@@ -92,8 +81,9 @@ connections:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ENV — every secret the connections above need, declared by NAME only.
-# NEVER put secret VALUES here. Export them in the shell that launches Claude Code,
-# or a .env you do NOT commit (see .env.example). `used_by` cross-links to the
+# NEVER put secret VALUES here. All secret VALUES live in a .env file (copy
+# .env.example → .env, fill it, and `source` it before launching Claude Code).
+# .env is NEVER committed; only .env.example is. `used_by` cross-links to the
 # connection(s) that consume each var. /agentflow-init refuses to finish if a
 # required var is missing.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -101,7 +91,7 @@ env:
   - name: "GITHUB_TOKEN"
     required: true
     used_by: ["github", "github_project"]
-    description: "GitHub PAT (fine-grained preferred). Scopes: repo (+ project if using a board)."
+    description: "GitHub PAT (fine-grained preferred). Scopes: repo + read:org (+ project if using a board)."
   - name: "FIGMA_TOKEN"
     required: false
     used_by: ["figma"]

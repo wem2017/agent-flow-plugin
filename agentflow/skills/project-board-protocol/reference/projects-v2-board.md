@@ -21,7 +21,7 @@ works with labels alone, and `GITHUB_TOKEN` needs **no** `project` scope.
 - [Mirror a flow:* label → column](#mirror-a-flow-label--column)
 - [List actionable board items (orchestrator queue)](#list-actionable-board-items)
 - [Board-driven mode amendment](#board-driven-mode-amendment)
-- [Canonical status_map (single-repo board-driven mode)](#canonical-status_map-single-repo-board-driven-mode)
+- [Canonical status_map (board-driven mode)](#canonical-status_map-board-driven-mode)
 - [Scopes](#scopes)
 - [Helper scripts](#helper-scripts)
 
@@ -179,14 +179,12 @@ any error, log and move on.
 
 ## List actionable board items
 
-**Board-driven mode only.** When a board spans many issues — and especially when it aggregates
-several repos as a **program** (see skill: `setup-agentflow` → `reference/program-mode.md`) — the
-orchestrator reads the **whole** board in one shot to build its work queue. This is the one query
-that reads board state as a *queue*. Paginate over every item and pull, per item: the issue
-**number**, its **repo** (`repository.nameWithOwner`), the **item id** (reuse it directly in the
-mirror's `updateProjectV2ItemFieldValue`, skipping the `addProjectV2ItemById` round-trip), the
-issue's live **labels** (the authoritative `flow:*`), the issue **state** (skip `CLOSED`), and the
-current **Status** option name.
+**Board-driven mode only.** When a board spans many issues, the orchestrator reads the **whole**
+board in one shot to build its work queue. This is the one query that reads board state as a
+*queue*. Paginate over every item and pull, per item: the issue **number**, the **item id** (reuse
+it directly in the mirror's `updateProjectV2ItemFieldValue`, skipping the `addProjectV2ItemById`
+round-trip), the issue's live **labels** (the authoritative `flow:*`), the issue **state** (skip
+`CLOSED`), and the current **Status** option name.
 
 ```bash
 gh api graphql -f query='
@@ -218,28 +216,25 @@ gh api graphql -f query='
 The list returns **all** board items; the orchestrator applies the *actionable* filter client-side
 (Status whose `status_map` owner is an agent, issue `state == OPEN`). A **draft** card (no
 `content.number`) is outside the label state machine — surface it to the human to convert to an
-issue. An item whose `repository.nameWithOwner` is not a known program member is skipped, not guessed.
+issue via `/task`.
 
 ## Board-driven mode amendment
 
 The default protocol (in `../SKILL.md`) makes the `flow:*` **label authoritative** and treats the
 board as a **human-only mirror** that agents never read. **Board-driven mode** relaxes this in
-exactly one place: the **orchestrator** (`/start`) reads board Status as its cross-repo **work
-queue** via the list query above. This is the *only* sanctioned reader of columns, and even it does
-not *trust* the column for state — after attributing an item to its repo it re-reads the issue's live
-`flow:*` label and routes off the **label** (label wins on any drift), then re-mirrors Status to
-match. PO/DEV/QC sub-agents still **never** read or write the board; all board writes stay at the
-orchestrator layer (`/start`, `/task`, `/handoff`). The board is a queue + mirror; the label is the
-truth.
+exactly one place: the **orchestrator** (`/start`) reads board Status as its **work queue** via the
+list query above. This is the *only* sanctioned reader of columns, and even it does not *trust* the
+column for state — for each item it re-reads the issue's live `flow:*` label and routes off the
+**label** (label wins on any drift), then re-mirrors Status to match. PO/DEV/QC sub-agents still
+**never** read or write the board; all board writes stay at the orchestrator layer (`/start`,
+`/task`). The board is a queue + mirror; the label is the truth.
 
-## Canonical status_map (single-repo board-driven mode)
+## Canonical status_map (board-driven mode)
 
-A **program** carries its `status_map` in `.claude/agentflow.program.yaml` (the orchestrator reads
-it live). A **single repo** running board-driven `/start` (`board.id` non-empty +
-`connections.github_project.enabled: true`, **no** program manifest) has no manifest, so it uses the
-canonical table below. It is the single routing table `/start` reads for a single repo — read it
-here, do not hardcode a different one. The `column` strings match the canonical `board.columns`; if a
-repo renamed a column, map by the **`<key>`** (e.g. `in_qc`), not the display string.
+A repo running board-driven `/start` (`board.id` non-empty + `connections.github_project.enabled:
+true`) uses the canonical table below. It is the single routing table `/start` reads — read it here,
+do not hardcode a different one. The `column` strings match the canonical `board.columns`; if a repo
+renamed a column, map by the **`<key>`** (e.g. `in_qc`), not the display string.
 
 ```yaml
 status_map:
@@ -264,10 +259,9 @@ status_map:
 - User board: `GITHUB_TOKEN` needs `project`.
 - **Labels-only** mode (`board.id` = `""`): none of the above; the pipeline still works end to end.
   Prefer this when no human needs the visual board.
-- **Board-driven mode** (a program with a shared board): the board is on the agent decision path, so
-  `project` scope is **mandatory** — `/start` reads the board to build its queue and stops at boot if
-  the scope is missing. (Labels-only single-repo installs keep `/task`/`/handoff`/agents without it;
-  they just lose the board-driven `/start`.)
+- **Board-driven mode** (a board on the agent decision path): `project` scope is **mandatory** —
+  `/start` reads the board to build its queue and stops at boot if the scope is missing.
+  (Labels-only installs keep `/task`/agents without it; they just lose the board-driven `/start`.)
 - If the optional MCP `projects` toolset is used for the mirror, the `github` MCP server must be run
   with that toolset enabled (it is **not** on by default); otherwise the `projects_*` tools silently
   do not exist and the mirror falls back to GraphQL.

@@ -12,13 +12,12 @@ You only do two things by hand: **describe the work, and review/merge the PR.** 
 | Start the team for this session         | `/start`                         |
 | File a new piece of work                | `/task <freeform description>`   |
 | See where everything stands             | `/status`                        |
-| Force-route an issue to a specific lane | `/handoff <issue#> <target>`     |
 
-After `/start`, this terminal session becomes the orchestrator — describe work in plain text and the team (PO → DEV → QC) chains automatically. The orchestrator only breaks back to you when it needs clarification, hits a 2-strike escalation (`needs-human`), or a PR is ready to merge.
+After `/start`, this terminal session becomes the orchestrator — describe work in plain text and the team (PO → DEV → QC) chains automatically. Need to reroute a card (back to PO, skip a stage, flag for a human)? Just say so in plain text inside `/start` — e.g. "send #12 back to PO" — and the orchestrator does it inline. The orchestrator only breaks back to you when it needs clarification, hits a 2-strike escalation (`needs-human`), or a PR is ready to merge.
 
 ## What this repo connects to
 
-Connections are declared under `connections.*` in `.claude/agentflow.yaml`. Each block fully specifies its own wiring (secret name, scopes, MCP server). A connection is usable only when `enabled: true` **and** every var it requires is exported. They are additive — toggle one with `enabled: true|false`.
+Connections are declared under `connections.*` in `.claude/agentflow.yaml`. Each block fully specifies its own wiring (secret name, scopes, MCP server). A connection is usable only when `enabled: true` **and** every var it requires is present (sourced from `.env`). They are additive — toggle one with `enabled: true|false`.
 
 | Connection       | Required? | What it does                                                        |
 |------------------|-----------|---------------------------------------------------------------------|
@@ -30,14 +29,14 @@ To turn the board or Figma on/off, edit the matching block's `enabled` flag (for
 
 ## Environment variables
 
-Every secret is declared by **name only** under the `env:` list in `.claude/agentflow.yaml` (each entry cross-links its `used_by` connections). Export the values before launching Claude Code:
+Every secret is declared by **name only** under the `env:` list in `.claude/agentflow.yaml` (each entry cross-links its `used_by` connections). The values live in a `.env` file you `source` before launching Claude Code:
 
 | Var            | Required | For                                                  |
 |----------------|----------|------------------------------------------------------|
-| `GITHUB_TOKEN` | yes      | GitHub access (scopes: `repo`, `+ project` if board) |
-| `FIGMA_TOKEN`  | no       | Figma design source (only if `connections.figma` on) |
+| `GITHUB_TOKEN` | yes      | GitHub access (scopes: `repo`, `read:org`, `+ project` if board) |
+| `FIGMA_TOKEN`  | no       | Figma legacy PAT — Framelink/REST fallback only; the official figma MCP server uses OAuth (no token) |
 
-**Secret hygiene:** export these in your shell or an **uncommitted** `.env` — never commit a token, never paste a value into `agentflow.yaml`. Reference secrets only by name (`${GITHUB_TOKEN}`). `/agentflow-init` refuses to finish if a `required: true` var is missing.
+**Secret hygiene:** put these in an **uncommitted** `.env` (copy `.env.example`, fill it, then `source` it before launching Claude Code) — never commit a token, never paste a value into `agentflow.yaml`. Reference secrets only by name (`${GITHUB_TOKEN}`). `/agentflow-init` refuses to finish if a `required: true` var is missing.
 
 ## Surfaces (the buildable parts)
 

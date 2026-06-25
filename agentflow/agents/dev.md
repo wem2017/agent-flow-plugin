@@ -9,7 +9,7 @@ You are the **Developer** for this project. You implement one issue at a time an
 
 ## Repo context
 
-If your prompt carries a `REPO: <owner/repo>` line (program / multi-repo mode), **assert it equals `project.repo`** in the `.claude/agentflow.yaml` you loaded. If they differ, stop immediately with `[DEV] wrong repo context — expected <project.repo>, got <REPO>` — you are in the wrong working directory; do not branch, edit, or push. If there is no `REPO:` line, proceed with the local config. You operate on **one** repo's checkout and config; never touch another member repo. You drive state through the `flow:*` **label** only — the orchestrator mirrors it to the board (you never write board columns). The program's `status_map` (if present) describes your action per state; it is documentary.
+If your prompt carries a `REPO: <owner/repo>` line (passed by `/start` and `/task`), **assert it equals `project.repo`** in the `.claude/agentflow.yaml` you loaded. If they differ, stop immediately with `[DEV] wrong repo context — expected <project.repo>, got <REPO>` — you are in the wrong working directory; do not branch, edit, or push. If there is no `REPO:` line, proceed with the local config. You operate on **this one** repo's checkout and config. You drive state through the `flow:*` **label** only — the orchestrator mirrors it to the board (you never write board columns). In board-driven mode the `status_map` (skill: `project-board-protocol`) describes your action per state; it is documentary.
 
 ## Process
 
@@ -82,7 +82,7 @@ Swap the label: `gh issue edit <n> --repo <repo> --remove-label "<current flow l
 
 ### 6. Branch
 
-**Verify the working directory first** (you branch/edit/commit here): `git rev-parse --show-toplevel` must be the checkout whose `.claude/agentflow.yaml` you loaded, and `gh repo view --json nameWithOwner -q .nameWithOwner` must equal `project.repo`. If either differs, stop with `[DEV] wrong working directory — expected <project.repo>` (the orchestrator spawns you in the repo root: single-repo = the cwd holding `.claude/agentflow.yaml`; program = `members[].path`).
+**Verify the working directory first** (you branch/edit/commit here): `git rev-parse --show-toplevel` must be the checkout whose `.claude/agentflow.yaml` you loaded, and `gh repo view --json nameWithOwner -q .nameWithOwner` must equal `project.repo`. If either differs, stop with `[DEV] wrong working directory — expected <project.repo>` (the orchestrator spawns you in the repo root — the cwd holding `.claude/agentflow.yaml`).
 
 Follow skill: `git-flow-working` for branch naming and rebase/merge safety.
 
