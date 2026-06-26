@@ -1,5 +1,5 @@
 ---
-description: Bootstrap AgentFlow in the current repo — resolve project + summary, wire connections (full auth/MCP spec), detect the surfaces that exist, create flow:*/type/*/component/* labels, optionally a board, optionally scaffold role-prefixed project skills, then write .claude/agentflow.yaml + README.agentflow.md.
+description: Bootstrap AgentFlow in the current repo — resolve project + summary, wire connections (full auth/MCP spec), detect the surfaces that exist, create flow:*/type/*/component/* labels, a required board, optionally scaffold role-prefixed project skills, then write .claude/agentflow.yaml + README.agentflow.md.
 argument-hint: (no args — runs an interactive setup wizard)
 ---
 
@@ -64,8 +64,8 @@ The `env:` list in `templates/agentflow.yaml.template` declares every secret by 
 ```
 
 - **`GITHUB_TOKEN` (required):** if unset → tell the user to put it in `.env`
-  (`cp .env.example .env`, fill `GITHUB_TOKEN=…` with a fine-grained PAT, scopes `repo` + `read:org`,
-  plus `project` if they want a board), `source` it before launching Claude Code, then re-run. **Stop.**
+  (`cp .env.example .env`, fill `GITHUB_TOKEN=…` with a fine-grained PAT, scopes `repo` + `read:org`
+  + `project`), `source` it before launching Claude Code, then re-run. **Stop.**
 - **`FIGMA_TOKEN` (optional, legacy only):** the official Figma MCP server uses **OAuth** (no token),
   so this is not required. Leave it unset unless running the legacy Framelink/REST fallback; note and continue.
 
@@ -82,8 +82,10 @@ present. Confirm each:
 - **github** — always `enabled: true`. `repo` ← `OWNER/REPO`.
   `auth: { token_env: GITHUB_TOKEN, scopes: ["repo","read:org"], cli: "gh auth login" }`,
   `mcp: { server: "github", requires_env: ["GITHUB_TOKEN"] }`.
-- **github_project** — ask: *create a new board*, *link an existing board by id/number*, or
-  *skip*. Sets `enabled` for Step 7. Needs the `project` scope on `GITHUB_TOKEN`.
+- **github_project** (REQUIRED) — ask: *create a new board* or *link an existing board by
+  id/number* (no skip — the board is mandatory). Always `enabled: true` for Step 7. Needs the
+  `project` scope on `GITHUB_TOKEN`: verify it and, if absent, tell the user to run
+  `gh auth refresh -s project` and **stop**.
   `auth.scopes: ["project","read:org"]`, `mcp: { server: "github", requires_env: ["GITHUB_TOKEN"] }`,
   plus `owner`/`owner_type` from Step 2.
 - **figma** — optional design source via the **official Figma MCP server (OAuth — no token)**. Offer it
@@ -161,9 +163,9 @@ Use `--force` so re-runs update color/description instead of erroring:
 ```bash
 # flow:* (state machine — exactly one per active issue) — blue family
 gh label create "flow:inbox"                  --color 1D76DB --description "AgentFlow: triage"                 --force
-gh label create "flow:refined"                --color 1D76DB --description "AgentFlow: DoR gate / clarify"     --force
+gh label create "flow:refined"                --color 1D76DB --description "AgentFlow: DoR gate / clarify / 2-strike re-spec" --force
 gh label create "flow:ready-for-dev"          --color 1D76DB --description "AgentFlow: DEV queue"              --force
-gh label create "flow:in-progress"            --color 1D76DB --description "AgentFlow: DEV coding (soft lock)" --force
+gh label create "flow:in-progress"            --color 1D76DB --description "AgentFlow: DEV coding (in-flight; claim held)" --force
 gh label create "flow:in-qc"                  --color 1D76DB --description "AgentFlow: QC reviewing"           --force
 gh label create "flow:changes-requested"      --color 1D76DB --description "AgentFlow: rework"                --force
 gh label create "flow:ready-for-human-review" --color 1D76DB --description "AgentFlow: human review/merge"     --force
@@ -187,26 +189,28 @@ gh label create "needs-human"         --color D93F0B --description "AgentFlow: e
 Do **not** create `component/*` labels for surfaces the repo doesn't have — they must mirror the
 declared `surfaces:` keys exactly.
 
-## 7. Optional board
+## 7. Board (required)
 
-Drive all GitHub Projects v2 details from skill: **project-board-protocol** (its
-"Optional GitHub Projects v2 board (human mirror)" section).
+Drive all GitHub Projects v2 details from skill: **project-board-protocol** (its GitHub Projects v2
+board section). The board is **required** — it is the orchestrator's inbox queue + the
+human-visible mirror; the `flow:*` label stays authoritative for routing.
 
 - **create** or **link** (chosen in Step 4) → that skill creates/links the board, mirrors the
   `flow:*` labels to a Status field (HUMAN MIRROR only — labels stay authoritative), and returns
   the board **node id** (`PVT_…`). Store it at `board.id` and set
   `connections.github_project.enabled: true`.
-- **skip** → `board.id: ""` and `connections.github_project.enabled: false`. **Labels-only mode
-  works fully** — routing always reads the `flow:*` label, never a column.
 
-Keep `board.id` and `connections.github_project.enabled` **in sync**.
+`board.id` is always a real `PVT_…` and `connections.github_project.enabled` is always `true` —
+keep them **in sync**.
 
 ## 8. Scaffold project skills (opt-in)
 
 Offer to create starter **role-prefixed** skill stubs under `.claude/skills/`, named
 `<role>-<area>` so the right agent picks them up: `dev-*` → DEV, `qc-*` → QC, `po-*` → PO.
-Propose names matched to the detected surfaces, e.g. `dev-<surface>-development` per surface,
-`qc-automation-test`, `po-discovery`. **Ask before creating.** For each accepted stub, write a
+**Always scaffold `qc-automation-test` by default** — QC's authoring skill, which it loads to add
+the test IDs the suite needs and author test flows on the PR branch — and register it in `skills:`.
+Propose the rest matched to the detected surfaces, e.g. `dev-<surface>-development` per surface and
+`po-discovery`. **Ask before creating the offered stubs.** For each accepted stub, write a
 `SKILL.md` with YAML frontmatter (`name` = the directory name) + a short description + a TODO body:
 
 ```markdown
@@ -233,13 +237,13 @@ skills:
   po-discovery:        { role: po,  description: "Discovery & story-mapping checklist" }
 ```
 
-List exactly what was created. If the user declines, leave `skills: {}`.
+List exactly what was created. If the user declines the offered stubs, `skills:` still lists `qc-automation-test`.
 
 ## 9. Generate config
 
 Write `.claude/agentflow.yaml` by copying `templates/agentflow.yaml.template` and substituting
 **every** placeholder, writing the **dynamic surfaces**, the **skills registry** (Step 8), and the
-**full connection spec** (Step 4). Read the template to confirm the full set; as of v0.0.1:
+**full connection spec** (Step 4). Read the template to confirm the full set; as of v0.1.0:
 
 ```bash
 mkdir -p .claude
@@ -251,18 +255,17 @@ mkdir -p .claude
 | `{{PROJECT_SUMMARY}}`                       | the confirmed one-liner from Step 2                          |
 | `{{OWNER}}` / `{{REPO}}`                     | from Step 2 (`project.repo` and `connections.github.repo`)   |
 | `{{DEFAULT_BRANCH}}`                        | default branch from Step 2                                   |
-| `{{GITHUB_PROJECT_ENABLED}}`                | `true`/`false` — must match `board.id` being set vs `""`     |
 | `{{PROJECT_OWNER}}` / `{{PROJECT_OWNER_TYPE}}` | owner login / `org`\|`user`                               |
 | `{{FIGMA_ENABLED}}`                         | `true` if the user enabled figma (OAuth — no token needed)   |
-| `{{PROJECT_ID}}`                            | board node id from Step 7, or `""`                           |
+| `{{PROJECT_ID}}`                            | board node id from Step 7 (always a real `PVT_…`, never empty)|
 | `surfaces:` block                           | one block per **detected** surface (Step 5): `path`, `label`, six `commands`, `coverage_command`, `coverage_threshold`, `forbidden_paths`. Delete the template's example/placeholder surface entirely. |
 | `labels.component`                          | one `<surface>: "component/<surface>"` per declared surface  |
 | `skills:`                                   | the Step 8 registry, or `{}`                                 |
 | `{{COVERAGE_THRESHOLD}}`                    | fallback `agents.qc.coverage_threshold` (e.g. `0` to disable)|
 
 Leave the curated comments and tier defaults from the template intact. Do not invent keys the
-template lacks. Confirm `{{GITHUB_PROJECT_ENABLED}}` and `{{PROJECT_ID}}` agree, and that every
-`surfaces.<s>.label` has a matching `labels.component.<s>` entry and a created `component/<s>` label.
+template lacks. Confirm `{{PROJECT_ID}}` is a real `PVT_…` board id (the board is required), and that
+every `surfaces.<s>.label` has a matching `labels.component.<s>` entry and a created `component/<s>` label.
 
 ## 10. Generate README
 
@@ -297,15 +300,15 @@ gh issue close <n> --comment "AgentFlow verification complete."
 Print a tight report:
 
 ```
-AgentFlow initialized on <OWNER/REPO> (v0.0.1)
+AgentFlow initialized on <OWNER/REPO> (v0.1.0)
 
 Project     : <name> — <summary>
-Connections : github ✓   github_project <on PVT_… | off>   figma <on (OAuth) | off>
+Connections : github ✓   github_project on PVT_…   figma <on (OAuth) | off>
 Env         : GITHUB_TOKEN set ✓   FIGMA_TOKEN <set | absent>
 Surfaces    : <key>=<path> [, <key>=<path> …]   (only the surfaces that exist)
               command coverage per surface: lint/test/integration/e2e/build
 Labels      : <13 + N> created/updated (flow:* ·8, type/* ·3, component/* ·N, needs-* ·2)
-Board       : <PVT_… | labels-only>
+Board       : <PVT_…>
 Skills      : <scaffolded role-prefixed stubs, or none>
 Files       : .claude/agentflow.yaml, README.agentflow.md, [.claude/skills/<role>-* …]
 
@@ -314,6 +317,6 @@ Next: run /start to enter team mode, then /task <description> to file your first
 
 ---
 
-**Re-runs:** safe at any time. Re-detect surfaces, add a board you skipped, register new skills,
+**Re-runs:** safe at any time. Re-detect surfaces, re-link or recreate the board, register new skills,
 or refresh connections/env — each step reuses the existing `.claude/agentflow.yaml` values as
 defaults and asks before overwriting. Labels and any board are reconciled idempotently.

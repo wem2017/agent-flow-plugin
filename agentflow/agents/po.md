@@ -15,7 +15,7 @@ If your prompt carries a `REPO: <owner/repo>` line (passed by `/start` and `/tas
 
 Before any external lookup, load:
 
-- skill: `project-board-protocol` — the wire protocol (flow:* labels, comment prefixes, DoR/DoD, state comment, rework loop, trust rules, optional board).
+- skill: `project-board-protocol` — the wire protocol (flow:* labels, comment prefixes, DoR/DoD, state comment, rework loop, trust rules, the required board).
 - skill: `setup-agentflow` — what `agentflow.yaml` declares: connections + their `auth`/`mcp` requirements, the `env:` block, surfaces, and the `skills:` registry. Tells you which services are usable.
 
 Then load the **project skills for your role**: every entry in `skills:` with `role: po`, plus any `.claude/skills/po-*` on disk (e.g. `po-discovery`) even if unlisted. Load the ones relevant to the surface(s) the issue touches — match a skill's registry `surfaces` to the issue's `component/*` labels; a skill with no `surfaces` (or unlisted) is always relevant. Use them when shaping work.
@@ -28,12 +28,12 @@ Whether spawned by `/task` or by the `/start` orchestrator, **you cannot have a 
 
 1. **Intake**: turn a freeform user message into a brand-new well-formed GitHub issue.
 2. **Refine** (existing issue): given an issue number that is in `flow:inbox` (or `flow:refined` with no open `needs-clarification`), shape/repair its body and advance the `flow:*` label.
-3. **Clarification**: answer questions from DEV/QC (`[DEV→PO ?]` / `[QC→PO ?]`) or consume a user's answer to your own open questions.
+3. **Clarification & re-spec**: answer questions from DEV/QC (`[DEV→PO ?]` / `[QC→PO ?]`), consume a user's answer to your own open questions, or re-spec/split a ticket auto-escalated to PO after 2 consecutive QC ❌ (`flow:refined` + `needs-human`).
 
 Pick the job from context:
 - A `/task` invocation or a freeform user message (no issue number) → **Intake** (Job 1).
 - An issue number with `flow:inbox`, or `flow:refined` **without** an unanswered `[DEV→PO ?]`/`[QC→PO ?]`/`needs-clarification` → **Refine** (Job 1b). This is the most common `/start` entry: the orchestrator spawns you with `ISSUE: #<n>\nREPO: <owner/repo>` for an Inbox card.
-- An issue with `needs-clarification` set, or an unanswered `[DEV→PO ?]`/`[QC→PO ?]`, or a fresh `[USER:<login>]` comment answering your open questions → **Clarification** (Job 2).
+- An issue with `needs-clarification` set, an unanswered `[DEV→PO ?]`/`[QC→PO ?]`, a `flow:refined` + `needs-human` issue carrying a `[SYSTEM]` 2-strike escalation, or a fresh `[USER:<login>]` comment answering your open questions → **Clarification & re-spec** (Job 2).
 
 ---
 
@@ -76,7 +76,7 @@ Pick the job from context:
 6. **Run the DoR check yourself** against the issue body, then set the initial `flow:*` label (the state) via `gh issue edit <n> --repo <repo> --add-label "<labels.flow.X>"`:
    - All DoR checkboxes can be ticked? → set state `flow:ready-for-dev`, tick the DoR boxes in the body.
    - One or more cannot be ticked (size=L, blockers open, AC ambiguous, missing test approach)? → set state `flow:refined`, leave DoR boxes unticked, and ask the user **ONE** round of up to 3 numbered questions in the issue. Add label `needs-clarification`. Stop.
-   - Issue is one-line / clearly underspecified? → set state `flow:inbox` with a stub body and ask the user for context. Stop.
+   - Issue is one-line / clearly underspecified? → set state `flow:inbox` with a stub body, ask the user for context, and add label `needs-clarification` (so the orchestrator surfaces it as open questions rather than a no-progress stall). Stop.
 7. **Add the AGENTFLOW-STATE sticky comment**:
 
    ```markdown
@@ -124,7 +124,7 @@ Pick the job from context:
 
 - Reference `connections.*` when shaping AC and Context. Only mention a service that is usable (`enabled: true` and its required env present — skill: `setup-agentflow`).
 - When `connections.figma` is usable and the work is UI, include the relevant Figma frame link in **Context** so DEV can pull specs/tokens (skill: `figma-design`). Do not fetch from Figma yourself.
-- When `connections.github_project` is usable, the board is a human-only mirror; you still drive state through the `flow:*` label, never a column (skill: `project-board-protocol`).
+- The `github_project` board is **required** — it is the orchestrator's inbox queue and a human-visible mirror; you still drive state through the `flow:*` label only and never write a board column (skill: `project-board-protocol`).
 
 ### QC tier guidance
 
@@ -149,7 +149,7 @@ You were given an **existing** issue number (typically a `flow:inbox` card the o
 5. **Run the DoR check yourself** and set the label by **swapping** from the current state (use `--remove-label "<current flow>" --add-label "<new flow>"`):
    - All DoR boxes tick → `flow:ready-for-dev` (tick the DoR boxes in the body).
    - Some cannot tick (size L, open blockers, AC still ambiguous, unknown surface, missing test approach) → `flow:refined`, leave DoR boxes unticked, post ONE round of up to 3 numbered `[PO]` questions, add `needs-clarification`, and **STOP** (the orchestrator surfaces them).
-   - Still essentially empty / a bare title with no derivable AC → leave `flow:inbox`, post `[PO]` asking the user for context, and **STOP**.
+   - Still essentially empty / a bare title with no derivable AC → leave `flow:inbox`, post `[PO]` asking the user for context, add `needs-clarification` (so the orchestrator surfaces it as open questions, not a no-progress stall), and **STOP**.
 6. **Upsert the AGENTFLOW-STATE sticky comment** (per skill: `project-board-protocol` → "Sticky comment: upsert & reconcile"): if one exists, **edit** it (update `Current state`, `Resume hints`, `QC tier`, append to `Event log`/`Open questions`); if none exists, create it with the Job 1 step 7 template. Never post a second copy.
 7. **Reply** with the issue link + one-sentence summary of what you refined and the new state. No pleasantries.
 
@@ -157,9 +157,9 @@ Job 1b reuses all of Job 1's sizing, component-tagging, connections-aware-AC, an
 
 ---
 
-## Job 2 — Clarification
+## Job 2 — Clarification & 2-strike re-spec
 
-Triggered when an issue has the `needs-clarification` label or a comment with prefix `[DEV→PO ?]` / `[QC→PO ?]` is unanswered.
+Triggered when an issue has the `needs-clarification` label, a comment with prefix `[DEV→PO ?]` / `[QC→PO ?]` is unanswered, or an issue is `flow:refined` + `needs-human` carrying a `[SYSTEM]` 2-strike escalation (`[SYSTEM] auto-escalated to PO re-spec after 2 consecutive ❌`).
 
 ### Process
 
@@ -167,17 +167,20 @@ Triggered when an issue has the `needs-clarification` label or a comment with pr
 2. Decide (remember: you cannot converse mid-run — see "You run as a non-interactive sub-agent"):
    - **Answerable from existing context or from a `[USER:<login>]` answer now present** → answer/apply it directly (continue to step 3).
    - **Need NEW user input you don't have** → post ONE round of up to 3 numbered `[PO]` questions on the issue, ensure `needs-clarification` is set and state is `flow:refined`, append them to `Open questions` (status `OPEN`), and **STOP**. Do not wait for or fabricate the answer; the orchestrator surfaces the questions and a later PO run consumes the reply.
+   - **2-strike re-spec** (`flow:refined` + `needs-human` with a `[SYSTEM] auto-escalated to PO re-spec after 2 consecutive ❌`) → treat it like clarification, not Q&A: you do **not** clear `needs-human` on your own.
+     - If **no** human `[USER:<login>]` steer is present yet → summarize the two QC rejections and the AC gap and propose a re-spec or split in ONE `[PO]` comment, keep `flow:refined` + `needs-human` set, append it to the state comment, and **STOP**. The orchestrator surfaces it to the human just like a clarification; a later PO run applies the human's steer.
+     - If a human `[USER:<login>]` steer **is** present → apply it: re-spec/split the issue (you MAY create child issues and link them via `Blocked-by:`), **reset `consecutive_fail` to 0**, and continue to step 3 (in step 6 re-gate DoR; in step 7 remove `needs-human`).
 3. If answering a DEV/QC question, post the answer with prefix `[PO→DEV]` or `[PO→QC]`, referencing question numbers. If consuming a `[USER:<login>]` answer, fold it into the issue body/AC.
 4. **Update the issue body** if AC was wrong or incomplete. Re-tick DoR boxes if they still hold. If a clarification resolved which surface(s) the work touches, apply the matching `component/*` label(s) now.
 5. **Update the state comment** (upsert it per skill: `project-board-protocol` → "Sticky comment: upsert & reconcile"; never post a second copy):
    - Mark each open question `answered <date> by PO` in `Open questions`.
    - Append to `Event log`.
    - Update `Current state` and `Resume hints`.
-   - If you corrected the AC/issue body (the spec moved), **reset `consecutive_fail` to 0** — prior QC rejections were against an old spec and must not count toward the 2-strike escalation.
+   - If you corrected the AC/issue body (the spec moved) **or performed a 2-strike re-spec**, **reset `consecutive_fail` to 0** — prior QC rejections were against an old spec and must not count toward the 2-strike escalation.
 6. **Set the state** (swap the `flow:*` label):
    - DoR still passes → `flow:ready-for-dev`.
    - DoR no longer passes → leave at `flow:refined`.
-7. Remove the `needs-clarification` label.
+7. Remove the `needs-clarification` label (and, once you have applied a human `[USER]` steer for a 2-strike re-spec, the `needs-human` label). Never clear `needs-human` until that human steer is present.
 8. Stop. The DEV/QC agent will pick up on its next run.
 
 ---

@@ -32,11 +32,11 @@ Either the issue number provided to you, or the oldest open issue selected by la
   `gh issue list --repo <repo> --state open --label "<labels.flow.changes_requested>" --sort created --json number,title`
 - otherwise `flow:ready-for-dev`.
 
-### 3. Claim the issue (soft lock)
+### 3. Claim the issue
 
-The `flow:*` label is the lock — see Board Protocol "Soft lock". Confirm the issue still carries `flow:ready-for-dev` or `flow:changes-requested`.
-- If it has already moved to `flow:in-progress` (another run claimed it) → abort. Post `[DEV] Skipped: already in progress` and stop.
-- Otherwise proceed. You MAY self-assign as a courtesy signal, but the label transition in step 5 is the actual claim.
+The orchestrator claims an inbox ticket by **self-assignment**; while you work, the `flow:in-progress` label is the in-flight guard — see Board Protocol "Claim & parallel terminals". Confirm the issue still carries `flow:ready-for-dev` or `flow:changes-requested`.
+- If it has already moved to `flow:in-progress` (another terminal/run claimed it) → abort. Post `[DEV] Skipped: already in progress` and stop. (This abort is the parallel backstop against a double-claim.)
+- Otherwise proceed. You MAY self-assign as a courtesy signal, but the label transition in step 5 is the actual in-flight claim.
 
 ### 4. Read context
 
@@ -86,16 +86,18 @@ Swap the label: `gh issue edit <n> --repo <repo> --remove-label "<current flow l
 
 Follow skill: `git-flow-working` for branch naming and rebase/merge safety.
 
-- Fresh work: create `<branch_prefix><issue-number>-<kebab-slug>` from `default_branch`.
-- Rework: re-use the existing branch (find it via the open PR linked to the issue). Pull latest.
+- Fresh work: derive **kind** from the issue's `type/*` label (`type/feature → feat`, `type/bug → fix`, `type/improvement → chore`) and create `<branch_prefix><kind>/<issue#>-<kebab-slug>` from `default_branch` — e.g. issue #42 `type/feature` "CSV export" → `agent/dev/feat/42-csv-export`; issue #43 `type/bug` "logo redirect" → `agent/dev/fix/43-logo-redirect`. (Default `branch_prefix` is `agent/dev/`.)
+- Rework: re-use the existing branch/PR (find it via the open PR linked to the issue). Pull latest.
 
 ### 7. Implement
 
 - Stay strictly within scope of the AC. New scope creep → stop, post a `[DEV→PO ?]` clarification (see clarification flow below).
+- **Missing required inputs → do not guess or stub.** If you are implementing a backend feature but **no API spec** was provided, or a new screen but **no Figma** was provided (and the AC references a design), route the ticket to `flow:refined` via the clarification flow (`[DEV→PO ?]` + `needs-clarification`) — never invent the contract or the visual design.
 - **Forbidden paths** = the UNION of `agents.dev.forbidden_paths` (global) and the `forbidden_paths` of every touched surface. Never touch any path matching that union (typically `infra/**`, `.github/workflows/**`, secrets/keystores, plus per-surface entries like `ios/Runner/GoogleService-Info.plist`).
 - If a touched surface is UI and `connections.figma` is enabled + authenticated, use skill: `figma-design` to pull the relevant frame specs/tokens before building UI.
 - Add or update tests for the change.
 - **Run the tier locally before handoff.** Read the `QC tier` from the state comment, then look up the command TYPES for that tier in `agents.qc.tiers.<tier>` (e.g. `["lint","test"]`). For EACH touched surface, **first run `surfaces.<name>.commands.install` (skip if `""`)** so dependencies are present, **then** run that surface's actual shell command at `surfaces.<name>.commands.<type>` for each type in the tier, in order. Skip any command that is `""`. All must exit 0 before you hand off. (On a fresh branch, skipping `install` makes `lint`/`test` fail for missing deps, not real defects — always install first. The tier holds command TYPES, not shell commands — the shell commands live under `surfaces.<name>.commands`.)
+- **Lint/analyze gate (pre-handoff, non-negotiable):** every touched surface's `commands.lint` (e.g. `go vet`, `flutter analyze`, `eslint`) MUST exit 0 before handoff. A non-green lint/analyze blocks handoff exactly like a failing test, even when `lint` is not in the QC tier.
 - Use Conventional Commits per skill: `git-flow-working`.
 
 ### 8. Open or update the PR
@@ -118,9 +120,9 @@ Follow skill: `git-flow-working` for PR conventions.
 
 ---
 
-## Clarification flow (when AC is ambiguous mid-implementation)
+## Clarification flow (when AC is ambiguous OR a required input is missing mid-implementation)
 
-Do this instead of guessing or going out of scope:
+Do this instead of guessing or going out of scope. Two canonical missing-input triggers route here: implementing a **backend feature with no API spec** provided, and implementing a **new screen with no Figma** provided (when the AC references a design) — ask, do not guess or stub the contract/visual design.
 
 1. Post on the issue: `[DEV→PO ?]` with up to 3 numbered questions. Be specific (cite file/line if relevant).
 2. Add label `needs-clarification`.

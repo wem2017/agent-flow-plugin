@@ -23,7 +23,7 @@ yq '.connections.figma.enabled' .claude/agentflow.yaml      # → true
 [ -n "${FIGMA_TOKEN:-}" ] && echo "PAT path available" || echo "PAT absent — needs official MCP"
 ```
 
-If the gate fails (disabled, or no path available) → **skip design lookups entirely** and build from the issue's AC. Note it in your `[DEV]` comment (e.g. `design lookup skipped: figma not configured — built from AC only`) so reviewers know the implementation was AC-driven. **Never block dev work waiting on an optional connection.**
+If the gate fails (disabled, or no path available) → **skip design lookups entirely** and build from the issue's AC **when the AC is self-sufficient**. Note it in your `[DEV]` comment (e.g. `design lookup skipped: figma not configured — built from AC only`) so reviewers know the implementation was AC-driven. **Never block dev work waiting on an optional connection** — but a new screen whose AC genuinely needs a design that was never provided is a *missing input*, not an AC-only build: see *Handoff discipline*.
 
 ## Path A — official Figma MCP server (preferred)
 
@@ -117,6 +117,7 @@ AC-2 (button states): default/hover/disabled fills from frame 1234:5678;
 
 - **AC is authoritative for WHAT; design is authoritative for HOW it looks.** When they agree, implement to both.
 - **When design and AC conflict** — the frame shows a field the AC does not mention, or the AC requires behavior the design omits — do **not** silently follow the design over the AC. Use the **clarification loop** (see skill: `project-board-protocol`): post a `[DEV→PO ?]` comment with up to 3 numbered questions, add label `needs-clarification`, swap state back to `flow:refined`, and stop.
+- **When the issue is a new screen whose AC references a design but no Figma was provided** — no URL/node in the AC and nothing matching in `connections.figma.files` — do **not** invent the visual design. Treat the missing design as a **missing input** and use the **same clarification loop**: post a `[DEV→PO ?]` with up to 3 numbered questions, add label `needs-clarification`, swap state back to `flow:refined`, and stop. Build straight from the AC only when the AC fully specifies the screen on its own.
 - Cite the specific frame (`FILE_KEY` + `NODE_ID`) in your `[DEV]` comment so QC and PO can open the same node.
 - Design changes after an issue is `flow:ready-for-dev` are an AC/scope change, not a free DEV decision — route them through PO the same way.
 

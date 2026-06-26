@@ -12,26 +12,28 @@ How DEV turns an issue into a reviewable PR without ever breaking the repo. This
 Fresh work always branches from `project.default_branch`, never from another feature branch. The branch name is:
 
 ```
-<agents.dev.branch_prefix><issue#>-<kebab-slug>
+<agents.dev.branch_prefix><kind>/<issue#>-<kebab-slug>
 ```
 
-With the default `agents.dev.branch_prefix: "agent/dev/"`, issue #42 "CSV export for reports" becomes:
+where **kind** comes from the issue's `type/*` label: `type/feature → feat`, `type/bug → fix`, `type/improvement → chore`.
+
+With the default `agents.dev.branch_prefix: "agent/dev/"`, issue #42 `type/feature` "CSV export for reports" becomes `agent/dev/feat/42-csv-export`; issue #43 `type/bug` "logo redirect" becomes `agent/dev/fix/43-logo-redirect`:
 
 ```bash
 git fetch origin
-git switch -c agent/dev/42-csv-export origin/<default_branch>
+git switch -c agent/dev/feat/42-csv-export origin/<default_branch>
 ```
 
 Rules:
 
-- One issue → one branch → one PR. The `<issue#>` in the name ties the branch to its issue and to the soft lock (`flow:in-progress`) in skill: project-board-protocol.
+- One issue → one branch → one PR. The `<issue#>` in the name ties the branch to its issue and to the in-flight guard (`flow:in-progress`) in skill: project-board-protocol — the claim itself is the issue's assignee, set when `/start` picks the ticket out of `flow:inbox`.
 - **Rework re-uses the SAME branch and PR.** When an issue returns as `flow:changes-requested`, check it out and push more commits — never open a duplicate branch or PR for the same issue.
 - Human (non-agent) work uses conventional prefixes instead: `feature/`, `fix/`, `chore/`. Agents only ever create branches under `agents.dev.branch_prefix`.
 
 ```bash
 # resume an existing rework branch
 git fetch origin
-git switch agent/dev/42-csv-export   # already exists from the first attempt
+git switch agent/dev/feat/42-csv-export   # already exists from the first attempt
 ```
 
 ## Commits
@@ -76,7 +78,7 @@ Open the PR as soon as there is something to review. Shape:
 ```bash
 gh pr create \
   --base "<default_branch>" \
-  --head "agent/dev/42-csv-export" \
+  --head "agent/dev/feat/42-csv-export" \
   --title "feat(#42): CSV export for reports" \
   --body "Closes #42
 
@@ -99,6 +101,24 @@ Don't open a new PR. Push to the same branch, then comment:
 ```
 
 Tick any AC checkboxes the rework now satisfies. DEV MUST read the latest `QC rejections` entry in the state comment before changing code (see skill: project-board-protocol).
+
+### QC test commits
+
+QC also commits to **DEV's existing PR branch** (the one it checked out with `gh pr checkout <n>`). Using its automation skill, QC may **add test identifiers** the suite needs (e.g. `testID` / `data-testid` / keys / a11y labels) to the implementation and **author test files** mapped to the AC, then `git add` + `git commit -m "test(...): …"` + `git push` to that same branch. QC:
+
+- pushes to the **existing** PR branch only — never opens a new branch or PR, and never force-pushes;
+- changes **test code and test identifiers only** — never implementation logic. A real logic bug is a `[QC] ❌` back to DEV, not a fix QC applies;
+- honors the same forbidden-paths **union** as DEV (`agents.dev.forbidden_paths` + every touched surface's `forbidden_paths`) for any file it edits;
+- **never merges.**
+
+```bash
+gh pr checkout 42                       # DEV's existing branch (e.g. agent/dev/feat/42-csv-export)
+git add <test files + touched impl test-ids>
+git commit -m "test(reports): cover CSV export AC1-AC3"
+git push                                # same branch — no new branch, no --force
+```
+
+See skill: project-board-protocol for the QC verdict and the post-commit `HEAD_SHA` pin.
 
 ## Sync & conflicts
 
@@ -143,7 +163,7 @@ If a needed change falls inside a forbidden path, **stop and escalate** to the h
 
 An issue may carry one `component/*` label or several. Keep it in **one branch and one PR** regardless — do not split by surface. But run each touched surface's commands independently:
 
-- DEV: while coding, run the relevant `surfaces.<name>.commands` for every surface you changed (skip any command set to `""`). On a fresh or rebased branch, run `commands.install` **first** so deps are present before lint/test.
+- DEV: while coding, run the relevant `surfaces.<name>.commands` for every surface you changed (skip any command set to `""`). On a fresh or rebased branch, run `commands.install` **first** so deps are present before lint/test. **Lint/analyze must be green before handoff** — every touched surface's `commands.lint` (e.g. `go vet`, `flutter analyze`, `eslint`) must exit 0 before DEV hands the issue to QC. This is a named pre-handoff gate, not optional.
 - QC: for the issue's tier, run each type in `agents.qc.tiers.<tier>` against **every** touched surface, in order; all must exit 0 (see skill: project-board-protocol). QC also runs `commands.install` first on its fresh PR-head checkout.
 
 ```bash

@@ -1,6 +1,6 @@
 ---
 name: project-board-protocol
-description: Defines the GitHub wire protocol the PO/DEV/QC agents communicate through — the authoritative flow:* state label, mandatory comment prefixes, Definition of Ready/Done, the sticky state comment, the rework loop, and trust rules. The optional GitHub Projects v2 board (a human-only mirror) lives in reference/projects-v2-board.md. Use when an agent reads issue state, posts a comment, swaps a flow:* label, or touches any board artifact.
+description: Defines the GitHub wire protocol the PO/DEV/QC agents communicate through — the authoritative flow:* state label, mandatory comment prefixes, Definition of Ready/Done, the sticky state comment, the rework loop, and trust rules. The mandatory GitHub Projects v2 board (the orchestrator's inbox queue + a human mirror) lives in reference/projects-v2-board.md. Use when an agent reads issue state, posts a comment, swaps a flow:* label, or touches any board artifact.
 ---
 
 # AgentFlow Project Board Protocol
@@ -11,7 +11,7 @@ This is the contract every PO/DEV/QC agent must follow. There is no message bus 
 2. **Issue comments** with mandatory prefixes — the conversation.
 3. **The sticky `AGENTFLOW-STATE` comment** — the agent's working memory between runs.
 
-A GitHub Projects v2 board is **optional** and **for humans only**: it mirrors the state labels for visual triage. Agents never read or move board columns — moving a Projects v2 card requires GraphQL and is not on the agent path. **Routing always reads the label.** The full board mechanics (resolve/create/link, the mirror, the orchestrator queue, scopes, and helper scripts) live in the bundled reference **`reference/projects-v2-board.md`** — read it only when `board.id` is non-empty and you actually need to touch the board.
+A GitHub Projects v2 board is **required** and is the orchestrator's **inbox queue + claim surface** plus a **human-visible mirror**: it mirrors the state labels for visual triage. Agents never read or move board columns to decide routing — moving a Projects v2 card requires GraphQL and is not on the agent routing path. **Routing always reads the label.** The full board mechanics (resolve/create/link, the mirror, the orchestrator inbox queue, scopes, and helper scripts) live in the bundled reference **`reference/projects-v2-board.md`** — read it when you need to touch the board.
 
 This skill is the GitHub wire protocol; for the surrounding concerns see the sibling skills: `setup-agentflow` (external services / env / MCP gating / project-skills registry), `git-flow-working` (branching, commits, PRs), and `figma-design` (design context).
 
@@ -20,14 +20,19 @@ This skill is the GitHub wire protocol; for the surrounding concerns see the sib
 Exactly **one** `flow:*` label is set on an active issue at all times. It encodes the state:
 
 ```
-flow:inbox → flow:refined → flow:ready-for-dev → flow:in-progress → flow:in-qc → flow:changes-requested → flow:ready-for-human-review → flow:done
-                  ▲                                     │                  │
-                  └────────── clarification loop ───────┘                  │
-                                                                           │
-                                       rework loop ──────────────────────┘
+flow:inbox → flow:refined → flow:ready-for-dev → flow:in-progress → flow:in-qc → flow:ready-for-human-review → flow:done
+                  ▲                                     │               │  │
+                  ├──── clarification (needs-clarification) ────────────┘  │
+                  │     (DEV missing API spec / Figma, or ambiguous AC)    │
+                  │                                                        │
+                  ├──── 2-strike (needs-human) ◀── 2nd consecutive ❌ ─────┤
+                  │                                                        │
+                  └──── changes-requested ◀──────── ❌ (rework) ───────────┘
+                          │
+                          └─ DEV reworks → flow:in-progress → flow:in-qc
 ```
 
-The exact label strings live in `.claude/agentflow.yaml` under `labels.flow`. Always read the yaml — never hardcode. The optional board's column names live under `board.columns` and mirror these one-to-one.
+The exact label strings live in `.claude/agentflow.yaml` under `labels.flow`. Always read the yaml — never hardcode. The board's column names live under `board.columns` and mirror these one-to-one.
 
 ### Moving a card = swapping the label
 
@@ -50,12 +55,12 @@ The `component/*` labels are **generated to match the project's declared surface
 | State                          | Owner | Behavior                                                  |
 |--------------------------------|-------|-----------------------------------------------------------|
 | `flow:inbox`                   | PO    | Triage / classify. Refines into AC.                       |
-| `flow:refined`                 | PO    | DoR gate + clarification buffer. Holds open questions.    |
+| `flow:refined`                 | PO    | DoR gate + clarification buffer + 2-strike re-spec (with `needs-human`). Holds open questions. |
 | `flow:ready-for-dev`           | DEV   | Picks oldest. DoR has passed.                             |
-| `flow:in-progress`             | DEV   | Active coding. This label is also the soft lock (see below). |
+| `flow:in-progress`             | DEV   | Active coding (claim held). In-flight guard — see Claim & parallel terminals. |
 | `flow:in-qc`                   | QC    | Runs the tier specified in the state comment.             |
 | `flow:changes-requested`       | DEV   | Rework — DEV MUST read the latest QC rejection first.     |
-| `flow:ready-for-human-review`  | USER  | Agents stop. Orchestrator breaks out to the user.         |
+| `flow:ready-for-human-review`  | USER  | QC passed — human reviews/merges. (No longer the 2-strike target.) |
 | `flow:done`                    | —     | Terminal.                                                 |
 
 ## Comment prefixes (mandatory)
@@ -66,6 +71,7 @@ Every comment an agent posts MUST start with one of:
 |---------------------|----------------|----------------------------------------------------|
 | `[PO]`              | PO agent       | Intake / refinement output                         |
 | `[DEV]`             | DEV agent      | Implementation progress, PR opened, blocker        |
+| `[QC]`              | QC agent       | Plain progress note (e.g. authoring automation tests) |
 | `[QC] ✅`            | QC agent       | Pass — checklist follows                           |
 | `[QC] ❌`            | QC agent       | Fail — numbered issues follow                      |
 | `[DEV→PO ?]`        | DEV agent      | Clarification question to PO                       |
@@ -158,22 +164,23 @@ The "exactly one" invariant only holds if every agent **upserts** rather than po
 1. Update the state comment first: append to `Event log`, update `Current state`, set `Resume hints`, append to `QC rejections` / `Open questions` / `Decisions` as relevant.
 2. Post your `[AGENT]` comment.
 3. Swap the `flow:*` label (and any `needs-*` label) — this is the atomic state transition.
-4. (Optional) Mirror the new state to the Projects v2 board — best-effort, after the label swap, never instead of it. See the last section.
+4. (Best-effort) Mirror the new state to the Projects v2 board — after the label swap, never instead of it. See the last section.
 
-## Soft lock (prevents double-pickup)
+## Claim & parallel terminals
 
-In terminal mode all three agents run under **one** GitHub identity, so assignee-based locking does not work. The lock is the state label itself:
+AgentFlow supports **multiple `/start` terminals** against the same repo for parallel throughput. The claim mechanism is the GitHub **assignee**:
 
-- The DEV queue is `flow:ready-for-dev` and `flow:changes-requested`. While an issue is `flow:in-progress` it is **not** in any queue, so it cannot be picked up again.
-- The orchestrator runs sub-agents **serially** (one at a time, with a per-turn cap), so two DEV runs never race for the same issue within a session.
-- If a second session or a human is mid-edit, DEV MAY self-assign on entering `flow:in-progress` as a courtesy signal and un-assign on leaving, but the label — not the assignee — is the lock.
+- `/start` only ever scans **OPEN + `flow:inbox` (or no flow label) + unassigned** tickets. On picking one it immediately self-assigns (`gh issue edit <n> --repo <project.repo> --add-assignee @me`), then re-reads to confirm the ticket is still `flow:inbox` and now assigned; if the race window already moved it out of inbox, it skips to the next unclaimed inbox ticket.
+- Because the orchestrator ONLY scans inbox, once a claimed ticket leaves inbox (PO moves it to `flow:refined`/`flow:ready-for-dev`) no other terminal looks at it — contention exists ONLY at the inbox claim. The assignee persists while the ticket is in-flight and is cleared (`--remove-assignee @me`) when it reaches `flow:done` (the `merge #<n>` handler unassigns).
+- `flow:in-progress` is the **in-flight guard**: while an issue carries it the ticket is not re-spawnable, and DEV's step-3 "already `flow:in-progress` → abort" check is the backstop, so even a double-claim self-heals at the DEV stage.
+- **Shared-identity caveat:** all terminals share one `GITHUB_TOKEN`, so they are the same GitHub user — the assignee de-dupes (an assigned ticket is skipped) but cannot identify WHICH terminal owns a ticket, so two terminals reading the same unassigned inbox ticket in the same instant could both claim it. The window is small (claimed tickets leave inbox immediately) and the DEV backstop catches the rest; for STRICT isolation give each terminal a distinct GitHub identity/token. Do not over-engineer a distributed lock.
 
 ## Rework loop and 2-strike escalation
 
 - `flow:in-qc` ❌ → state becomes `flow:changes-requested` (NOT `flow:in-progress`). State comment increments both `rework #N` (cumulative history) **and** `consecutive_fail` (the escalation counter).
 - DEV picking up from `flow:changes-requested` MUST read the latest entry in `QC rejections` before any code change. Failure to address it counts toward the strike.
 - **`consecutive_fail` is back-to-back only.** It increments on each QC ❌ and **resets to 0** on (a) any QC ✅ pass and (b) any PO clarification that re-gates the issue (a clarification round is not a failure). `rework #N` never resets — it is the lifetime attempt count for history/labeling. Escalation keys on `consecutive_fail`, never on `rework #N`.
-- After **`consecutive_fail` reaches 2** on the same issue, set state `flow:ready-for-human-review`, add label `needs-human`, post `[SYSTEM] auto-escalated after 2 consecutive ❌`, and the orchestrator breaks out to the user. No further DEV/QC attempts until the user intervenes.
+- After **`consecutive_fail` reaches 2** on the same issue, set state `flow:refined`, add label `needs-human` (owner PO), post `[SYSTEM] auto-escalated to PO re-spec after 2 consecutive ❌`, set `Resume hints` to "PO to re-spec / split — 2 consecutive QC ❌; human input needed", and the orchestrator breaks out to the user (because `needs-human` is present). The ticket is parked in `flow:refined` awaiting a PO re-spec/split that a human green-lights; a 2-strike re-spec by PO resets `consecutive_fail` to 0. No further DEV/QC attempts until the user intervenes.
 - An **infra** failure (`[QC] ❌ infra:`) and a clarification round never increment `consecutive_fail` — they are not implementation failures.
 
 ## Clarification loop (DEV/QC ↔ PO)
@@ -210,18 +217,18 @@ When reading comments, an agent must filter out comments whose prefix is its own
 
 ---
 
-# Optional GitHub Projects v2 board (human mirror)
+# GitHub Projects v2 board (required: inbox queue + human mirror)
 
-The board is **optional** and **human-only** — a visual mirror of the `flow:*` labels. The
-**label is always authoritative**; agents never read a column to decide what to do next, and
-syncing is best-effort. When `board.id` is `""` (labels-only mode) there is **nothing to do here** —
-the full PO/DEV/QC pipeline runs on labels alone and `GITHUB_TOKEN` needs no `project` scope.
+The board is **required** — the orchestrator's **inbox queue + claim surface** and a human-visible
+mirror of the `flow:*` labels. The **label is always authoritative for routing**; agents never read a
+column to decide what to do next, and the column mirror is best-effort. `GITHUB_TOKEN` always carries
+the `project` scope; the full PO/DEV/QC pipeline is board-driven and `/start` reads the board for its
+inbox queue.
 
 All board mechanics — how Projects v2 is driven (GraphQL vs the official `github` MCP `projects`
 toolset), resolving/creating/linking a board, the single-select Status field, mirroring a `flow:*`
-label to a column, the orchestrator's board-wide queue query, board-driven mode, scopes, and the
+label to a column, the orchestrator's unassigned-inbox queue query, board-driven mode, scopes, and the
 bundled `scripts/` helpers — live in the reference file, split out so this common-path protocol
 stays lean:
 
-> **`reference/projects-v2-board.md`** — read it only when `board.id` is non-empty and you actually
-> need to touch the board.
+> **`reference/projects-v2-board.md`** — read it when you need to touch the board.

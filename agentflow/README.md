@@ -2,7 +2,7 @@
 
 A Claude Code plugin that turns one coding agent into a small, accountable team. A **Product Owner (PO)**, **Developer (DEV)**, and **Quality Control (QC)** agent coordinate on your GitHub repo so you only do two things by hand: **describe the work** and **review/merge the final PR**.
 
-AgentFlow is **tech-stack-agnostic**. You install the plugin **once** and run it per repo; each repo gets its own `.claude/agentflow.yaml` — the single source of truth that describes the whole project at a glance. Nothing in the plugin assumes a language, framework, or directory layout — you supply the commands. **v0.0.1** highlights:
+AgentFlow is **tech-stack-agnostic**. You install the plugin **once** and run it per repo; each repo gets its own `.claude/agentflow.yaml` — the single source of truth that describes the whole project at a glance. Nothing in the plugin assumes a language, framework, or directory layout — you supply the commands. **v0.1.0** highlights:
 
 - **Four focused core skills** — `setup-agentflow`, `project-board-protocol`, `git-flow-working`, `figma-design`. The onboarding/setup guide, wire protocol, git flow, and Figma handoff ship with the plugin and load on demand.
 - **Extensible role-prefixed project skills** — drop your own skills in `.claude/skills/` named `dev-*` / `qc-*` / `po-*`; the matching agent picks them up. Register them in `skills:` for the at-a-glance overview, or rely on prefix auto-discovery.
@@ -12,11 +12,11 @@ AgentFlow is **tech-stack-agnostic**. You install the plugin **once** and run it
 
 There is no message bus and no external service in the loop. Agents communicate entirely through GitHub primitives:
 
-- **`flow:*` labels** on each issue — the authoritative state machine (`inbox → refined → ready-for-dev → in-progress → in-qc → changes-requested → ready-for-human-review → done`).
+- **`flow:*` labels** on each issue — the authoritative state machine (happy path `inbox → refined → ready-for-dev → in-progress → in-qc → ready-for-human-review → done`, with `changes-requested` as the rework branch off `in-qc` and a 2-strike escalation back to `refined`).
 - **Issue comments** with mandatory prefixes (`[PO]`, `[DEV]`, `[QC] ✅`, …) — the conversation.
 - **A sticky `AGENTFLOW-STATE` comment** — the agents' memory between runs.
 
-A GitHub Projects v2 board is **optional** and exists only to give humans a visual mirror of the labels; agents never read or move board columns. Figma is **optional** too — used only by DEV during UI work when the `figma` connection is enabled.
+A GitHub Projects v2 board is **required** — it is the orchestrator's inbox queue **and** a human-visible mirror of the labels; agents never read or move board columns for routing (the `flow:*` label stays authoritative). Figma is **optional** — used only by DEV during UI work when the `figma` connection is enabled.
 
 ---
 
@@ -63,7 +63,7 @@ Make sure you have:
 4. **Token scopes** — the GitHub token (and the `gh` login) need:
    - `repo` — read/write code, issues, PRs.
    - `read:org` — to resolve org-owned projects.
-   - `project` — only if you opt into a GitHub Projects v2 board (`connections.github_project.enabled: true`). Skip it in labels-only mode.
+   - `project` — the GitHub Projects v2 board (`connections.github_project.enabled: true`) is required, so this scope is always needed.
 
    > **Security note:** a classic PAT with `repo` grants broad write access to *every* repo the token can reach, and all three agents share this one token. Prefer a **fine-grained token** scoped to just the target repo, and treat tokens as secrets — they are referenced by `${GITHUB_TOKEN}` / `${FIGMA_TOKEN}`, never hardcoded or echoed, so don't commit them.
 
@@ -73,7 +73,7 @@ Make sure you have:
 
 | Name | Required | Used by | Description |
 |------|----------|---------|-------------|
-| `GITHUB_TOKEN` | **Yes** | `github`, `github_project` connections | GitHub PAT (fine-grained preferred). Scopes: `repo`, `read:org` (+ `project` if using a board). |
+| `GITHUB_TOKEN` | **Yes** | `github`, `github_project` connections | GitHub PAT (fine-grained preferred). Scopes: `repo`, `read:org`, `project`. |
 | `FIGMA_TOKEN` | No | `figma` connection | Figma personal access token (Figma → Settings → Personal access tokens). |
 
 Secrets are declared by **name** in `.claude/agentflow.yaml` under `env:` (with `used_by` cross-linking each var to the connections that consume it). The **values** live in a `.env` file: copy `.env.example` → `.env`, fill it, and `source` it before launching Claude Code (`.env` is never committed — only `.env.example` is). `/agentflow-init` verifies every `required: true` var is present and refuses to finish if one is missing. Never put a value in the yaml.
@@ -96,12 +96,12 @@ Then restart Claude Code (or reload plugins) so the MCP servers, agents, command
 ## Quick start
 
 ```text
-/agentflow-init   # one-time setup for THIS repo (connections, env, surfaces, skills, labels, optional board, config)
+/agentflow-init   # one-time setup for THIS repo (connections, env, surfaces, skills, labels, board, config)
 /task add a CSV export button to the reports page    # file work → it lands on the board
-/start            # board-driven: poll this repo's board and chain PO → DEV → QC
+/start            # board-driven: claim unassigned flow:inbox tickets and drive each end-to-end (PO → DEV → QC)
 ```
 
-**`/start` is board-driven** — it polls this repo's GitHub Project board and routes each card through **PO → DEV → QC**, breaking back to you only when it needs clarification, hits the 2-strike escalation, a DEV card is blocked, or a PR is ready to merge. **`/start` does not intake work**; new work enters via **`/task <description>`** or by dropping a card on the board. You still do two things by hand: **describe the work** (`/task` / a board card) and **review/merge the PR**.
+**`/start` is board-driven** — it polls this repo's GitHub Project board, considers **only unassigned `flow:inbox`** tickets, **claims** one by self-assigning, and drives that ticket end-to-end through **PO → DEV → QC**, breaking back to you only when it needs clarification, hits the 2-strike escalation, a DEV card is blocked, or a PR is ready to merge. Multiple `/start` terminals can run in parallel against the same repo — the GitHub **assignee** is the claim (caveat: all terminals share one token, so for strict isolation give each a distinct GitHub identity). **`/start` does not intake work**; new work enters via **`/task <description>`** or by dropping a card on the board. You still do two things by hand: **describe the work** (`/task` / a board card) and **review/merge the PR**.
 
 ---
 
@@ -116,7 +116,7 @@ connections:
     repo: "owner/repo"
     auth:
       token_env: "GITHUB_TOKEN"          # secret name (value lives in your shell/.env)
-      scopes: ["repo", "read:org"]       # + "project" if you use a board
+      scopes: ["repo", "read:org", "project"]  # project: the board is required
       cli: "gh auth login"               # companion path used for label/PR ops
     mcp:
       server: "github"                   # → .mcp.json mcpServers.github
@@ -138,7 +138,7 @@ Built-in connections:
 | Connection | Purpose | Key config | Gating |
 |------------|---------|------------|--------|
 | `github` | Issues, branches, PRs, comments — the substrate the whole pipeline runs on. | `repo`, `auth.token_env`, `mcp.server` | Required (`enabled: true` + `GITHUB_TOKEN`). |
-| `github_project` | Optional **human** mirror of `flow:*` labels onto a Projects v2 Status field. Uses the `github` MCP server + `gh` (no dedicated server). | `owner`, `owner_type`, `auth.scopes` | Needs `project` scope; see skill `project-board-protocol`. |
+| `github_project` | **Required** Projects v2 board — the orchestrator's inbox queue plus a **human** mirror of `flow:*` labels onto a Status field. Uses the `github` MCP server + `gh` (no dedicated server). | `owner`, `owner_type`, `auth.scopes` | Required (`project` scope); see skill `project-board-protocol`. |
 | `figma` | Optional design source for DEV during UI work. | `auth.method: oauth`, `mcp.server`, `files` | Official server signs in via **OAuth** (`/mcp` → Authenticate); legacy `FIGMA_TOKEN` only for the REST fallback. See skill `figma-design`. |
 
 Adding your own is the same pattern: declare the secret under `env:`, copy a `connections.<name>` block (`enabled`, `auth.{token_env,scopes}`, an optional `mcp.{server,requires_env}` if it has a server, plus service metadata), and wire any new MCP server into `.mcp.json`. Agents **gate before use**: a skill checks `enabled` and that every required env var is present before touching the service, and degrades gracefully if not. The full registry contract — reading connections, mapping to env + MCP, gate-before-use, secret hygiene, and adding a service — lives in skill `setup-agentflow`.
@@ -185,7 +185,7 @@ Agents load these on demand; each is a `SKILL.md` under `skills/<name>/`. No reg
 | Skill | What it's for |
 |-------|----------------|
 | `setup-agentflow` | Onboarding / meta skill. The `agentflow.yaml` single source of truth, the full connection spec (token + MCP server + scopes), the `env:` block, dynamic surfaces, the project-skills registry + role-prefix convention, how `/agentflow-init` bootstraps, and secret hygiene. |
-| `project-board-protocol` | The GitHub wire protocol: `flow:*` labels, comment prefixes, Definition of Ready/Done, the sticky state comment, rework loop, and trust rules — plus an optional GitHub Projects v2 board (human mirror) section. Read before touching any board artifact. |
+| `project-board-protocol` | The GitHub wire protocol: `flow:*` labels, comment prefixes, Definition of Ready/Done, the sticky state comment, rework loop, and trust rules — plus the **required** GitHub Projects v2 board (inbox queue + human mirror) section. Read before touching any board artifact. |
 | `git-flow-working` | Tech-agnostic branching, Conventional Commits, PR conventions, and rebase/merge safety. |
 | `figma-design` | Pull frame specs/tokens via the `figma` MCP server (with REST fallback) for design-to-implementation handoff. |
 
@@ -220,8 +220,8 @@ An agent loads the role-prefixed skills for its role that are relevant to the su
 
 | Command | What it does |
 |---------|--------------|
-| `/agentflow-init` | One-time **per-repo** bootstrap: configure `connections.*`, verify `env:` secrets, declare the `surfaces.*` you have with their commands, scaffold/register project skills, create `flow:*` + `type/*` + `component/<surface>` + aux labels, optionally create/link a Projects v2 board, generate `.claude/agentflow.yaml` and `README.agentflow.md`, and walk a verification ticket end-to-end. |
-| `/start` | Enter board-driven team mode; the session polls this repo's board and chains the agents. **Does not intake work.** |
+| `/agentflow-init` | One-time **per-repo** bootstrap: configure `connections.*`, verify `env:` secrets, declare the `surfaces.*` you have with their commands, scaffold/register project skills, create `flow:*` + `type/*` + `component/<surface>` + aux labels, create/link the **required** Projects v2 board, generate `.claude/agentflow.yaml` and `README.agentflow.md`, and walk a verification ticket end-to-end. |
+| `/start` | Enter board-driven team mode; the session claims unassigned `flow:inbox` tickets and drives each end-to-end through the agents (parallel terminals supported). **Does not intake work.** |
 | `/task <description>` | File a new work item from a freeform description (PO owns intake) and add it to the board. |
 | `/status` | Print open-issue counts per `flow:*` state for this repo. |
 
@@ -230,19 +230,24 @@ An agent loads the role-prefixed skills for its role that are relevant to the su
 ## How the pipeline works
 
 ```
-flow:inbox → flow:refined → flow:ready-for-dev → flow:in-progress → flow:in-qc → flow:changes-requested → flow:ready-for-human-review → flow:done
-                  ▲                                    │                 │
-                  └───────── clarification loop ───────┘                 │
-                                                                         │
-                                     rework loop ───────────────────────┘
+flow:inbox → flow:refined → flow:ready-for-dev → flow:in-progress → flow:in-qc → flow:ready-for-human-review → flow:done
+                  ▲                                     │               │  │
+                  ├──── clarification (needs-clarification) ────────────┘  │
+                  │     (DEV missing API spec / Figma, or ambiguous AC)    │
+                  │                                                        │
+                  ├──── 2-strike (needs-human) ◀── 2nd consecutive ❌ ─────┤
+                  │                                                        │
+                  └──── changes-requested ◀──────── ❌ (rework) ───────────┘
+                          │
+                          └─ DEV reworks → flow:in-progress → flow:in-qc
 ```
 
 - **PO** turns your message into a well-formed issue, applies the `type/*` and `component/<surface>` labels, gates it through a **Definition of Ready**, and answers clarification questions. (Cannot write code or merge.)
-- **DEV** implements one issue on a feature branch (`agents.dev.branch_prefix`) and opens/updates a PR, staying within the acceptance criteria and never touching `forbidden_paths`. (Cannot merge.)
-- **QC** reviews the PR against the AC, runs the configured **QC tier** against the touched surfaces locally, and signs off (`[QC] ✅`) or rejects (`[QC] ❌`). After **2 consecutive rejections** it auto-escalates: `flow:ready-for-human-review` + `needs-human`. (Cannot modify code or merge.)
+- **DEV** implements one issue on a **type-named branch** (`<branch_prefix><kind>/<issue#>-<slug>`, `kind` from the `type/*` label: feature→feat, bug→fix, improvement→chore) and opens/updates a PR, staying within the acceptance criteria and never touching `forbidden_paths`. **Lint/analyze must be green** for every touched surface before handoff. (Cannot merge.)
+- **QC** reads the implementation diff against the AC, **authors automation tests** — adding the test identifiers the suite needs and writing test flows mapped to the AC, then committing (`test(...)`) and pushing them to DEV's existing PR branch — runs the configured **QC tier** (now including those tests) against the touched surfaces locally, and signs off (`[QC] ✅`, merge-ready) or rejects (`[QC] ❌`). After **2 consecutive rejections** it auto-escalates to a PO re-spec: `flow:refined` + `needs-human`. (Has `Edit`/`Write` for tests on the PR branch only — never changes implementation logic, never merges.)
 - **You** review and merge. The orchestrator never merges without your explicit instruction.
 
-Role boundaries aren't just prose — they're enforced by each agent's tool grants (PO/QC have no `Edit`/`Write`; only DEV can create branches/PRs/push; only QC has the PR-review tools). All three agents keep the `Skill` tool so they can load their core and role-prefixed skills. The full wire protocol — comment prefixes, DoR/DoD, the state comment, and trust rules — is the skill `project-board-protocol`.
+Role boundaries aren't just prose — they're enforced by each agent's tool grants (PO has no `Edit`/`Write`; **QC has `Edit`/`Write` for test IDs + test files on the PR branch only — never implementation logic**; only DEV creates branches/PRs and pushes feature code; only QC has the PR-review tools). All three agents keep the `Skill` tool so they can load their core and role-prefixed skills. The full wire protocol — comment prefixes, DoR/DoD, the state comment, and trust rules — is the skill `project-board-protocol`.
 
 ---
 
@@ -257,7 +262,7 @@ All settings live in **`.claude/agentflow.yaml`** (generated by `/agentflow-init
 - **`agents.qc.tiers.{quick,full,regression}`** — **lists of command-types**. The actual commands resolve per surface from `surfaces.<name>.commands.<type>`.
 - **`agents.qc.coverage_threshold`** — fallback coverage gate when a touched surface defines none (`0` disables it).
 - **`agents.dev.forbidden_paths`** — globs DEV must never touch (CI configs, infra, secrets, keystores), enforced for every surface in addition to each surface's own `forbidden_paths`. Backed by prompt + a QC review check.
-- **`board.id`** — the Projects v2 node ID, or `""` for labels-only mode. Mirrors `connections.github_project.enabled` (init keeps them in sync).
+- **`board.id`** — the Projects v2 node ID (a non-empty `PVT_…`; the board is required). Mirrors `connections.github_project.enabled` (always `true`; init keeps them in sync).
 
 `README.agentflow.md` (also generated into the target repo) is the day-to-day quick reference for users of that repo.
 
@@ -265,10 +270,10 @@ All settings live in **`.claude/agentflow.yaml`** (generated by `/agentflow-init
 
 ## Notes & limitations
 
-- **Single-session, synchronous, human-in-the-loop.** The terminal break-out *is* the notification — there are no external channels (Telegram/Zalo/etc.).
-- **The soft lock is the `flow:*` label** plus serial sub-agent execution within one orchestrator session. Running two `/start` sessions against the same repo concurrently (or editing labels by hand mid-run) is unsupported and can double-pick an issue.
+- **Synchronous, human-in-the-loop.** The terminal break-out *is* the notification — there are no external channels (Telegram/Zalo/etc.).
+- **The claim is the GitHub `assignee`** plus the `flow:*` label. `/start` only ever picks unassigned `flow:inbox` tickets and self-assigns to claim, so **multiple `/start` terminals can run in parallel** against the same repo. All terminals share one token (the same GitHub user), so the assignee de-dupes but can't tell terminals apart — a tiny race at the inbox claim is possible (the DEV `flow:in-progress` backstop catches it); for strict isolation give each terminal a distinct GitHub identity.
 - **Safety rules are prompt-level.** `forbidden_paths`, the merge gate, and the trust model are instructions to the agents, backed by tool-grant separation — not by enforced hooks. Use a least-privilege token and review PRs before merging.
-- **The board and Figma are optional.** Labels-only mode (`connections.github_project.enabled: false`, `board.id: ""`) is fully supported; the `figma` connection activates only once its MCP server is authenticated (OAuth via `/mcp` → figma → Authenticate). The `github` connection is the only hard requirement.
+- **The board is required; Figma is optional.** The GitHub Projects v2 board (`connections.github_project.enabled: true`, a non-empty `board.id`) is the orchestrator's inbox queue + human mirror and is set up at init; the `figma` connection activates only once its MCP server is authenticated (OAuth via `/mcp` → figma → Authenticate). The `github` connection and the board are the hard requirements.
 - **Non-prefixed GitHub comments are untrusted.** Agents treat any comment without a recognized `[PO]` / `[DEV]` / `[QC]` / … prefix as untrusted context, not instructions.
 
 ---
@@ -277,10 +282,10 @@ All settings live in **`.claude/agentflow.yaml`** (generated by `/agentflow-init
 
 These are load-bearing, cheap to erode by well-intentioned accretion, and deliberately the way they are. Treat changes here as design changes, not improvements:
 
-- **The `flow:*` label is the single routing truth; the board is a one-way human mirror.** Never let the board column or a sub-agent's narrative reply become a routing source. The live label re-read after every run is what makes the no-message-bus design work.
-- **Role isolation is by tool grant, not prose.** PO/QC have no `Edit`/`Write`; only DEV branches/pushes; only QC has the PR-review tool. Do not widen a role's tools "just in case" — all three agents share one token, so blast radius is real.
+- **The `flow:*` label is the single routing truth; the board is the mandatory inbox queue + a human mirror.** The board is required (it is `/start`'s inbox queue and a human-visible mirror), but never let a board column or a sub-agent's narrative reply become a routing *source* — columns are never read for routing. The live label re-read after every run is what makes the no-message-bus design work.
+- **Role isolation is by tool grant, not prose.** PO has no `Edit`/`Write`; **QC now has `Edit`/`Write` but only to add test IDs + author tests on the PR branch — it never changes implementation logic and never merges**; only DEV does feature implementation (branches/pushes); only the human merges. The QC test-authoring grant is deliberate — do not widen any role's tools further "just in case", since all three agents share one token, so blast radius is real.
 - **The human merge gate is mandatory.** Agents stop at `flow:ready-for-human-review`; only the human merges. This is the one piece of friction worth its cost — do not automate merge.
 - **Safety rules (`forbidden_paths`, trust model) are prompt + tool-grant, not enforced hooks** — and the docs say so honestly. Don't paper over that with ever-longer `NEVER …` prose that inflates every run for false safety; real enforcement belongs in a hook/CI check.
 - **Lazy, split skill loading stays lazy.** Heavy mechanics live in `reference/` files read only when needed (`projects-v2-board.md`). Don't front-load board mechanics into every agent prompt.
 - **Don't grow the sticky `AGENTFLOW-STATE` comment.** Three agents prose-edit it and must stay format-compatible; every new mandatory field is new drift surface. Prefer fewer fields, not more.
-- **Optional connections degrade gracefully.** A disabled/absent service is skipped with a note, never a hard block. Don't harden optional connections (figma, the board) into blocking preconditions.
+- **Optional connections degrade gracefully.** A disabled/absent *optional* service (e.g. figma) is skipped with a note, never a hard block. Don't harden optional connections into blocking preconditions. (The `github` connection and the board are the exceptions — both are required.)

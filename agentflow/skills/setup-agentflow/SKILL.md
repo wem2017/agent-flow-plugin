@@ -18,9 +18,9 @@ Read this **first**. It tells you how an AgentFlow project is described and how 
 | `env`           | every secret needed, declared by NAME only           |
 | `surfaces`      | the buildable parts, each with tech-agnostic commands|
 | `skills`        | project-added role-prefixed skills (registry)        |
-| `board`         | optional GitHub Projects v2 human mirror             |
+| `board`         | required GitHub Projects v2 inbox queue + human mirror|
 | `labels`        | the flow/type/component state machine                |
-| `agents`        | DEV branch/forbidden rules, QC tier model            |
+| `agents`        | DEV type-named branch/forbidden rules, QC tier + authored automation tests (Edit/Write) |
 
 ## Connections — fully specified in one place
 
@@ -76,12 +76,12 @@ env: declares ─────▶ connections.<name>.auth.token_env / mcp.require
 | Connection       | `token_env`    | Required | Key metadata                        | MCP server | Deeper skill            |
 |------------------|----------------|----------|-------------------------------------|------------|-------------------------|
 | `github`         | `GITHUB_TOKEN` | yes      | `repo`                              | `github`   | project-board-protocol  |
-| `github_project` | `GITHUB_TOKEN` | optional | `owner`, `owner_type` (org \| user) | `github`   | project-board-protocol  |
+| `github_project` | `GITHUB_TOKEN` | required | `owner`, `owner_type` (org \| user) | `github`   | project-board-protocol  |
 | `figma`          | OAuth (or `FIGMA_TOKEN` fallback) | optional | `files: [{ name, key }]` | `figma`    | figma-design            |
 
 **github** — the backbone. Issues, labels, comments, branches, and PRs flow through it; the `flow:*` label is the authoritative state. Uses two paths as the same account: the `gh` CLI (labels, issue reads, PR merge) and the `github` MCP server reading `${GITHUB_TOKEN}`. See skill: project-board-protocol.
 
-**github_project** — optional human-only visualization (GitHub Projects v2). Shares `GITHUB_TOKEN` but needs the `project` scope, and uses the **same** `github` MCP server (no dedicated server) — its `projects` toolset, if used for the mirror, must be explicitly enabled on that server. Agents drive state from the `flow:*` labels and **never** move board columns; the board is a one-way mirror that may lag. Node id + column names live under `board:`. See skill: project-board-protocol.
+**github_project** — required (GitHub Projects v2): the `/start` orchestrator's inbox queue + a human-visible mirror. Shares `GITHUB_TOKEN` but needs the `project` scope (always required), and uses the **same** `github` MCP server (no dedicated server) — its `projects` toolset, if used for the mirror, must be explicitly enabled on that server. Agents drive state from the `flow:*` labels and **never** move board columns; the board is the inbox queue + a best-effort mirror that may lag. Node id + column names live under `board:`. See skill: project-board-protocol.
 
 **figma** — optional design source. The preferred path is the **official Figma MCP server (OAuth)** — no token in the env at all; usable once `connections.figma.enabled: true` and the `figma` MCP server is connected and authenticated. A legacy **PAT fallback** (the Framelink server / REST) uses `FIGMA_TOKEN` for headless/enterprise setups that can't OAuth. When usable, DEV pulls frame specs/tokens during UI work; `files` lists the documents in play by `{ name, key }`. See skill: figma-design.
 
@@ -112,7 +112,7 @@ env:
   - name: "GITHUB_TOKEN"
     required: true
     used_by: ["github", "github_project"]
-    description: "GitHub PAT (fine-grained preferred). Scopes: repo + read:org (+ project if using a board)."
+    description: "GitHub PAT (fine-grained preferred). Scopes: repo + read:org + project."
   - name: "FIGMA_TOKEN"
     required: false
     used_by: ["figma"]
@@ -137,7 +137,7 @@ The four core (plugin) skills:
 | Skill                   | Purpose                                                        |
 |-------------------------|----------------------------------------------------------------|
 | `setup-agentflow`       | this onboarding/meta skill                                     |
-| `project-board-protocol`| the GitHub wire protocol + optional board mirror               |
+| `project-board-protocol`| the GitHub wire protocol + the required board (queue + mirror) |
 | `git-flow-working`      | branching, Conventional Commits, PR conventions                |
 | `figma-design`          | pull design specs/tokens via figma; design→AC handoff          |
 
@@ -156,11 +156,11 @@ An agent loads the role-prefixed skills **for its role** that are **relevant to 
 
 ## /agentflow-init
 
-`/agentflow-init` bootstraps a repo: it detects surfaces, writes `.claude/agentflow.yaml` (overview + connections + env + surfaces + generated `component/*` labels + skill stubs), verifies required env vars, and creates the `flow:*`/`type/*`/`component/*` labels (and the optional board).
+`/agentflow-init` bootstraps a repo: it detects surfaces, writes `.claude/agentflow.yaml` (overview + connections + env + surfaces + generated `component/*` labels + skill stubs), verifies required env vars, and creates the `flow:*`/`type/*`/`component/*` labels (and the required board).
 
-## Board-driven mode (optional, single repo + one board)
+## Board-driven mode (the default — single repo + one board)
 
-This repo can attach **one** GitHub Projects v2 board (`board.id` non-empty + `connections.github_project.enabled: true`) so the `/start` orchestrator polls it as a work queue and chains PO → DEV → QC. The per-issue `flow:*` **label** stays authoritative for routing; the board Status is a queue + best-effort mirror. The board mechanics, the canonical `status_map`, and the required scopes live in skill: `project-board-protocol` → `reference/projects-v2-board.md`.
+This repo attaches **one** GitHub Projects v2 board (`board.id` non-empty + `connections.github_project.enabled: true`) so the `/start` orchestrator polls it as its inbox queue (unassigned `flow:inbox` tickets) and drives each through PO → DEV → QC. The per-issue `flow:*` **label** stays authoritative for routing; the board Status is the inbox queue + a best-effort mirror. The board mechanics, the canonical `status_map`, and the required scopes live in skill: `project-board-protocol` → `reference/projects-v2-board.md`.
 
 ## Secret hygiene
 

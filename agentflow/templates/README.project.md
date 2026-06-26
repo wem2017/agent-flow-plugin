@@ -1,6 +1,6 @@
 # AgentFlow — quick reference for this repo
 
-This repo uses the **AgentFlow** plugin to coordinate a 3-agent dev workflow (PO → DEV → QC → human review) on GitHub. (The exact plugin version this config was authored against is pinned as `agentflow_version` in `.claude/agentflow.yaml`.) State lives in `flow:*` **labels** on each issue; a GitHub Projects v2 board is optional and only mirrors those labels for visual triage. Everything is configured in one file — `.claude/agentflow.yaml`, the single source of truth.
+This repo uses the **AgentFlow** plugin to coordinate a 3-agent dev workflow (PO → DEV → QC → human review) on GitHub. (The exact plugin version this config was authored against is pinned as `agentflow_version` in `.claude/agentflow.yaml`.) State lives in `flow:*` **labels** on each issue; a GitHub Projects v2 board is **required** — it is the orchestrator's inbox queue and a human-visible mirror of those labels for triage. Everything is configured in one file — `.claude/agentflow.yaml`, the single source of truth.
 
 You only do two things by hand: **describe the work, and review/merge the PR.** Everything in between happens through GitHub.
 
@@ -15,6 +15,8 @@ You only do two things by hand: **describe the work, and review/merge the PR.** 
 
 After `/start`, this terminal session becomes the orchestrator — describe work in plain text and the team (PO → DEV → QC) chains automatically. Need to reroute a card (back to PO, skip a stage, flag for a human)? Just say so in plain text inside `/start` — e.g. "send #12 back to PO" — and the orchestrator does it inline. The orchestrator only breaks back to you when it needs clarification, hits a 2-strike escalation (`needs-human`), or a PR is ready to merge.
 
+You can run **multiple `/start` terminals** against the same repo for parallel throughput — each claims an unassigned `flow:inbox` ticket by self-assigning it, so terminals don't collide. They share one `GITHUB_TOKEN` (same GitHub user), so for strict isolation give each terminal a distinct GitHub identity/token.
+
 ## What this repo connects to
 
 Connections are declared under `connections.*` in `.claude/agentflow.yaml`. Each block fully specifies its own wiring (secret name, scopes, MCP server). A connection is usable only when `enabled: true` **and** every var it requires is present (sourced from `.env`). They are additive — toggle one with `enabled: true|false`.
@@ -22,10 +24,10 @@ Connections are declared under `connections.*` in `.claude/agentflow.yaml`. Each
 | Connection       | Required? | What it does                                                        |
 |------------------|-----------|---------------------------------------------------------------------|
 | `github`         | always on | Issues, branches, PRs, labels, comments — the protocol itself.      |
-| `github_project` | optional  | GitHub Projects v2 board that **mirrors** `flow:*` labels for humans.|
+| `github_project` | always on | GitHub Projects v2 board — the orchestrator's inbox queue + a human mirror of `flow:*` labels.|
 | `figma`          | optional  | DEV pulls frame specs/tokens during UI work (via the `figma` MCP).  |
 
-To turn the board or Figma on/off, edit the matching block's `enabled` flag (for the board, keep `connections.github_project.enabled` and `board.id` in sync — `/agentflow-init` does this for you). Labels stay authoritative regardless of the board.
+To turn Figma on/off, edit that block's `enabled` flag. The board is required — keep `connections.github_project.enabled: true` and `board.id` in sync (`/agentflow-init` does this for you). Labels stay authoritative regardless of the board.
 
 ## Environment variables
 
@@ -33,7 +35,7 @@ Every secret is declared by **name only** under the `env:` list in `.claude/agen
 
 | Var            | Required | For                                                  |
 |----------------|----------|------------------------------------------------------|
-| `GITHUB_TOKEN` | yes      | GitHub access (scopes: `repo`, `read:org`, `+ project` if board) |
+| `GITHUB_TOKEN` | yes      | GitHub access (scopes: `repo`, `read:org`, `project`) |
 | `FIGMA_TOKEN`  | no       | Figma legacy PAT — Framelink/REST fallback only; the official figma MCP server uses OAuth (no token) |
 
 **Secret hygiene:** put these in an **uncommitted** `.env` (copy `.env.example`, fill it, then `source` it before launching Claude Code) — never commit a token, never paste a value into `agentflow.yaml`. Reference secrets only by name (`${GITHUB_TOKEN}`). `/agentflow-init` refuses to finish if a `required: true` var is missing.
@@ -71,7 +73,7 @@ Four core skills always ship with the plugin and are on automatically — no reg
 | Skill                    | Covers                                                         |
 |--------------------------|----------------------------------------------------------------|
 | `setup-agentflow`        | onboarding: yaml as source of truth, connections, env, surfaces, skill registry |
-| `project-board-protocol` | the GitHub wire protocol: `flow:*` labels, comment prefixes, DoR/DoD, optional board |
+| `project-board-protocol` | the GitHub wire protocol: `flow:*` labels, comment prefixes, DoR/DoD, the board |
 | `git-flow-working`       | branching, Conventional Commits, PR conventions, rebase/merge safety |
 | `figma-design`           | pull frame specs/tokens via the `figma` MCP; design → AC handoff |
 
@@ -86,12 +88,12 @@ skills:
 
 ## What goes where (the `flow:*` label)
 
-- **`flow:inbox` / `flow:refined`** — PO is shaping the request.
+- **`flow:inbox` / `flow:refined`** — PO is shaping the request. `flow:refined` is also where a 2-strike QC escalation lands (`+needs-human`) for PO to re-spec/split.
 - **`flow:ready-for-dev`** — DEV will pick it up next.
 - **`flow:in-progress`** — DEV is implementing. If DEV is blocked, you'll see a `[DEV]` blocked comment and the issue stays here for you to unblock.
-- **`flow:in-qc`** — DEV opened a PR; QC is running the tier.
+- **`flow:in-qc`** — DEV opened a PR; QC authors automation tests on the PR branch, then runs the tier.
 - **`flow:changes-requested`** — QC rejected; DEV is reworking.
-- **`flow:ready-for-human-review`** — your turn. Review and merge the PR. (Two consecutive QC ❌ also lands here with `needs-human`.)
+- **`flow:ready-for-human-review`** — your turn. Review and merge the PR. (Reached only on a QC ✅ — merge-ready.)
 - **`flow:done`** — merged and closed.
 
 Filter the issue list by any of these labels to see what's where (`gh issue list --label flow:in-qc`).

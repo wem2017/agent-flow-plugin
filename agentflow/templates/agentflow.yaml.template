@@ -8,7 +8,7 @@
 # AgentFlow is tech-stack agnostic — it never assumes a language or framework.
 #
 # Pin the plugin version this config was authored against.
-agentflow_version: "0.0.1"
+agentflow_version: "0.1.0"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PROJECT OVERVIEW — the headline facts. Everything else hangs off this.
@@ -36,18 +36,18 @@ connections:
     repo: "{{OWNER}}/{{REPO}}"
     auth:
       token_env: "GITHUB_TOKEN"           # secret name (value lives in your shell/.env)
-      scopes: ["repo", "read:org"]        # + "project" if you use a board
+      scopes: ["repo", "read:org"]        # + "project" via github_project (board is required)
       cli: "gh auth login"                # companion path used for label/PR ops
     mcp:
       server: "github"                    # → .mcp.json mcpServers.github
       requires_env: ["GITHUB_TOKEN"]      # server won't start without this
 
   github_project:
-    # OPTIONAL human visualization (GitHub Projects v2). Agents drive state from the
-    # flow:* LABELS, never from board columns. Uses the github MCP server + gh (no
-    # dedicated server). The board node id + column names live under `board:` below.
-    # See skill: project-board-protocol
-    enabled: {{GITHUB_PROJECT_ENABLED}}
+    # REQUIRED human-visible routing mirror + orchestrator inbox queue (GitHub Projects v2).
+    # Agents drive state from the flow:* LABELS, never from board columns. Uses the github
+    # MCP server + gh (no dedicated server). The board node id + column names live under
+    # `board:` below.  See skill: project-board-protocol
+    enabled: true
     owner: "{{PROJECT_OWNER}}"            # org or user login that owns the board
     owner_type: "{{PROJECT_OWNER_TYPE}}"  # org | user
     auth:
@@ -91,7 +91,7 @@ env:
   - name: "GITHUB_TOKEN"
     required: true
     used_by: ["github", "github_project"]
-    description: "GitHub PAT (fine-grained preferred). Scopes: repo + read:org (+ project if using a board)."
+    description: "GitHub PAT (fine-grained preferred). Scopes: repo + read:org + project."
   - name: "FIGMA_TOKEN"
     required: false
     used_by: ["figma"]
@@ -147,9 +147,10 @@ skills: {}
   # po-discovery:           { role: po,  description: "Discovery & story-mapping checklist" }
 
 board:
-  # GitHub Projects v2 board node id (PVT_xxx) or number, or "" for labels-only mode.
+  # REQUIRED. GitHub Projects v2 board node id (PVT_xxx) or number — always a real id now.
   # Mirrors connections.github_project.enabled — init keeps them in sync. Agents never
-  # move columns (that needs GraphQL); the board is a human-only visual mirror.
+  # move columns (that needs GraphQL); the board is the orchestrator's inbox queue + a
+  # human-visible mirror (the flow:* label stays authoritative for routing).
   id: "{{PROJECT_ID}}"
   columns:
     inbox:                  "Inbox"
@@ -189,6 +190,9 @@ labels:
 agents:
   dev:
     branch_prefix: "agent/dev/"
+    # Branch is type-named: <branch_prefix><kind>/<issue#>-<slug>, where <kind> maps from
+    # the issue's type/* label (feature→feat, bug→fix, improvement→chore).
+    # e.g. agent/dev/feat/42-csv-export
     # Global no-touch globs, enforced for EVERY surface in addition to each surface's
     # own forbidden_paths. CI configs, infra, secrets, keystores.
     forbidden_paths:
@@ -197,6 +201,9 @@ agents:
       - "**/*.pem"
       - "**/.env"
   qc:
+    # QC authors automation tests (test IDs + test flows) and commits them to DEV's
+    # existing PR branch before running the tier — needs the project `qc-automation-test`
+    # skill. QC never changes implementation logic and never merges. Tiers unchanged.
     # A tier selects WHICH command types run, against the surface(s) an issue touches
     # (by its component/* labels). Cumulative: quick ⊆ full ⊆ regression. The actual
     # shell commands live under surfaces.<name>.commands.<type>.

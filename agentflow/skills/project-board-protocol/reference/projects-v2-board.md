@@ -1,16 +1,13 @@
-# Optional GitHub Projects v2 board (human mirror)
+# GitHub Projects v2 board (inbox queue + human mirror)
 
 > Reference for skill `project-board-protocol`. Read `../SKILL.md` first — this file is the
-> heavy, rarely-needed board mechanics, split out so the common (labels-only) path stays lean.
+> heavy, rarely-needed board mechanics, split out so the main protocol stays lean.
 
 **The one rule that overrides everything below:** the `flow:*` **LABEL is authoritative** for
-routing. The Projects v2 board is a **human-only visual mirror**. Agents decide what to do next by
-reading the issue's `flow:*` label — they **never** read a board column to make a decision. Syncing
-the board is **optional, best-effort, and may lag**. If a mirror write fails, log it and continue;
-the pipeline is unaffected.
-
-When `board.id` is `""` (labels-only mode), ignore this file entirely: the full PO/DEV/QC pipeline
-works with labels alone, and `GITHUB_TOKEN` needs **no** `project` scope.
+routing. The Projects v2 board is the orchestrator's **inbox queue + a human-visible mirror**.
+Sub-agents (PO/DEV/QC) decide what to do next by reading the issue's `flow:*` label — they **never**
+read a board column to make a decision. Mirror writes are **best-effort and may lag**. If a mirror
+write fails, log it and continue; the pipeline is unaffected.
 
 ## Contents
 
@@ -179,12 +176,12 @@ any error, log and move on.
 
 ## List actionable board items
 
-**Board-driven mode only.** When a board spans many issues, the orchestrator reads the **whole**
-board in one shot to build its work queue. This is the one query that reads board state as a
-*queue*. Paginate over every item and pull, per item: the issue **number**, the **item id** (reuse
-it directly in the mirror's `updateProjectV2ItemFieldValue`, skipping the `addProjectV2ItemById`
-round-trip), the issue's live **labels** (the authoritative `flow:*`), the issue **state** (skip
-`CLOSED`), and the current **Status** option name.
+The orchestrator reads the **whole** board in one shot to build its **inbox queue**. This is the one
+query that reads board state as a *queue*. Paginate over every item and pull, per item: the issue
+**number**, the **item id** (reuse it directly in the mirror's `updateProjectV2ItemFieldValue`,
+skipping the `addProjectV2ItemById` round-trip), the issue's live **labels** (the authoritative
+`flow:*`), the issue **state** (skip `CLOSED`), the issue's **assignees** (for the unassigned-inbox
+claim filter), and the current **Status** option name.
 
 ```bash
 gh api graphql -f query='
@@ -204,6 +201,7 @@ gh api graphql -f query='
               url
               repository{ nameWithOwner }
               labels(first:20){ nodes{ name } }
+              assignees(first:5){ nodes{ login } }
             }
             ... on DraftIssue { title }   # draft cards have no issue → not routable
           }
@@ -213,55 +211,54 @@ gh api graphql -f query='
 # loop while .data.node.items.pageInfo.hasNextPage, passing endCursor as the next cursor
 ```
 
-The list returns **all** board items; the orchestrator applies the *actionable* filter client-side
-(Status whose `status_map` owner is an agent, issue `state == OPEN`). A **draft** card (no
-`content.number`) is outside the label state machine — surface it to the human to convert to an
-issue via `/task`.
+The list returns **all** board items; the orchestrator applies the *inbox-claim* filter client-side:
+issue `state == OPEN`, carries `flow:inbox` (or no `flow:*` label yet → treat as inbox), and has
+**no assignee** (unclaimed). It claims one by self-assigning, then drives that ticket end-to-end off
+its live label. A **draft** card (no `content.number`) is outside the label state machine — surface
+it to the human to convert to an issue via `/task`.
 
 ## Board-driven mode amendment
 
-The default protocol (in `../SKILL.md`) makes the `flow:*` **label authoritative** and treats the
-board as a **human-only mirror** that agents never read. **Board-driven mode** relaxes this in
-exactly one place: the **orchestrator** (`/start`) reads board Status as its **work queue** via the
-list query above. This is the *only* sanctioned reader of columns, and even it does not *trust* the
-column for state — for each item it re-reads the issue's live `flow:*` label and routes off the
-**label** (label wins on any drift), then re-mirrors Status to match. PO/DEV/QC sub-agents still
-**never** read or write the board; all board writes stay at the orchestrator layer (`/start`,
-`/task`). The board is a queue + mirror; the label is the truth.
+Board-driven is now the **only** mode — the board is mandatory and `/start` requires it. The default
+protocol (in `../SKILL.md`) keeps the `flow:*` **label authoritative** and treats the board as the
+orchestrator's **inbox queue + a human-visible mirror**. The **orchestrator** (`/start`) reads the
+board for its **inbox queue** via the list query above — it scans only unassigned `flow:inbox`
+cards, claims one, then drives that ticket end-to-end. It is the *only* sanctioned reader of columns,
+and even it does not *trust* the column for state — for each item it re-reads the issue's live
+`flow:*` label and routes off the **label** (label wins on any drift), then re-mirrors Status to
+match. PO/DEV/QC sub-agents still **never** read or write the board; all board writes stay at the
+orchestrator layer (`/start`, `/task`). The board is the inbox queue + mirror; the label is the truth.
 
 ## Canonical status_map (board-driven mode)
 
-A repo running board-driven `/start` (`board.id` non-empty + `connections.github_project.enabled:
-true`) uses the canonical table below. It is the single routing table `/start` reads — read it here,
-do not hardcode a different one. The `column` strings match the canonical `board.columns`; if a repo
-renamed a column, map by the **`<key>`** (e.g. `in_qc`), not the display string.
+`/start` uses the canonical table below as its single routing table — read it here, do not hardcode
+a different one. The `column` strings match the canonical `board.columns`; if a repo renamed a
+column, map by the **`<key>`** (e.g. `in_qc`), not the display string.
 
 ```yaml
 status_map:
-  inbox:                  { column: "Inbox",                  flow_label: "flow:inbox",                  owner: "po",    action: "triage & refine the issue into AC" }
-  refined:                { column: "Refined",                flow_label: "flow:refined",                owner: "po",    action: "DoR gate / clarification buffer" }
-  ready_for_dev:          { column: "Ready for Dev",          flow_label: "flow:ready-for-dev",          owner: "dev",   action: "pick oldest, implement, open PR" }
-  in_progress:            { column: "In Progress",            flow_label: "flow:in-progress",            owner: "dev",   action: "active coding (soft lock) — NOT re-spawnable; break out if paused/blocked" }
-  in_qc:                  { column: "In QC",                  flow_label: "flow:in-qc",                  owner: "qc",    action: "run the issue's QC tier per touched surface" }
+  inbox:                  { column: "Inbox",                  flow_label: "flow:inbox",                  owner: "po",    action: "claim (self-assign) → triage & refine into AC" }
+  refined:                { column: "Refined",                flow_label: "flow:refined",                owner: "po",    action: "DoR gate / clarification buffer / 2-strike re-spec (needs-human)" }
+  ready_for_dev:          { column: "Ready for Dev",          flow_label: "flow:ready-for-dev",          owner: "dev",   action: "implement on a type-named branch, open PR" }
+  in_progress:            { column: "In Progress",            flow_label: "flow:in-progress",            owner: "dev",   action: "active coding (claim held) — NOT re-spawnable; break out if paused/blocked" }
+  in_qc:                  { column: "In QC",                  flow_label: "flow:in-qc",                  owner: "qc",    action: "author tests + run the tier per touched surface" }
   changes_requested:      { column: "Changes Requested",      flow_label: "flow:changes-requested",      owner: "dev",   action: "rework against the latest QC rejection" }
-  ready_for_human_review: { column: "Ready for Human Review", flow_label: "flow:ready-for-human-review", owner: "human", action: "human reviews / merges, or 2-strike decision" }
+  ready_for_human_review: { column: "Ready for Human Review", flow_label: "flow:ready-for-human-review", owner: "human", action: "human reviews / merges (QC ✅, merge-ready)" }
   done:                   { column: "Done",                   flow_label: "flow:done",                   owner: "human", action: "terminal" }
 ```
 
 > **`in_progress` is a special case.** Its `owner` is `dev` (the work belongs to DEV), but the card
-> is **in-flight under the soft lock** — the orchestrator must **never re-spawn DEV** on it. A card
+> is **in-flight (the claim is held)** — the orchestrator must **never re-spawn DEV** on it. A card
 > sitting in `flow:in-progress` between polls means DEV paused or is blocked → **break out to the
 > human**, do not route it forward. See `commands/start.md` (polling loop, "next step" decision).
 
 ## Scopes
 
+The board is **mandatory**, so `project` scope is always required — `/start` reads the board to
+build its inbox queue and stops at boot if `project` is missing.
+
 - Org board: `GITHUB_TOKEN` needs `project` **and** `read:org`.
 - User board: `GITHUB_TOKEN` needs `project`.
-- **Labels-only** mode (`board.id` = `""`): none of the above; the pipeline still works end to end.
-  Prefer this when no human needs the visual board.
-- **Board-driven mode** (a board on the agent decision path): `project` scope is **mandatory** —
-  `/start` reads the board to build its queue and stops at boot if the scope is missing.
-  (Labels-only installs keep `/task`/agents without it; they just lose the board-driven `/start`.)
 - If the optional MCP `projects` toolset is used for the mirror, the `github` MCP server must be run
   with that toolset enabled (it is **not** on by default); otherwise the `projects_*` tools silently
   do not exist and the mirror falls back to GraphQL.
