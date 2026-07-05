@@ -28,7 +28,7 @@ Các connection được khai báo dưới `connections.*` trong `.claude/agentf
 | `github_project` | luôn bật  | GitHub Projects v2 board — inbox queue của orchestrator + một human mirror của các label `flow:*`.|
 | `figma`          | tùy chọn  | DEV pull frame specs/tokens trong lúc làm UI (qua `figma` MCP).     |
 
-Để bật/tắt Figma, sửa flag `enabled` của block đó. Board là bắt buộc — giữ `connections.github_project.enabled: true` và `board.id` đồng bộ với nhau (`/agentflow-init` làm việc này giúp bạn). Label vẫn giữ vai trò authoritative bất kể board thế nào.
+Để bật/tắt Figma, sửa flag `enabled` của block đó. Board là bắt buộc — giữ `connections.github_project.enabled: true` và `board.number` đồng bộ với nhau (`/agentflow-init` làm việc này giúp bạn). Label vẫn giữ vai trò authoritative bất kể board thế nào.
 
 ## Environment variables
 
@@ -43,29 +43,27 @@ Mỗi secret được khai báo **chỉ bằng tên** trong list `env:` ở `.cl
 
 ## Surfaces (các phần build được)
 
-Một **surface** là một phần build được của repo, định nghĩa dưới `surfaces.*`. Map này có tính **dynamic** — repo này chỉ khai báo các surface nó thực sự có, với các key do owner chọn (ví dụ `backend`, `web`, `api`, `admin`, `mobile`, hoặc chỉ `"."` cho một repo single-surface). AgentFlow không phụ thuộc tech-stack: mỗi surface mang **command riêng** của nó.
+Một **surface** là một phần build được của repo, định nghĩa dưới `surfaces.*`. Map này có tính **dynamic** — repo này chỉ khai báo các surface nó thực sự có, với các key do owner chọn (ví dụ `backend`, `web`, `api`, `admin`, `mobile`, hoặc chỉ `"."` cho một repo single-surface). AgentFlow không phụ thuộc tech-stack: DEV và QC tự khám phá cách build/lint/test mỗi surface theo convention riêng của repo.
 
 ```
 surfaces.<name>.path                  # glob root, "." for single-surface repos
 surfaces.<name>.label                 # the component/<name> label that maps to it
-surfaces.<name>.commands.{install,lint,test,integration,e2e,build}
-surfaces.<name>.coverage_command / coverage_threshold
 surfaces.<name>.forbidden_paths
 ```
 
-`labels.component` được generate để khớp với các surface key — một `component/<surface>` cho mỗi surface được khai báo. PMO gắn cho mỗi issue (các) label `component/<surface>` tương ứng với (các) surface mà nó chạm tới. DEV chạy command của surface bị chạm khi code; QC chạy chúng như một gate. Để đổi cách một surface build hoặc những gì nó không bao giờ được chạm tới, sửa block của surface đó. Để một command là `""` để skip nó.
+`labels.component` được generate để khớp với các surface key — một `component/<surface>` cho mỗi surface được khai báo. PMO gắn cho mỗi issue (các) label `component/<surface>` tương ứng với (các) surface mà nó chạm tới. DEV và QC build/lint/test mỗi surface bị chạm theo convention riêng của repo — soi `package.json` scripts, `Makefile`, `pubspec`, `go.mod`, CI config… để biết cách build/lint/test. Để đổi những gì một surface không bao giờ được chạm tới, sửa `forbidden_paths` trong block của surface đó.
 
 ## QC tiers
 
-Một tier chọn **command-type nào chạy**, không phải các shell command cụ thể. Chúng có tính cộng dồn: `quick ⊆ full ⊆ regression`.
+Một tier là một **gợi ý ngữ nghĩa về độ sâu test**, không phải một tập shell command cấu hình sẵn. PMO đặt tier theo blast radius của issue; QC map nó sang đúng những category test mà repo thực sự có và chạy chúng theo convention riêng của repo. Chúng có tính cộng dồn: `quick ⊆ full ⊆ regression`.
 
-| Tier         | Command-type được chạy                     |
+| Tier         | Độ sâu test                                |
 |--------------|--------------------------------------------|
-| `quick`      | `lint`, `test`                             |
-| `full`       | `lint`, `test`, `integration`              |
-| `regression` | `lint`, `test`, `integration`, `e2e`       |
+| `quick`      | lint + unit test                           |
+| `full`       | + integration                              |
+| `regression` | + e2e                                       |
 
-Với mỗi surface mà issue chạm tới (theo các label `component/<surface>` của nó), QC chạy command của surface đó cho từng type trong tier, theo thứ tự; tất cả phải exit 0 (một command `""` sẽ bị skip). Các shell command thực tế nằm dưới `surfaces.<name>.commands.<type>`. Coverage dùng `coverage_command`/`coverage_threshold` của surface bị chạm, fallback về `agents.qc.coverage_threshold`. Tinh chỉnh các định nghĩa tier dưới `agents.qc.tiers.*`.
+Với mỗi surface mà issue chạm tới (theo các label `component/<surface>` của nó), QC viết automation test rồi chạy các category test ứng với tier theo convention của repo; tất cả phải pass. Không có coverage gate bằng số — QC tự đánh giá độ đầy đủ của test bằng cách inspect, không theo một ngưỡng cứng.
 
 ## Skills
 
@@ -90,14 +88,14 @@ skills:
 ## Cái gì nằm ở đâu (label `flow:*`)
 
 - **`flow:inbox`** — PMO đang định hình request (triage + refine tới Definition of Ready). Cũng là điểm RE-ENTRY sau khi bạn bổ sung info cho một ticket `flow:refined`.
-- **`flow:ready-for-dev`** — DEV sẽ nhặt nó lên tiếp theo. Nếu mang aux label `rework` (QC đã reject) hoặc `human-changes` (bạn "Request changes" trên PR), DEV finish cái đó trước và đọc feedback mới nhất.
+- **`flow:ready-for-dev`** — DEV sẽ nhặt nó lên tiếp theo. Nếu đã có một open PR link tới issue (một vòng trước), DEV **amend chính PR đó** thay vì mở mới. Nếu mang aux label `rework` (QC đã reject), DEV đọc QC rejection mới nhất trước.
 - **`flow:in-progress`** — DEV đang implement. Nếu DEV bị block, bạn sẽ thấy một comment blocked `[DEV]` và issue nằm lại đây để bạn unblock.
 - **`flow:in-qc`** — DEV đã mở một PR; QC viết automation test trên PR branch, rồi chạy tier. QC ❌ (chưa vượt ngưỡng) route ticket về `flow:ready-for-dev` + `rework`.
 - **`flow:refined`** — **BLOCKED, cần bạn.** Một info-gap (PMO không tới được DoR, DEV thiếu spec/Figma, QC gặp AC mơ hồ, hoặc escalation QC 2-strike) đã park ticket ở đây và un-assign nó. Bạn cung cấp thêm info/quyết định qua `/review-refined` (hoặc sửa label tay), rồi lệnh đó re-label nó về `flow:inbox` để PMO re-triage và chạy tiếp.
-- **`flow:ready-for-human-review`** — đến lượt bạn. Review và merge PR — hoặc để lại một review **"Request changes"** trên nó và `/start` sẽ route nó về lại DEV dưới dạng `flow:ready-for-dev` + `human-changes` (được mirror vào issue dưới dạng một comment `[USER]`; QC re-gate trước khi nó quay lại bạn). (Chỉ đạt tới đây khi QC ✅ — sẵn sàng merge.)
+- **`flow:ready-for-human-review`** — đến lượt bạn. Review và merge PR — hoặc, để yêu cầu thay đổi, để **feedback inline trực tiếp trên code của PR** rồi **tự tay chuyển ticket về `flow:inbox`** (agent không tự làm bước này; ticket đã được unassign nên chỉ cần đổi label). Pipeline chạy lại: PMO đọc feedback của bạn trên PR, fold vào AC, DEV amend chính PR đó, QC re-gate, rồi nó quay lại bạn. (Chỉ đạt tới đây khi QC ✅ — sẵn sàng merge.)
 - **`flow:done`** — đã merge và close.
 
-Filter list issue theo bất kỳ label nào trong số này để xem cái gì đang ở đâu (`gh issue list --label flow:in-qc`).
+Filter list issue theo bất kỳ label nào trong số này để xem cái gì đang ở đâu — lọc theo label ngay trên GitHub Projects board (human mirror của các label `flow:*`), hoặc chạy `/status`.
 
 ## Comment prefixes (để bạn grep / filter)
 

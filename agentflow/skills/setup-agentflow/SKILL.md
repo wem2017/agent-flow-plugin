@@ -16,11 +16,10 @@ description: Giải thích cách đọc .claude/agentflow.yaml — single source
 | `project`       | name, repo, default_branch, tóm tắt một dòng         |
 | `connections`   | những external service nào tồn tại + chúng được wire ra sao |
 | `env`           | mọi secret cần thiết, chỉ khai báo bằng NAME         |
-| `surfaces`      | những phần build được, mỗi cái kèm tech-agnostic commands|
+| `surfaces`      | những phần build được, mỗi cái kèm path + component label + forbidden_paths|
 | `skills`        | các skill role-prefixed do project thêm vào (registry) |
 | `board`         | GitHub Projects v2 inbox queue bắt buộc + human mirror|
 | `labels`        | state machine flow/type/component                    |
-| `agents`        | DEV branch/forbidden rules theo type-name, QC tier + authored automation tests (Edit/Write) |
 
 ## Connections — khai báo đầy đủ tại một nơi
 
@@ -79,9 +78,9 @@ env: declares ─────▶ connections.<name>.auth.token_env / mcp.require
 | `github_project` | `GITHUB_TOKEN` | bắt buộc | `owner`, `owner_type` (org \| user) | `github`   | project-board-protocol  |
 | `figma`          | OAuth (hoặc `FIGMA_TOKEN` fallback) | tuỳ chọn | `files: [{ name, key }]` | `figma`    | figma-design            |
 
-**github** — xương sống. Issue, label, comment, branch, và PR đều chảy qua nó; label `flow:*` là state có thẩm quyền. Dùng hai path với cùng một account: `gh` CLI (labels, issue reads, PR merge) và `github` MCP server đọc `${GITHUB_TOKEN}`. Xem skill: project-board-protocol.
+**github** — xương sống. Issue, label, comment, PR, và review đều chảy qua nó; label `flow:*` là state có thẩm quyền. Dùng **một đường duy nhất**: `github` MCP server đọc `${GITHUB_TOKEN}`, lo mọi GitHub-API op (issue, label, comment, PR, review, board). VCS thì dùng local `git` (branch/commit/push/checkout/rebase) trên working tree — MCP không thay được. Xem skill: project-board-protocol.
 
-**github_project** — bắt buộc (GitHub Projects v2): inbox queue của `/start` orchestrator + một mirror mà con người thấy được. Dùng chung `GITHUB_TOKEN` nhưng cần `project` scope (luôn bắt buộc), và dùng **cùng** `github` MCP server (không có server riêng) — `projects` toolset của nó, nếu dùng cho mirror, phải được enable tường minh trên server đó. Các agent điều khiển state từ label `flow:*` và **không bao giờ** di chuyển board column; board là inbox queue + một mirror best-effort có thể trễ. Node id + tên column nằm dưới `board:`. Xem skill: project-board-protocol.
+**github_project** — bắt buộc (GitHub Projects v2): inbox queue của `/start` orchestrator + một mirror mà con người thấy được. Dùng chung `GITHUB_TOKEN` nhưng cần `project` scope (luôn bắt buộc), và dùng **cùng** `github` MCP server (không có server riêng) — điều khiển qua `projects` toolset của server đó, phải được enable tường minh trong `.mcp.json` qua header `X-MCP-Toolsets: context,repos,issues,pull_requests,users,labels,projects` (trong đó `labels` + `projects` là opt-in, không có trong default toolset). Board được key theo **project number** (owner + number), không phải `PVT_` node id. Các agent điều khiển state từ label `flow:*` và **không bao giờ** di chuyển board column; board là inbox queue + một mirror best-effort có thể trễ. `board.number` + tên column nằm dưới `board:`. Xem skill: project-board-protocol.
 
 **figma** — design source tuỳ chọn. Path ưu tiên là **official Figma MCP server (OAuth)** — hoàn toàn không có token trong env; dùng được ngay khi `connections.figma.enabled: true` và `figma` MCP server đã connected và authenticated. Một **PAT fallback** kiểu legacy (Framelink server / REST) dùng `FIGMA_TOKEN` cho các setup headless/enterprise không OAuth được. Khi dùng được, DEV pull frame specs/tokens trong lúc làm UI; `files` liệt kê các document đang dùng theo `{ name, key }`. Xem skill: figma-design.
 
@@ -123,7 +122,7 @@ env:
 
 ## Surfaces — open map
 
-`surfaces:` là một **open map**: chỉ khai báo những phần mà project của bạn thực sự có. Key là các tên do **bạn** chọn — `backend`, `web`, `api`, `admin`, `mobile`, hoặc chỉ `"."` cho một single-surface repo. Một project có thể chỉ backend, chỉ frontend, chỉ mobile, hoặc bất kỳ tổ hợp nào; **đừng bao giờ** giả định một bộ ba backend/frontend/mobile cố định. Mỗi surface mang theo bộ tech-agnostic shell command riêng (`install`/`lint`/`test`/`integration`/`e2e`/`build`, cộng `coverage_command`/`coverage_threshold`); để trống `""` bất kỳ cái nào để skip. `label` của mỗi surface gắn nó với một `component/<surface>` GitHub label, và `labels.component` được sinh ra khớp one-for-one với các surface key. PMO gắn tag cho biết issue chạm tới surface nào; DEV/QC lặp qua bất kỳ surface nào tồn tại.
+`surfaces:` là một **open map**: chỉ khai báo những phần mà project của bạn thực sự có. Key là các tên do **bạn** chọn — `backend`, `web`, `api`, `admin`, `mobile`, hoặc chỉ `"."` cho một single-surface repo. Một project có thể chỉ backend, chỉ frontend, chỉ mobile, hoặc bất kỳ tổ hợp nào; **đừng bao giờ** giả định một bộ ba backend/frontend/mobile cố định. Mỗi surface chỉ mang theo `path`, `label` (component label của nó), và `forbidden_paths` — **không** có shell command hay coverage config. DEV/QC build/lint/test một surface bằng chính **convention của repo** (đọc `package.json` scripts, `Makefile`, `pubspec`, `go.mod`, CI config, … rồi tự phán đoán). `label` của mỗi surface gắn nó với một `component/<surface>` GitHub label, và `labels.component` được sinh ra khớp one-for-one với các surface key. PMO gắn tag cho biết issue chạm tới surface nào; DEV/QC lặp qua bất kỳ surface nào tồn tại.
 
 ## Skills — plugin core vs project add-ons
 
@@ -160,7 +159,7 @@ Một agent load các role-prefixed skill **cho role của nó** mà **liên qua
 
 ## Board-driven mode (mặc định — single repo + one board)
 
-Repo này gắn **một** GitHub Projects v2 board (`board.id` không rỗng + `connections.github_project.enabled: true`) để `/start` orchestrator poll nó như inbox queue của mình (các ticket `flow:inbox` chưa được assign) và đẩy từng cái qua PMO → DEV → QC. **Label** `flow:*` theo từng issue vẫn là nguồn có thẩm quyền cho routing; board Status là inbox queue + một mirror best-effort. Cơ chế của board, `status_map` chuẩn, và các scope bắt buộc nằm trong skill: `project-board-protocol` → `reference/projects-v2-board.md`.
+Repo này gắn **một** GitHub Projects v2 board (`board.number` không rỗng + `connections.github_project.enabled: true`) để `/start` orchestrator poll nó như inbox queue của mình (các ticket `flow:inbox` chưa được assign) và đẩy từng cái qua PMO → DEV → QC. **Label** `flow:*` theo từng issue vẫn là nguồn có thẩm quyền cho routing; board Status là inbox queue + một mirror best-effort. Cơ chế của board, `status_map` chuẩn, và các scope bắt buộc nằm trong skill: `project-board-protocol` → `reference/projects-v2-board.md`.
 
 ## Secret hygiene
 

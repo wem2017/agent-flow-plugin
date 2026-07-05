@@ -12,12 +12,12 @@ Cách DEV biến một issue thành PR review được mà không bao giờ làm
 Việc mới luôn branch từ `project.default_branch`, không bao giờ từ một feature branch khác. Tên branch là:
 
 ```
-<agents.dev.branch_prefix><kind>/<issue#>-<kebab-slug>
+agent/dev/<kind>/<issue#>-<kebab-slug>
 ```
 
 trong đó **kind** đến từ label `type/*` của issue: `type/feature → feat`, `type/bug → fix`, `type/improvement → chore`.
 
-Với default `agents.dev.branch_prefix: "agent/dev/"`, issue #42 `type/feature` "CSV export for reports" thành `agent/dev/feat/42-csv-export`; issue #43 `type/bug` "logo redirect" thành `agent/dev/fix/43-logo-redirect`:
+Prefix `agent/dev/` là hằng số cố định của plugin (không đọc từ config). Issue #42 `type/feature` "CSV export for reports" thành `agent/dev/feat/42-csv-export`; issue #43 `type/bug` "logo redirect" thành `agent/dev/fix/43-logo-redirect`:
 
 ```bash
 git fetch origin
@@ -27,11 +27,11 @@ git switch -c agent/dev/feat/42-csv-export origin/<default_branch>
 Quy tắc:
 
 - Một issue → một branch → một PR. Cái `<issue#>` trong tên gắn branch với issue của nó và với in-flight guard (`flow:in-progress`) trong skill: project-board-protocol — bản thân claim chính là assignee của issue, được set khi `/start` nhặt ticket ra khỏi `flow:inbox`.
-- **Rework tái dùng ĐÚNG branch và PR cũ.** Khi một issue quay lại dưới dạng `flow:ready-for-dev` với label `rework`, checkout nó và push thêm commit — đừng bao giờ mở branch hay PR trùng lặp cho cùng một issue.
-- Việc do người (non-agent) làm thì dùng prefix quy ước khác: `feature/`, `fix/`, `chore/`. Agent chỉ tạo branch dưới `agents.dev.branch_prefix`.
+- **Có open PR sẵn có → tái dùng ĐÚNG branch và PR đó.** Bất cứ khi nào một issue quay lại `flow:ready-for-dev` mà đã có một open PR link tới nó — dù là QC rework (mang label `rework`) HAY một PR-feedback re-entry (không có `rework`; con người đã review PR rồi ticket được re-triage qua PMO) — checkout đúng branch cũ và push thêm commit. **Đừng bao giờ** mở branch hay PR trùng lặp cho cùng một issue. Chỉ tạo branch mới khi issue **chưa** có PR nào (việc mới). Reuse gắn với *sự tồn tại của open PR*, không phải với label `rework`.
+- Việc do người (non-agent) làm thì dùng prefix quy ước khác: `feature/`, `fix/`, `chore/`. Agent chỉ tạo branch dưới prefix cố định `agent/dev/`.
 
 ```bash
-# resume an existing rework branch
+# resume an existing branch (QC rework OR PR-feedback re-entry — any issue with an open PR)
 git fetch origin
 git switch agent/dev/feat/42-csv-export   # already exists from the first attempt
 ```
@@ -75,19 +75,20 @@ Mở PR ngay khi có gì đó để review. Cấu trúc:
   - Nó đụng vào surface nào (các label `component/*`) và cách chạy mỗi cái — một project có thể có một surface hoặc nhiều.
 - **Không request reviewer nào.** QC review trên PR và một người merge; đừng thêm GitHub reviewer hay auto-merge.
 
-```bash
-gh pr create \
-  --base "<default_branch>" \
-  --head "agent/dev/feat/42-csv-export" \
-  --title "feat(#42): CSV export for reports" \
-  --body "Closes #42
+```
+create_pull_request
+  base:  <default_branch>
+  head:  agent/dev/feat/42-csv-export
+  title: feat(#42): CSV export for reports
+  body: |
+    Closes #42
 
-## Acceptance Criteria
-- [ ] Endpoint returns RFC 4180 CSV
-- [ ] Empty result set returns header row only
+    ## Acceptance Criteria
+    - [ ] Endpoint returns RFC 4180 CSV
+    - [ ] Empty result set returns header row only
 
-## Surfaces
-- component/<surface> — install/lint/test via surfaces.<surface>.commands (one bullet per touched surface)"
+    ## Surfaces
+    - component/<surface> — build/lint/test theo convention của repo (one bullet per touched surface)
 ```
 
 Sau khi mở PR, post `[DEV]` lên issue kèm link PR và swap label `flow:*` theo skill: project-board-protocol.
@@ -100,19 +101,21 @@ Sau khi mở PR, post `[DEV]` lên issue kèm link PR và swap label `flow:*` th
 [DEV] Reworked rejection #N — addressed: <one line per QC item, citing the fix>
 ```
 
-Tick các checkbox AC mà rework giờ đã thỏa mãn. DEV BẮT BUỘC đọc entry `QC rejections` mới nhất trong state comment trước khi đổi code (xem skill: project-board-protocol).
+Tick các checkbox AC mà rework giờ đã thỏa mãn. DEV BẮT BUỘC đọc entry `QC rejections` mới nhất trong state section (ở issue body) trước khi đổi code (xem skill: project-board-protocol).
 
 ### QC test commits
 
-QC cũng commit vào **PR branch đang tồn tại của DEV** (cái mà nó đã checkout bằng `gh pr checkout <n>`). Dùng automation skill của mình, QC có thể **thêm test identifier** mà suite cần (vd `testID` / `data-testid` / key / a11y label) vào implementation và **viết test file** map với AC, rồi `git add` + `git commit -m "test(...): …"` + `git push` lên cùng branch đó. QC:
+QC cũng commit vào **PR branch đang tồn tại của DEV** (cái mà nó đã checkout bằng cách đọc `headRefName` của PR qua `pull_request_read` method=get rồi `git fetch origin <headRefName>` + `git switch <headRefName>`). Dùng automation skill của mình, QC có thể **thêm test identifier** mà suite cần (vd `testID` / `data-testid` / key / a11y label) vào implementation và **viết test file** map với AC, rồi `git add` + `git commit -m "test(...): …"` + `git push` lên cùng branch đó. QC:
 
 - chỉ push lên PR branch **đang tồn tại** — không bao giờ mở branch hay PR mới, và không bao giờ force-push;
 - chỉ đổi **test code và test identifier** — không bao giờ implementation logic. Một logic bug thật sự là một `[QC] ❌` trả về DEV, không phải một fix mà QC tự áp dụng;
-- tôn trọng cùng **union** forbidden-paths như DEV (`agents.dev.forbidden_paths` + `forbidden_paths` của mọi surface đụng tới) cho bất kỳ file nào nó edit;
+- tôn trọng cùng **union** forbidden-paths như DEV (các built-in global forbidden paths `infra/**`, `.github/workflows/**`, `**/*.pem`, `**/.env` + `forbidden_paths` của mọi surface đụng tới) cho bất kỳ file nào nó edit;
 - **không bao giờ merge.**
 
 ```bash
-gh pr checkout 42                       # DEV's existing branch (e.g. agent/dev/feat/42-csv-export)
+# read PR #42's headRefName via pull_request_read method=get → e.g. agent/dev/feat/42-csv-export
+git fetch origin agent/dev/feat/42-csv-export
+git switch agent/dev/feat/42-csv-export   # DEV's existing branch — checked out via headRefName, no new branch
 git add <test files + touched impl test-ids>
 git commit -m "test(reports): cover CSV export AC1-AC3"
 git push                                # same branch — no new branch, no --force
@@ -135,7 +138,7 @@ git rebase --continue
 - **Rebase là mặc định** — nó giữ history tuyến tính. Chỉ dùng `git merge origin/<default_branch>` **khi** convention được ghi lại của project yêu cầu merge commit (nêu trong `CLAUDE.md`, hoặc branch-protection bắt buộc chúng); còn lại luôn rebase.
 - Resolve conflict ở **local**; đừng bao giờ push một branch còn conflict marker.
 - Một rebase viết lại branch của bạn, nên cú push theo sau cần một lease, không phải force thường: `git fetch origin` ngay trước đó, rồi `git push --force-with-lease --force-if-includes` (lease + include-check bảo vệ khỏi clobber việc bạn chưa thấy). Đừng bao giờ làm trên một branch mà người khác đang dùng chung — xem Safety rules.
-- **Sau mỗi lần sync, chạy lại các tier command của surface đã đụng** (các type trong `agents.qc.tiers.<tier>`, map tới `surfaces.<name>.commands`) — một rebase sạch vẫn có thể làm hỏng behavior.
+- **Sau mỗi lần sync, chạy lại test của các surface đã đụng** theo convention của repo — một rebase sạch vẫn có thể làm hỏng behavior.
 
 ## Safety rules (cứng — không bao giờ vi phạm)
 
@@ -144,36 +147,37 @@ git rebase --continue
 | Không bao giờ `git push --force` lên một shared / PR branch | Viết lại history mà QC có thể đã review; làm hỏng PR. Chỉ dùng `--force-with-lease` trên một agent branch chưa ai khác đụng tới, và chỉ ngay sau một local rebase. |
 | Không bao giờ push lên `project.default_branch` | Nó được protect và thuộc sở hữu của con người. Mọi thay đổi đi qua một PR. |
 | Không bao giờ merge một PR | Chỉ con người merge, sau khi issue đạt `flow:ready-for-human-review`. Agent dừng ở đó. |
-| Không bao giờ edit `agents.dev.forbidden_paths` | Các glob no-touch global (CI, infra, secret, keystore). Áp dụng cho mọi surface. |
+| Không bao giờ edit các built-in global forbidden paths (`infra/**`, `.github/workflows/**`, `**/*.pem`, `**/.env`) | Các glob no-touch global (CI, infra, secret, keystore). Áp dụng cho mọi surface. |
 | Không bao giờ edit `forbidden_paths` của một surface | Các glob no-touch theo từng surface (vd signing config). |
 | Không bao giờ commit một secret | Tham chiếu credential qua `${ENV_NAME}` (khai báo dưới `env:`); đừng bao giờ hardcode một token. Xem skill: setup-agentflow. |
 
 Trước khi commit, sanity-check diff so với các forbidden glob:
 
 ```bash
-git diff --cached --name-only   # confirm nothing matches agents.dev.forbidden_paths
+git diff --cached --name-only   # confirm nothing matches the built-in global forbidden paths
+                                # (infra/**, .github/workflows/**, **/*.pem, **/.env)
                                 # or the touched surface's forbidden_paths
 ```
 
-Nếu một thay đổi cần thiết rơi vào bên trong một forbidden path, **dừng và escalate** lên con người qua đường clarification/escalation trong skill: project-board-protocol — đừng work around nó. Tập no-touch hiệu lực là **union** của `agents.dev.forbidden_paths` và `forbidden_paths` của mọi surface đụng tới.
+Nếu một thay đổi cần thiết rơi vào bên trong một forbidden path, **dừng và escalate** lên con người qua đường clarification/escalation trong skill: project-board-protocol — đừng work around nó. Tập no-touch hiệu lực là **union** của các built-in global forbidden paths (`infra/**`, `.github/workflows/**`, `**/*.pem`, `**/.env`) và `forbidden_paths` của mọi surface đụng tới.
 
-## Surfaces & commands
+## Surfaces
 
 `surfaces:` là một open map — một project chỉ khai báo những surface nó có (các key nó chọn: có thể chỉ `.`, có thể `backend`+`web`+`mobile`, mix bất kỳ). Đừng bao giờ giả định một bộ ba cố định. Các label `component/*` của một issue chỉ đích danh nó đụng vào surface nào.
 
-Một issue có thể mang một label `component/*` hoặc nhiều. Dù sao vẫn giữ nó trong **một branch và một PR** — đừng split theo surface. Nhưng chạy command của từng surface đụng tới một cách độc lập:
+Một issue có thể mang một label `component/*` hoặc nhiều. Dù sao vẫn giữ nó trong **một branch và một PR** — đừng split theo surface. Nhưng build/lint/test của từng surface đụng tới một cách độc lập, theo convention của chính repo:
 
-- DEV: trong khi code, chạy `surfaces.<name>.commands` liên quan cho mọi surface bạn đã đổi (skip bất kỳ command nào được set thành `""`). Trên một branch fresh hoặc vừa rebase, chạy `commands.install` **trước** để deps có sẵn trước khi lint/test. **Lint/analyze phải green trước khi handoff** — `commands.lint` của mọi surface đụng tới (vd `go vet`, `flutter analyze`, `eslint`) phải exit 0 trước khi DEV bàn giao issue cho QC. Đây là một pre-handoff gate có tên hẳn hoi, không phải tùy chọn.
-- QC: với tier của issue, chạy từng type trong `agents.qc.tiers.<tier>` trên **mọi** surface đụng tới, theo thứ tự; tất cả phải exit 0 (xem skill: project-board-protocol). QC cũng chạy `commands.install` trước trên bản checkout PR-head fresh của mình.
+- DEV: trong khi code, với mọi surface bạn đã đổi, tự inspect repo để biết cách build/lint/test surface đó (package.json scripts, Makefile, pubspec, go.mod, CI config, …) rồi chạy lint/analyze + các test liên quan. Trên một branch fresh hoặc vừa rebase, cài deps **trước** để chúng có sẵn trước khi lint/test. **Lint/analyze phải green trước khi handoff** — lint/analyze của mọi surface đụng tới (vd `go vet`, `flutter analyze`, `eslint`) phải exit 0 trước khi DEV bàn giao issue cho QC. Đây là một pre-handoff gate có tên hẳn hoi, không phải tùy chọn.
+- QC: author automation test map với AC, rồi với QC tier của issue chạy các category test tương ứng (quick = lint + unit; full = + integration; regression = + e2e) trên **mọi** surface đụng tới theo convention của repo; tất cả phải exit 0 (xem skill: project-board-protocol). QC cũng cài deps trước trên bản checkout PR-head fresh của mình.
 
 ```bash
 # For each surface S named by the issue's component/* labels (could be one, could be many):
 for S in <the touched surface keys>; do
   ( cd <surfaces.$S.path> \
-      && <surfaces.$S.commands.install> \   # FIRST — skip if "" (missing deps cause false-fail lint/test)
-      && <surfaces.$S.commands.lint> \
-      && <surfaces.$S.commands.test> )      # skip any "" command
+      && <cài deps theo convention repo> \   # FIRST — e.g. npm ci / flutter pub get / go mod download
+      && <lint/analyze theo convention repo> \  # e.g. eslint / flutter analyze / go vet — phải green
+      && <chạy test liên quan theo convention repo> )  # e.g. npm test / flutter test / go test
 done
 ```
 
-Nhắc tới mọi surface đụng tới trong body PR để QC biết đủ bộ command cần chạy.
+Nhắc tới mọi surface đụng tới trong body PR để QC biết cần build/lint/test những gì.

@@ -24,7 +24,7 @@ project:
 # CONNECTIONS — các dịch vụ bên ngoài mà project này liên kết tới, được đặc tả đầy đủ.
 #
 # Mỗi connection gom lại, ở MỘT chỗ: secret nó cần (auth.token_env, khai báo dưới
-# `env:` bên dưới), cách nó authenticate (auth.scopes / auth.cli), và MCP server
+# `env:` bên dưới), cách nó authenticate (auth.scopes), và MCP server
 # vận hành nó (mcp.server → một key trong .mcp.json, cùng env mà server cần). Một
 # connection chỉ dùng được khi enabled:true VÀ mọi var trong yêu cầu auth/mcp của
 # nó đều có mặt. Connection có tính additive — tắt một cái bằng enabled:false, hoặc
@@ -37,7 +37,6 @@ connections:
     auth:
       token_env: "GITHUB_TOKEN"           # tên secret (giá trị nằm ở shell/.env của bạn)
       scopes: ["repo", "read:org"]        # + "project" qua github_project (board là bắt buộc)
-      cli: "gh auth login"                # path bổ trợ dùng cho các thao tác label/PR
     mcp:
       server: "github"                    # → .mcp.json mcpServers.github
       requires_env: ["GITHUB_TOKEN"]      # server không khởi động nếu thiếu cái này
@@ -45,7 +44,7 @@ connections:
   github_project:
     # BẮT BUỘC. Routing mirror mà con người thấy được + inbox queue của orchestrator (GitHub Projects v2).
     # Agent điều khiển state từ các LABEL flow:*, không bao giờ từ board columns. Dùng github
-    # MCP server + gh (không có server riêng). Board node id + tên column nằm dưới
+    # MCP server projects toolset (không có server riêng). Board number + tên column nằm dưới
     # `board:` bên dưới.  See skill: project-board-protocol
     enabled: true
     owner: "{{PROJECT_OWNER}}"            # org hoặc user login sở hữu board
@@ -101,27 +100,19 @@ env:
 # SURFACES — các phần build được của project NÀY. OPEN MAP: chỉ khai báo cái bạn
 # có. Một project có thể có một surface hoặc nhiều; các key là tên BẠN tự chọn
 # (backend, web, api, admin, mobile, …). /agentflow-init chỉ ghi những surface
-# nó detect được; thêm/đổi tên/xoá tuỳ ý. Mỗi surface mang shell commands riêng
-# (AgentFlow giữ tech-agnostic). DEV chạy commands của surface bị đụng tới khi
-# code; QC chạy chúng như gate. `label` gắn surface với một GitHub label component/*
-# để PMO tag được issue đụng tới surface nào.
+# nó detect được; thêm/đổi tên/xoá tuỳ ý. Mỗi surface chỉ khai báo `path`, component
+# `label`, và `forbidden_paths` — AgentFlow giữ tech-agnostic và KHÔNG khai báo command.
+# DEV/QC tự chạy build/lint/test của project theo convention của chính repo (đọc
+# package.json scripts, Makefile, pubspec, go.mod, CI config, …) để biết cách build/lint/test
+# từng surface bị đụng tới. `label` gắn surface với một GitHub label component/* để PMO
+# tag được issue đụng tới surface nào.
 #
-# Để command nào là "" thì bỏ qua nó. Các ví dụ bên dưới chỉ minh hoạ — CHỈ GIỮ
-# NHỮNG CÁI PROJECT CỦA BẠN THỰC SỰ CÓ.
+# Các ví dụ bên dưới chỉ minh hoạ — CHỈ GIỮ NHỮNG CÁI PROJECT CỦA BẠN THỰC SỰ CÓ.
 # ─────────────────────────────────────────────────────────────────────────────
 surfaces:
   {{SURFACE_KEY}}:                        # e.g. backend | frontend | mobile | api | web | "."
     path: "{{SURFACE_PATH}}"              # glob root, ví dụ "api/", "web/", hoặc "." cho repo single-surface
     label: "component/{{SURFACE_KEY}}"
-    commands:
-      install:     "{{SURFACE_INSTALL}}"
-      lint:        "{{SURFACE_LINT}}"
-      test:        "{{SURFACE_TEST}}"        # unit tests
-      integration: "{{SURFACE_INTEGRATION}}"
-      e2e:         "{{SURFACE_E2E}}"
-      build:       "{{SURFACE_BUILD}}"
-    coverage_command:   "{{SURFACE_COVERAGE}}"   # phải in ĐÚNG MỘT số (0-100) ra stdout, hoặc "" để bỏ qua
-    coverage_threshold: {{SURFACE_COVERAGE_THRESHOLD}}
     forbidden_paths: []                   # e.g. mobile: ["android/key.properties", "ios/Runner/GoogleService-Info.plist"]
   # ... lặp lại một block cho mỗi surface project bạn có. Xoá block comment này nếu single-surface.
 
@@ -147,11 +138,12 @@ skills: {}
   # pmo-discovery:          { role: pmo, description: "Discovery & story-mapping checklist" }
 
 board:
-  # BẮT BUỘC. GitHub Projects v2 board node id (PVT_xxx) hoặc number — giờ luôn là id thật.
+  # BẮT BUỘC. GitHub Projects v2 project number (MCP key theo owner + number).
   # Mirror của connections.github_project.enabled — init giữ chúng đồng bộ. Agent không bao
-  # giờ di chuyển columns (việc đó cần GraphQL); board là inbox queue của orchestrator + một
-  # mirror mà con người thấy được (label flow:* vẫn là authoritative cho việc routing).
-  id: "{{PROJECT_ID}}"
+  # giờ di chuyển columns thủ công; orchestrator drive board qua MCP projects tools (không
+  # phải GraphQL); board là inbox queue của orchestrator + một mirror mà con người thấy được
+  # (label flow:* vẫn là authoritative cho việc routing).
+  number: {{PROJECT_NUMBER}}
   columns:
     inbox:                  "Inbox"
     ready_for_dev:          "Ready for Dev"
@@ -177,45 +169,12 @@ labels:
     bug:         "type/bug"
   # Issue đụng tới (những) surface nào. Init sinh ra để khớp các key `surfaces:` —
   # một component/<surface> cho mỗi surface đã khai báo. PMO gắn một hoặc nhiều; DEV/QC dùng
-  # chúng để chọn chạy commands của surface nào. Mirror của surfaces.<name>.label.
+  # chúng để biết (những) surface nào cần build/lint/test. Mirror của surfaces.<name>.label.
   component:
     {{SURFACE_KEY}}: "component/{{SURFACE_KEY}}"
     # ... một cái cho mỗi surface
-  # Các tín hiệu auxiliary (thêm/gỡ kèm với label flow:*, không phải thay cho nó).
+  # Tín hiệu auxiliary (thêm/gỡ kèm với label flow:*, không phải thay cho nó).
   # QC ❌ (chưa vượt ngưỡng) → flow:ready-for-dev + rework; DEV đọc QC rejection mới nhất trước.
+  # (Feedback PR review của con người KHÔNG dùng aux label: con người tự chuyển ticket về
+  #  flow:inbox và PMO re-triage đọc PR feedback trực tiếp. See skill: project-board-protocol.)
   rework:        "rework"
-  # Con người để lại review "Request changes" trên PR ở ready-for-human-review → orchestrator
-  # route ticket về lại DEV như một rework do con người kích hoạt (flow:ready-for-dev + human-changes;
-  # spec của DEV là PR review được mirror, không phải QC rejection).  See skill: project-board-protocol.
-  human_changes: "human-changes"
-
-agents:
-  dev:
-    branch_prefix: "agent/dev/"
-    # Branch được đặt tên theo type: <branch_prefix><kind>/<issue#>-<slug>, trong đó <kind> map từ
-    # label type/* của issue (feature→feat, bug→fix, improvement→chore).
-    # ví dụ agent/dev/feat/42-csv-export
-    # Các glob no-touch toàn cục, áp dụng cho MỌI surface bên cạnh forbidden_paths
-    # riêng của từng surface. CI configs, infra, secrets, keystores.
-    forbidden_paths:
-      - "infra/**"
-      - ".github/workflows/**"
-      - "**/*.pem"
-      - "**/.env"
-  qc:
-    # QC viết automation tests (test IDs + test flows) và commit chúng vào PR branch
-    # đang có của DEV trước khi chạy tier — cần skill `qc-automation-test` của
-    # project. QC không bao giờ đổi implementation logic và không bao giờ merge. Tiers không đổi.
-    # Một tier chọn command types NÀO sẽ chạy, trên (các) surface mà issue đụng tới
-    # (theo các label component/* của nó). Cộng dồn: quick ⊆ full ⊆ regression. Các shell
-    # commands thực tế nằm dưới surfaces.<name>.commands.<type>.
-    tiers:
-      quick:      ["lint", "test"]
-      full:       ["lint", "test", "integration"]
-      regression: ["lint", "test", "integration", "e2e"]
-    # Fallback coverage gate, chỉ dùng khi một surface bị đụng tới không tự định nghĩa
-    # coverage_command/threshold của riêng nó. 0 tắt fallback.
-    coverage_threshold: {{COVERAGE_THRESHOLD}}
-    # Số lần QC ❌ được route về flow:ready-for-dev (+rework) trước khi escalate lên flow:refined.
-    # Escalate khi consecutive_fail > max_rework_returns (mặc định 2 → fail thứ 3 vào refined).
-    max_rework_returns: 2
