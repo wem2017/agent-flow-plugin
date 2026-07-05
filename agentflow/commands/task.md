@@ -1,23 +1,23 @@
 ---
-description: Create a new AgentFlow work item (GitHub issue) from a freeform description, and add it to the repo's Project board so /start will pick it up.
-argument-hint: <description of the work>
+description: Tạo một AgentFlow work item mới (GitHub issue) từ một mô tả freeform, rồi thêm nó vào Project board của repo để /start pick lên.
+argument-hint: <mô tả công việc>
 ---
 
-You are dispatching a new work item. PO owns intake; `/task` adds the result to the board.
+Bạn đang dispatch một work item mới. PMO phụ trách intake; `/task` thêm kết quả vào board.
 
-1. Confirm `.claude/agentflow.yaml` exists in the current repo. If not, tell the user to run `/agentflow-init` first and stop.
-2. Invoke the `po` sub-agent with this exact payload:
+1. Xác nhận `.claude/agentflow.yaml` tồn tại trong repo hiện tại. Nếu không, bảo user chạy `/agentflow-init` trước rồi dừng.
+2. Gọi sub-agent `pmo` với đúng payload sau:
 
    ```
    USER_MESSAGE: $ARGUMENTS
    ```
 
-   PO creates the issue, applies `type/*` + `component/*` labels, runs the DoR gate, and sets the initial `flow:*` label (`flow:ready-for-dev` | `flow:refined` | `flow:inbox`).
+   PMO tạo issue, gắn label `type/*` + `component/*`, chạy DoR gate, và set label `flow:*` ban đầu (`flow:ready-for-dev` | `flow:refined` | `flow:inbox`).
 
-3. **Add the new issue to the board** (so the board-driven `/start` will poll it). `/task` does this itself — PO stays board-agnostic:
-   - **Find the board.** Read this repo's `board.id` from `.claude/agentflow.yaml`. The board is always configured (`connections.github_project.enabled: true`, `board.id` is a non-empty `PVT_…`), so `/task` always mirrors the new issue onto the board.
-   - Read the `flow:*` label PO just set, resolve the issue node id (`gh issue view <n> --repo <project.repo> --json id`), and **mirror** to the Status that the canonical `status_map` (skill: `project-board-protocol`) maps that label to — using `addProjectV2ItemById` (a brand-new issue has no card yet) then `updateProjectV2ItemFieldValue` per skill: `project-board-protocol` ("Mirror a flow:* label → column").
+3. **Thêm issue mới vào board** (để `/start` board-driven poll nó). `/task` tự làm việc này — PMO vẫn board-agnostic:
+   - **Tìm board.** Đọc `board.id` của repo này từ `.claude/agentflow.yaml`. Board luôn được cấu hình (`connections.github_project.enabled: true`, `board.id` là một `PVT_…` non-empty), nên `/task` luôn mirror issue mới lên board.
+   - Đọc label `flow:*` mà PMO vừa set, resolve node id của issue (`gh issue view <n> --repo <project.repo> --json id`), và **mirror** sang Status mà `status_map` canonical (skill: `project-board-protocol`) map label đó tới — dùng `addProjectV2ItemById` (issue brand-new chưa có card) rồi `updateProjectV2ItemFieldValue` theo skill: `project-board-protocol` ("Mirror a flow:* label → column").
 
-4. Relay the PO's reply (issue link + summary) back to the user verbatim, plus a one-line `added to board: <Status>` (a brand-new issue lands in `Inbox`).
+4. Relay reply của PMO (issue link + summary) lại cho user nguyên văn, cộng thêm một dòng `added to board: <Status>` (issue brand-new sẽ nằm ở `Inbox`).
 
-Do not write the issue yourself. Do not paraphrase the user's request. The PO agent owns intake; `/task` only mirrors the result onto the board.
+Không tự viết issue. Không paraphrase request của user. Agent PMO phụ trách intake; `/task` chỉ mirror kết quả lên board.

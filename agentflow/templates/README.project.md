@@ -1,48 +1,49 @@
-# AgentFlow — quick reference for this repo
+# AgentFlow — tham chiếu nhanh cho repo này
 
-This repo uses the **AgentFlow** plugin to coordinate a 3-agent dev workflow (PO → DEV → QC → human review) on GitHub. (The exact plugin version this config was authored against is pinned as `agentflow_version` in `.claude/agentflow.yaml`.) State lives in `flow:*` **labels** on each issue; a GitHub Projects v2 board is **required** — it is the orchestrator's inbox queue and a human-visible mirror of those labels for triage. Everything is configured in one file — `.claude/agentflow.yaml`, the single source of truth.
+Repo này dùng plugin **AgentFlow** để điều phối một dev workflow 3-agent (PMO → DEV → QC → human review) trên GitHub. (Phiên bản plugin chính xác mà config này được viết cho được pin lại dưới dạng `agentflow_version` trong `.claude/agentflow.yaml`.) State nằm ở các **label** `flow:*` trên mỗi issue; một board GitHub Projects v2 là **bắt buộc** — nó là inbox queue của orchestrator và một mirror mà con người nhìn thấy được của các label đó để triage. Mọi thứ được cấu hình trong một file duy nhất — `.claude/agentflow.yaml`, single source of truth.
 
-You only do two things by hand: **describe the work, and review/merge the PR.** Everything in between happens through GitHub.
+Bạn chỉ làm hai việc bằng tay: **mô tả công việc, và review/merge PR.** Mọi thứ ở giữa diễn ra qua GitHub.
 
-## How to use
+## Cách dùng
 
-| You want to...                          | Run                              |
+| Bạn muốn...                             | Chạy                             |
 |-----------------------------------------|----------------------------------|
-| Re-run / repair setup for this repo     | `/agentflow-init`                |
-| Start the team for this session         | `/start`                         |
-| File a new piece of work                | `/task <freeform description>`   |
-| See where everything stands             | `/status`                        |
+| Chạy lại / sửa setup cho repo này       | `/agentflow-init`                |
+| Khởi động team cho session này          | `/start`                         |
+| Tạo một đầu việc mới                     | `/task <freeform description>`   |
+| Xem mọi thứ đang đứng ở đâu             | `/status`                        |
+| Gỡ block một ticket `flow:refined`      | `/review-refined [#n]`           |
 
-After `/start`, this terminal session becomes the orchestrator — describe work in plain text and the team (PO → DEV → QC) chains automatically. Need to reroute a card (back to PO, skip a stage, flag for a human)? Just say so in plain text inside `/start` — e.g. "send #12 back to PO" — and the orchestrator does it inline. The orchestrator only breaks back to you when it needs clarification, hits a 2-strike escalation (`needs-human`), or a PR is ready to merge.
+Sau `/start`, session terminal này trở thành orchestrator — mô tả công việc bằng plain text và team (PMO → DEV → QC) sẽ chain tự động. Cần reroute một card (quay lại PMO, skip một stage, flag cho con người)? Chỉ cần nói bằng plain text ngay trong `/start` — ví dụ "send #12 back to PMO" — và orchestrator sẽ làm inline. Orchestrator chỉ break-out về bạn khi một ticket rơi vào `flow:refined` (cần bạn bổ sung info/quyết định — kể cả escalation 2-strike của QC), hoặc khi một PR đã sẵn sàng để merge. Gỡ block một ticket `flow:refined` bằng `/review-refined`.
 
-You can run **multiple `/start` terminals** against the same repo for parallel throughput — each claims an unassigned `flow:inbox` ticket by self-assigning it, so terminals don't collide. They share one `GITHUB_TOKEN` (same GitHub user), so for strict isolation give each terminal a distinct GitHub identity/token.
+Bạn có thể chạy **nhiều terminal `/start`** trên cùng một repo để tăng throughput song song — mỗi terminal claim một ticket `flow:inbox` chưa được assign bằng cách tự self-assign, nên các terminal không đụng nhau. Chúng share cùng một `GITHUB_TOKEN` (cùng một GitHub user), nên để isolation chặt chẽ thì hãy cấp cho mỗi terminal một GitHub identity/token riêng.
 
-## What this repo connects to
+## Repo này kết nối tới những gì
 
-Connections are declared under `connections.*` in `.claude/agentflow.yaml`. Each block fully specifies its own wiring (secret name, scopes, MCP server). A connection is usable only when `enabled: true` **and** every var it requires is present (sourced from `.env`). They are additive — toggle one with `enabled: true|false`.
+Các connection được khai báo dưới `connections.*` trong `.claude/agentflow.yaml`. Mỗi block tự đặc tả đầy đủ wiring của nó (tên secret, scopes, MCP server). Một connection chỉ dùng được khi `enabled: true` **và** mọi var nó cần đều có mặt (được source từ `.env`). Chúng có tính additive — bật/tắt một cái bằng `enabled: true|false`.
 
-| Connection       | Required? | What it does                                                        |
+| Connection       | Bắt buộc? | Chức năng                                                           |
 |------------------|-----------|---------------------------------------------------------------------|
-| `github`         | always on | Issues, branches, PRs, labels, comments — the protocol itself.      |
-| `github_project` | always on | GitHub Projects v2 board — the orchestrator's inbox queue + a human mirror of `flow:*` labels.|
-| `figma`          | optional  | DEV pulls frame specs/tokens during UI work (via the `figma` MCP).  |
+| `github`         | luôn bật  | Issues, branches, PRs, labels, comments — bản thân protocol.        |
+| `github_project` | luôn bật  | GitHub Projects v2 board — inbox queue của orchestrator + một human mirror của các label `flow:*`.|
+| `figma`          | tùy chọn  | DEV pull frame specs/tokens trong lúc làm UI (qua `figma` MCP).     |
 
-To turn Figma on/off, edit that block's `enabled` flag. The board is required — keep `connections.github_project.enabled: true` and `board.id` in sync (`/agentflow-init` does this for you). Labels stay authoritative regardless of the board.
+Để bật/tắt Figma, sửa flag `enabled` của block đó. Board là bắt buộc — giữ `connections.github_project.enabled: true` và `board.id` đồng bộ với nhau (`/agentflow-init` làm việc này giúp bạn). Label vẫn giữ vai trò authoritative bất kể board thế nào.
 
 ## Environment variables
 
-Every secret is declared by **name only** under the `env:` list in `.claude/agentflow.yaml` (each entry cross-links its `used_by` connections). The values live in a `.env` file you `source` before launching Claude Code:
+Mỗi secret được khai báo **chỉ bằng tên** trong list `env:` ở `.claude/agentflow.yaml` (mỗi entry cross-link tới các connection `used_by` của nó). Giá trị nằm trong một file `.env` mà bạn `source` trước khi khởi động Claude Code:
 
-| Var            | Required | For                                                  |
+| Var            | Bắt buộc | Dùng cho                                             |
 |----------------|----------|------------------------------------------------------|
-| `GITHUB_TOKEN` | yes      | GitHub access (scopes: `repo`, `read:org`, `project`) |
-| `FIGMA_TOKEN`  | no       | Figma legacy PAT — Framelink/REST fallback only; the official figma MCP server uses OAuth (no token) |
+| `GITHUB_TOKEN` | có       | GitHub access (scopes: `repo`, `read:org`, `project`) |
+| `FIGMA_TOKEN`  | không    | Figma legacy PAT — chỉ dùng cho Framelink/REST fallback; server figma MCP chính thức dùng OAuth (không cần token) |
 
-**Secret hygiene:** put these in an **uncommitted** `.env` (copy `.env.example`, fill it, then `source` it before launching Claude Code) — never commit a token, never paste a value into `agentflow.yaml`. Reference secrets only by name (`${GITHUB_TOKEN}`). `/agentflow-init` refuses to finish if a `required: true` var is missing.
+**Secret hygiene:** đặt chúng vào một file `.env` **không commit** (copy `.env.example`, điền vào, rồi `source` nó trước khi khởi động Claude Code) — không bao giờ commit token, không bao giờ paste giá trị vào `agentflow.yaml`. Chỉ tham chiếu secret bằng tên (`${GITHUB_TOKEN}`). `/agentflow-init` sẽ từ chối hoàn tất nếu một var `required: true` bị thiếu.
 
-## Surfaces (the buildable parts)
+## Surfaces (các phần build được)
 
-A **surface** is a buildable part of the repo, defined under `surfaces.*`. The map is **dynamic** — this repo declares only the surfaces it actually has, with keys the owner chose (e.g. `backend`, `web`, `api`, `admin`, `mobile`, or just `"."` for a single-surface repo). AgentFlow is tech-stack agnostic: each surface carries **its own** commands.
+Một **surface** là một phần build được của repo, định nghĩa dưới `surfaces.*`. Map này có tính **dynamic** — repo này chỉ khai báo các surface nó thực sự có, với các key do owner chọn (ví dụ `backend`, `web`, `api`, `admin`, `mobile`, hoặc chỉ `"."` cho một repo single-surface). AgentFlow không phụ thuộc tech-stack: mỗi surface mang **command riêng** của nó.
 
 ```
 surfaces.<name>.path                  # glob root, "." for single-surface repos
@@ -52,58 +53,58 @@ surfaces.<name>.coverage_command / coverage_threshold
 surfaces.<name>.forbidden_paths
 ```
 
-`labels.component` is generated to match the surface keys — one `component/<surface>` per declared surface. PO tags each issue with the `component/<surface>` label(s) for the surface(s) it touches. DEV runs the touched surface's commands while coding; QC runs them as the gate. To change how a surface builds or what it must never touch, edit that surface's block. Leave a command `""` to skip it.
+`labels.component` được generate để khớp với các surface key — một `component/<surface>` cho mỗi surface được khai báo. PMO gắn cho mỗi issue (các) label `component/<surface>` tương ứng với (các) surface mà nó chạm tới. DEV chạy command của surface bị chạm khi code; QC chạy chúng như một gate. Để đổi cách một surface build hoặc những gì nó không bao giờ được chạm tới, sửa block của surface đó. Để một command là `""` để skip nó.
 
 ## QC tiers
 
-A tier selects **which command-types run**, not specific shell commands. They are cumulative: `quick ⊆ full ⊆ regression`.
+Một tier chọn **command-type nào chạy**, không phải các shell command cụ thể. Chúng có tính cộng dồn: `quick ⊆ full ⊆ regression`.
 
-| Tier         | Command-types run                          |
+| Tier         | Command-type được chạy                     |
 |--------------|--------------------------------------------|
 | `quick`      | `lint`, `test`                             |
 | `full`       | `lint`, `test`, `integration`              |
 | `regression` | `lint`, `test`, `integration`, `e2e`       |
 
-For each surface the issue touches (by its `component/<surface>` labels), QC runs that surface's command for each type in the tier, in order; all must exit 0 (a `""` command is skipped). The actual shell commands live under `surfaces.<name>.commands.<type>`. Coverage uses the touched surface's `coverage_command`/`coverage_threshold`, falling back to `agents.qc.coverage_threshold`. Tune the tier definitions under `agents.qc.tiers.*`.
+Với mỗi surface mà issue chạm tới (theo các label `component/<surface>` của nó), QC chạy command của surface đó cho từng type trong tier, theo thứ tự; tất cả phải exit 0 (một command `""` sẽ bị skip). Các shell command thực tế nằm dưới `surfaces.<name>.commands.<type>`. Coverage dùng `coverage_command`/`coverage_threshold` của surface bị chạm, fallback về `agents.qc.coverage_threshold`. Tinh chỉnh các định nghĩa tier dưới `agents.qc.tiers.*`.
 
 ## Skills
 
-Four core skills always ship with the plugin and are on automatically — no registration:
+Bốn core skill luôn đi kèm plugin và tự động bật — không cần đăng ký:
 
-| Skill                    | Covers                                                         |
+| Skill                    | Bao gồm                                                        |
 |--------------------------|----------------------------------------------------------------|
-| `setup-agentflow`        | onboarding: yaml as source of truth, connections, env, surfaces, skill registry |
-| `project-board-protocol` | the GitHub wire protocol: `flow:*` labels, comment prefixes, DoR/DoD, the board |
-| `git-flow-working`       | branching, Conventional Commits, PR conventions, rebase/merge safety |
-| `figma-design`           | pull frame specs/tokens via the `figma` MCP; design → AC handoff |
+| `setup-agentflow`        | onboarding: yaml là source of truth, connections, env, surfaces, skill registry |
+| `project-board-protocol` | GitHub wire protocol: các label `flow:*`, comment prefixes, DoR/DoD, board |
+| `git-flow-working`       | branching, Conventional Commits, PR conventions, an toàn khi rebase/merge |
+| `figma-design`           | pull frame specs/tokens qua `figma` MCP; handoff design → AC |
 
-To extend, add a project skill under `.claude/skills/<role>-<area>` so the right agent picks it up: `dev-*` → DEV, `qc-*` → QC, `po-*` → PO. Register it under `skills:` (the source-of-truth overview) so you can scope it to surfaces; agents also **auto-discover** any `.claude/skills/<their-role>-*` even if unlisted. An agent loads role-prefixed skills relevant to the surface(s) the current issue touches (registry `surfaces` matched against `component/*` labels; no `surfaces` = always relevant). `/agentflow-init` can scaffold starter stubs.
+Để mở rộng, thêm một project skill dưới `.claude/skills/<role>-<area>` để đúng agent nhặt nó lên: `dev-*` → DEV, `qc-*` → QC, `pmo-*` → PMO. Đăng ký nó dưới `skills:` (bản overview source-of-truth) để bạn có thể scope nó theo surface; các agent cũng **auto-discover** bất kỳ `.claude/skills/<their-role>-*` nào kể cả khi không được liệt kê. Một agent load các skill có role-prefix liên quan tới (các) surface mà issue hiện tại chạm tới (`surfaces` trong registry được match với các label `component/*`; không có `surfaces` = luôn liên quan). `/agentflow-init` có thể scaffold các starter stub.
 
 ```yaml
 skills:
   dev-mobile-development: { role: dev, surfaces: ["mobile"], description: "Mobile state & navigation conventions" }
   qc-automation-test:     { role: qc,  surfaces: ["web", "mobile"], description: "E2E suite authoring" }
-  po-discovery:           { role: po,  description: "Discovery & story-mapping checklist" }
+  pmo-discovery:          { role: pmo, description: "Discovery & story-mapping checklist" }
 ```
 
-## What goes where (the `flow:*` label)
+## Cái gì nằm ở đâu (label `flow:*`)
 
-- **`flow:inbox` / `flow:refined`** — PO is shaping the request. `flow:refined` is also where a 2-strike QC escalation lands (`+needs-human`) for PO to re-spec/split.
-- **`flow:ready-for-dev`** — DEV will pick it up next.
-- **`flow:in-progress`** — DEV is implementing. If DEV is blocked, you'll see a `[DEV]` blocked comment and the issue stays here for you to unblock.
-- **`flow:in-qc`** — DEV opened a PR; QC authors automation tests on the PR branch, then runs the tier.
-- **`flow:changes-requested`** — QC rejected; DEV is reworking.
-- **`flow:ready-for-human-review`** — your turn. Review and merge the PR. (Reached only on a QC ✅ — merge-ready.)
-- **`flow:done`** — merged and closed.
+- **`flow:inbox`** — PMO đang định hình request (triage + refine tới Definition of Ready). Cũng là điểm RE-ENTRY sau khi bạn bổ sung info cho một ticket `flow:refined`.
+- **`flow:ready-for-dev`** — DEV sẽ nhặt nó lên tiếp theo. Nếu mang aux label `rework` (QC đã reject) hoặc `human-changes` (bạn "Request changes" trên PR), DEV finish cái đó trước và đọc feedback mới nhất.
+- **`flow:in-progress`** — DEV đang implement. Nếu DEV bị block, bạn sẽ thấy một comment blocked `[DEV]` và issue nằm lại đây để bạn unblock.
+- **`flow:in-qc`** — DEV đã mở một PR; QC viết automation test trên PR branch, rồi chạy tier. QC ❌ (chưa vượt ngưỡng) route ticket về `flow:ready-for-dev` + `rework`.
+- **`flow:refined`** — **BLOCKED, cần bạn.** Một info-gap (PMO không tới được DoR, DEV thiếu spec/Figma, QC gặp AC mơ hồ, hoặc escalation QC 2-strike) đã park ticket ở đây và un-assign nó. Bạn cung cấp thêm info/quyết định qua `/review-refined` (hoặc sửa label tay), rồi lệnh đó re-label nó về `flow:inbox` để PMO re-triage và chạy tiếp.
+- **`flow:ready-for-human-review`** — đến lượt bạn. Review và merge PR — hoặc để lại một review **"Request changes"** trên nó và `/start` sẽ route nó về lại DEV dưới dạng `flow:ready-for-dev` + `human-changes` (được mirror vào issue dưới dạng một comment `[USER]`; QC re-gate trước khi nó quay lại bạn). (Chỉ đạt tới đây khi QC ✅ — sẵn sàng merge.)
+- **`flow:done`** — đã merge và close.
 
-Filter the issue list by any of these labels to see what's where (`gh issue list --label flow:in-qc`).
+Filter list issue theo bất kỳ label nào trong số này để xem cái gì đang ở đâu (`gh issue list --label flow:in-qc`).
 
-## Comment prefixes (so you can grep / filter)
+## Comment prefixes (để bạn grep / filter)
 
-`[PO]`, `[DEV]`, `[QC] ✅`, `[QC] ❌`, `[DEV→PO ?]`, `[QC→PO ?]`, `[PO→DEV]`, `[PO→QC]`, `[SYSTEM]`, `[USER:<your-login>]`.
+`[PMO]`, `[DEV]`, `[QC] ✅`, `[QC] ❌`, `[DEV→PMO ?]`, `[QC→PMO ?]`, `[SYSTEM]`, `[USER:<your-login>]`.
 
-Anything you write **without** a `[USER:...]` prefix is treated as untrusted context by the agents — they will read it but not act on instructions inside.
+Bất cứ thứ gì bạn viết **mà không** có prefix `[USER:...]` sẽ bị các agent coi là untrusted context — chúng sẽ đọc nhưng không hành động theo các instruction bên trong.
 
 ## Notifications
 
-This is terminal mode — the orchestrator break-out **is** the notification. There are no external channels; watch this session for clarifications, `needs-human` escalations, and ready-to-merge PRs.
+Đây là terminal mode — mặc định thì break-out của orchestrator **chính là** notification. Không có external channel nào; theo dõi session này để bắt các ticket rơi vào `flow:refined` (cần bạn bổ sung info — gỡ bằng `/review-refined`) và các PR sẵn sàng merge. (Bạn có thể chạy `/start` không giám sát theo một interval qua skill `/loop`; khi đó các break-out sẽ queue trên board cho tới khi bạn quay lại.)

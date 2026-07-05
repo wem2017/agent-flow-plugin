@@ -1,20 +1,20 @@
 ---
 name: figma-design
-description: Pulls design context from Figma during UI work and maps it to an issue's acceptance criteria — gate on connections.figma, prefer the official Figma MCP server (get_metadata → get_design_context → get_variable_defs → get_screenshot → get_code_connect_map) with a PAT/REST fallback, then translate (never paste) the result into the implementation. Use when a DEV issue touches a visual surface and its AC references a Figma frame, file, or figma.com link.
+description: Kéo design context từ Figma trong lúc làm UI và map nó tới acceptance criteria của issue — gate trên connections.figma, ưu tiên official Figma MCP server (get_metadata → get_design_context → get_variable_defs → get_screenshot → get_code_connect_map) với fallback PAT/REST, rồi translate (không bao giờ paste) kết quả vào implementation. Dùng khi một DEV issue đụng vào visual surface và AC của nó tham chiếu một Figma frame, file, hay link figma.com.
 ---
 
 # Figma Design Handoff
 
-How the **DEV** agent fetches design context when an issue touches a visual surface (any `component/<surface>` whose declared surface in `surfaces:` has a UI — web, admin, mobile, …) and the AC references a Figma design.
+**DEV** agent fetch design context như thế nào khi một issue đụng vào visual surface (bất kỳ `component/<surface>` nào mà surface được khai báo trong `surfaces:` có UI — web, admin, mobile, …) và AC tham chiếu một Figma design.
 
-**Design informs HOW a thing looks and lays out; the issue's AC defines WHAT must be true.** The two are not interchangeable — see *Handoff discipline*. Per Figma's own guidance, the MCP server only provides *structured context + a code starting point*; **you adapt it to this codebase — you never paste its output verbatim.**
+**Design quyết định thứ đó TRÔNG như thế nào và layout ra sao; AC của issue định nghĩa CÁI GÌ phải đúng.** Hai thứ này không thay thế cho nhau được — xem *Handoff discipline*. Theo chính guidance của Figma, MCP server chỉ cung cấp *structured context + một điểm khởi đầu về code*; **bạn adapt nó vào codebase này — bạn không bao giờ paste output của nó nguyên văn.**
 
-## Gate before use
+## Gate trước khi dùng
 
-Figma is a connection like any other — read its wiring in `.claude/agentflow.yaml` first (see skill: `setup-agentflow` for the full connection/env spec). Do **not** call any Figma tool or REST endpoint unless `connections.figma.enabled: true` **and** at least one access path below is actually available:
+Figma là một connection như mọi connection khác — đọc wiring của nó trong `.claude/agentflow.yaml` trước (xem skill: `setup-agentflow` để biết full spec về connection/env). **Không** gọi bất kỳ Figma tool hay REST endpoint nào trừ khi `connections.figma.enabled: true` **và** ít nhất một access path bên dưới thực sự khả dụng:
 
-- **Official Figma MCP server (preferred)** — available when the `figma` MCP server is connected and OAuth-authenticated. Verify with a `whoami` call (it returns the signed-in identity); if it errors, the server is not authenticated.
-- **PAT fallback** — available when the var named by `connections.figma.auth.token_env` (e.g. `FIGMA_TOKEN`) is present, for the legacy Framelink server / REST path.
+- **Official Figma MCP server (preferred)** — khả dụng khi `figma` MCP server đã được connect và OAuth-authenticated. Verify bằng một call `whoami` (nó trả về identity đang đăng nhập); nếu lỗi, server chưa được authenticate.
+- **PAT fallback** — khả dụng khi biến được đặt tên bởi `connections.figma.auth.token_env` (vd `FIGMA_TOKEN`) có mặt, dùng cho legacy Framelink server / REST path.
 
 ```bash
 # Gate check — connection on?
@@ -23,36 +23,36 @@ yq '.connections.figma.enabled' .claude/agentflow.yaml      # → true
 [ -n "${FIGMA_TOKEN:-}" ] && echo "PAT path available" || echo "PAT absent — needs official MCP"
 ```
 
-If the gate fails (disabled, or no path available) → **skip design lookups entirely** and build from the issue's AC **when the AC is self-sufficient**. Note it in your `[DEV]` comment (e.g. `design lookup skipped: figma not configured — built from AC only`) so reviewers know the implementation was AC-driven. **Never block dev work waiting on an optional connection** — but a new screen whose AC genuinely needs a design that was never provided is a *missing input*, not an AC-only build: see *Handoff discipline*.
+Nếu gate fail (disabled, hoặc không có path nào khả dụng) → **skip toàn bộ design lookup** và build từ AC của issue **khi AC tự đủ**. Note lại trong comment `[DEV]` của bạn (vd `design lookup skipped: figma not configured — built from AC only`) để reviewer biết implementation là AC-driven. **Không bao giờ block dev work chỉ để chờ một optional connection** — nhưng một màn hình mới mà AC thực sự cần một design chưa từng được cung cấp thì đó là *missing input*, không phải build chỉ-từ-AC: xem *Handoff discipline*.
 
 ## Path A — official Figma MCP server (preferred)
 
-The official server (Figma's Dev Mode MCP) authenticates via **OAuth** — there is **no `FIGMA_TOKEN`/`FIGMA_API_KEY`/`X-Figma-Token`** on this path. It exposes stable, documented tools; **call them by their fully-qualified names** (do not "discover at runtime" — the names are stable). The design-to-code flow for a frame:
+Official server (Dev Mode MCP của Figma) authenticate qua **OAuth** — trên path này **không có `FIGMA_TOKEN`/`FIGMA_API_KEY`/`X-Figma-Token`**. Nó expose các tool ổn định, có tài liệu; **gọi chúng bằng fully-qualified name** (đừng "discover at runtime" — tên là ổn định). Flow design-to-code cho một frame:
 
-| Step | Tool | Use for |
+| Bước | Tool | Dùng cho |
 |------|------|---------|
-| 1. Outline a large design | `get_metadata` | Sparse XML of node IDs / names / types / sizes. Call with no `nodeId` to list the file's top-level pages, then drill in. Cheap — use it to find the right node before pulling full context. |
-| 2. Pull design context | `get_design_context` | The primary design→code tool. Returns reference code (**React + Tailwind by default**), a screenshot, and metadata for the node. Treat it as *context to translate*, not code to paste. |
-| 3. Map tokens | `get_variable_defs` | The variables/styles used in the selection (colors, spacing, typography), e.g. `{ 'color/primary': '#1A73E8' }`. Map these to the project's existing tokens. |
-| 4. Visual check | `get_screenshot` | A PNG of the node to diff your implementation against for layout fidelity. |
-| 5. Reuse real components | `get_code_connect_map` | Returns `{ nodeId: { componentName, source, snippet, … } }` — the actual code component a Figma node maps to. **Prefer the mapped component over fresh markup.** |
+| 1. Phác thảo một design lớn | `get_metadata` | XML thưa gồm node ID / tên / type / kích thước. Gọi không kèm `nodeId` để liệt kê các top-level page của file, rồi drill vào. Rẻ — dùng để tìm đúng node trước khi pull full context. |
+| 2. Pull design context | `get_design_context` | Tool design→code chính. Trả về reference code (**React + Tailwind mặc định**), một screenshot, và metadata cho node. Coi nó là *context để translate*, không phải code để paste. |
+| 3. Map tokens | `get_variable_defs` | Các variable/style dùng trong selection (màu, spacing, typography), vd `{ 'color/primary': '#1A73E8' }`. Map chúng tới các token sẵn có của project. |
+| 4. Visual check | `get_screenshot` | Một PNG của node để diff implementation của bạn nhằm đảm bảo độ chính xác về layout. |
+| 5. Reuse component thật | `get_code_connect_map` | Trả về `{ nodeId: { componentName, source, snippet, … } }` — code component thực tế mà một Figma node map tới. **Ưu tiên component đã được map thay vì markup viết mới.** |
 
-**Prompt the tools with project specifics** (Figma's "write effective prompts" guidance): name the project's framework, the target component directory, and the layout system, so the output matches this codebase rather than the React+Tailwind default. Examples to fold into how you call `get_design_context`:
+**Prompt các tool bằng thông tin cụ thể của project** (theo guidance "write effective prompts" của Figma): nêu framework của project, thư mục component đích, và layout system, để output khớp codebase này thay vì mặc định React+Tailwind. Vài ví dụ để lồng vào cách bạn gọi `get_design_context`:
 
-- Framework: *"generate this selection in `<the project's framework>`"* (e.g. Vue, SwiftUI, plain HTML+CSS).
+- Framework: *"generate this selection in `<the project's framework>`"* (vd Vue, SwiftUI, HTML+CSS thuần).
 - Reuse: *"using components from `<surfaces.<surface>.path>/components`"*.
-- Tokens not literals: when you want variables rather than code, ask explicitly — *"get the variable names and values for this selection"* (otherwise the agent may return code instead).
+- Token thay vì literal: khi bạn muốn variable thay vì code, hãy hỏi rõ ràng — *"get the variable names and values for this selection"* (nếu không agent có thể trả về code).
 
-**Remote vs desktop:** the **remote** server (`https://mcp.figma.com/mcp`) is **link-based** — pass the figma.com frame/layer URL (or its `fileKey` + `nodeId`); it extracts the node-id itself. **Selection-based** prompting ("my current selection") works only with the **desktop** server. AgentFlow runs headless, so always pass an explicit URL/node from the AC, never "the selection".
+**Remote vs desktop:** server **remote** (`https://mcp.figma.com/mcp`) là **link-based** — truyền URL figma.com của frame/layer (hoặc `fileKey` + `nodeId` của nó); nó tự extract node-id. Prompting kiểu **selection-based** ("my current selection") chỉ hoạt động với server **desktop**. AgentFlow chạy headless, nên luôn truyền URL/node tường minh lấy từ AC, không bao giờ dùng "the selection".
 
-**Code Connect:** if the project has Code Connect set up, set the framework label so the right mapping comes back (pass `clientFrameworks` matching the Code Connect label, e.g. `React`, `SwiftUI`). Authoring Code Connect mappings is out of scope for DEV here — defer to Figma's `figma-code-connect` skill if the project wants to add them.
+**Code Connect:** nếu project đã set up Code Connect, hãy set framework label để mapping đúng trả về (truyền `clientFrameworks` khớp với Code Connect label, vd `React`, `SwiftUI`). Việc author Code Connect mapping nằm ngoài scope của DEV ở đây — chuyển sang skill `figma-code-connect` của Figma nếu project muốn thêm chúng.
 
 ## Path B — PAT / REST fallback (legacy)
 
 <details>
-<summary>Framelink server or Figma REST — for headless/enterprise setups that can't complete the OAuth flow. Uses a separate <code>FIGMA_TOKEN</code> PAT (declared independently under <code>env:</code>), NOT the official server.</summary>
+<summary>Framelink server hoặc Figma REST — cho các setup headless/enterprise không thể hoàn tất OAuth flow. Dùng một PAT <code>FIGMA_TOKEN</code> riêng (khai báo độc lập dưới <code>env:</code>), KHÔNG phải official server.</summary>
 
-This is a **separate integration** from the official server above. Use it only when the official MCP path is unavailable and `FIGMA_TOKEN` is set. The token goes in the `X-Figma-Token` **header**, never the URL.
+Đây là một **integration riêng biệt** so với official server phía trên. Chỉ dùng nó khi official MCP path không khả dụng và `FIGMA_TOKEN` đã được set. Token đặt trong **header** `X-Figma-Token`, không bao giờ đặt trong URL.
 
 ```bash
 # Whole file (structure + styles)
@@ -68,44 +68,44 @@ curl -s -H "X-Figma-Token: $FIGMA_TOKEN" \
   "https://api.figma.com/v1/images/$FILE_KEY?ids=$NODE_ID&format=png&scale=2"
 ```
 
-Useful endpoints: `/v1/files/<FILE_KEY>` (full tree), `/v1/files/<FILE_KEY>/nodes?ids=<NODE_ID>` (one frame), `/v1/images/<FILE_KEY>?ids=<NODE_ID>` (rendered PNG/SVG). The legacy Framelink MCP server (`figma-developer-mcp`) reads the same `FIGMA_TOKEN` as `FIGMA_API_KEY` and exposes `mcp__figma__*` tools — discover those at runtime if that server is the one wired in `.mcp.json`.
+Các endpoint hữu ích: `/v1/files/<FILE_KEY>` (full tree), `/v1/files/<FILE_KEY>/nodes?ids=<NODE_ID>` (một frame), `/v1/images/<FILE_KEY>?ids=<NODE_ID>` (PNG/SVG đã render). Legacy Framelink MCP server (`figma-developer-mcp`) đọc cùng `FIGMA_TOKEN` dưới dạng `FIGMA_API_KEY` và expose các tool `mcp__figma__*` — discover chúng at runtime nếu server đó là cái được wire trong `.mcp.json`.
 </details>
 
-## URL parsing
+## Parse URL
 
-Designers paste links like:
+Designer paste link kiểu như:
 
 ```
 https://www.figma.com/design/AbC123dEfGhIj/Checkout-Flow?node-id=1234-5678
                               └── FILE_KEY ──┘             └─ node-id ─┘
 ```
 
-- **FILE_KEY** is the path segment right after `/design/` (older links use `/file/` — same position). For a branch URL `…/design/<key>/branch/<branchKey>/…`, use the **branchKey** as the file key.
-- **node-id** in the URL is `-`-separated (`1234-5678`). The **official MCP tools accept both `1234-5678` and `1234:5678`**; the **REST API requires `:`** (`1234:5678`). Convert for the REST fallback:
+- **FILE_KEY** là path segment ngay sau `/design/` (link cũ dùng `/file/` — cùng vị trí). Với branch URL `…/design/<key>/branch/<branchKey>/…`, dùng **branchKey** làm file key.
+- **node-id** trong URL được phân tách bằng `-` (`1234-5678`). **Official MCP tools chấp nhận cả `1234-5678` lẫn `1234:5678`**; **REST API yêu cầu `:`** (`1234:5678`). Convert cho REST fallback:
 
 ```bash
 FILE_KEY="AbC123dEfGhIj"
 NODE_ID="${URL_NODE_ID//-/:}"   # 1234-5678 -> 1234:5678  (only needed for Path B/REST)
 ```
 
-`connections.figma.files` may pre-list known files as `{ name, key }` entries. If the AC names a file by `name`, resolve its `key` there instead of asking for a URL. A bare URL with no `node-id` means the whole file/page — use `get_metadata` (or fetch top-level frames) and pick the one whose name matches the AC.
+`connections.figma.files` có thể liệt kê sẵn các file đã biết dưới dạng entry `{ name, key }`. Nếu AC gọi tên một file bằng `name`, hãy resolve `key` của nó ở đó thay vì đòi một URL. Một URL trơ không có `node-id` nghĩa là toàn bộ file/page — dùng `get_metadata` (hoặc fetch các top-level frame) và chọn cái có tên khớp với AC.
 
-## What to extract for implementation
+## Cần extract gì cho implementation
 
-Turn each item into a concrete implementation note, then map the notes back to AC items:
+Biến mỗi item thành một implementation note cụ thể, rồi map các note đó ngược lại các AC item:
 
-| Pull from design | Use for |
+| Lấy từ design | Dùng cho |
 |------------------|---------|
-| Auto-layout direction, gap, padding, alignment | Flex/stack structure and spacing |
-| Sizing (fixed / hug / fill), constraints | Width/height behavior, responsiveness |
-| Colors, fills, effects (`get_variable_defs`) | Theming — match to existing tokens |
-| Typography (family, size, weight, line-height) | Text styles — match to existing tokens |
-| Component / layer names + `get_code_connect_map` | Which existing component to reuse |
-| Variables / design tokens | Token references, not literals |
+| Auto-layout direction, gap, padding, alignment | Cấu trúc flex/stack và spacing |
+| Sizing (fixed / hug / fill), constraints | Hành vi width/height, responsiveness |
+| Màu, fill, effect (`get_variable_defs`) | Theming — match với token sẵn có |
+| Typography (family, size, weight, line-height) | Text style — match với token sẵn có |
+| Tên component / layer + `get_code_connect_map` | Component sẵn có nào để reuse |
+| Variable / design token | Tham chiếu token, không phải literal |
 
-**Prefer the project's existing design tokens and components over hardcoded values.** If the design specifies `#1A73E8` and the project has a `--color-primary` token of the same value, reference the token. Hardcode only when no token exists, and flag it for follow-up.
+**Ưu tiên design token và component sẵn có của project thay vì giá trị hardcode.** Nếu design chỉ định `#1A73E8` và project có token `--color-primary` cùng giá trị, hãy tham chiếu token đó. Chỉ hardcode khi không có token nào, và flag lại để follow-up.
 
-Produce a short **implementation checklist** keyed to the AC, e.g.:
+Tạo một **implementation checklist** ngắn gắn với AC, vd:
 
 ```
 AC-2 (button states): default/hover/disabled fills from frame 1234:5678;
@@ -115,12 +115,12 @@ AC-2 (button states): default/hover/disabled fills from frame 1234:5678;
 
 ## Handoff discipline
 
-- **AC is authoritative for WHAT; design is authoritative for HOW it looks.** When they agree, implement to both.
-- **When design and AC conflict** — the frame shows a field the AC does not mention, or the AC requires behavior the design omits — do **not** silently follow the design over the AC. Use the **clarification loop** (see skill: `project-board-protocol`): post a `[DEV→PO ?]` comment with up to 3 numbered questions, add label `needs-clarification`, swap state back to `flow:refined`, and stop.
-- **When the issue is a new screen whose AC references a design but no Figma was provided** — no URL/node in the AC and nothing matching in `connections.figma.files` — do **not** invent the visual design. Treat the missing design as a **missing input** and use the **same clarification loop**: post a `[DEV→PO ?]` with up to 3 numbered questions, add label `needs-clarification`, swap state back to `flow:refined`, and stop. Build straight from the AC only when the AC fully specifies the screen on its own.
-- Cite the specific frame (`FILE_KEY` + `NODE_ID`) in your `[DEV]` comment so QC and PO can open the same node.
-- Design changes after an issue is `flow:ready-for-dev` are an AC/scope change, not a free DEV decision — route them through PO the same way.
+- **AC là nguồn chân lý cho CÁI GÌ; design là nguồn chân lý cho việc nó TRÔNG như thế nào.** Khi chúng khớp nhau, implement theo cả hai.
+- **Khi design và AC mâu thuẫn** — frame hiển thị một field mà AC không nhắc tới, hoặc AC yêu cầu một behavior mà design bỏ qua — thì **không** âm thầm làm theo design thay vì AC. Đây là một **human-intervention case**: post một comment `[DEV→PMO ?]` với tối đa 3 câu hỏi được đánh số, swap state sang `flow:refined` (owner: human), rồi dừng — con người bổ sung thông tin qua `/review-refined` rồi đưa ticket về `flow:inbox` (xem skill: `project-board-protocol`).
+- **Khi issue là một màn hình mới mà AC tham chiếu một design nhưng không có Figma nào được cung cấp** — không có URL/node trong AC và không có gì khớp trong `connections.figma.files` — thì **không** tự bịa ra visual design. Coi design bị thiếu là một **missing input** và xử lý như **cùng human-intervention case đó**: post một `[DEV→PMO ?]` với tối đa 3 câu hỏi được đánh số, swap state sang `flow:refined` (owner: human), rồi dừng — con người bổ sung design/spec qua `/review-refined` rồi đưa ticket về `flow:inbox`. Chỉ build thẳng từ AC khi AC tự đặc tả đầy đủ màn hình đó.
+- Trích dẫn cụ thể frame (`FILE_KEY` + `NODE_ID`) trong comment `[DEV]` của bạn để QC và PMO có thể mở cùng một node.
+- Thay đổi design sau khi issue đã ở `flow:ready-for-dev` là một thay đổi AC/scope, không phải quyết định tùy tiện của DEV — route chúng qua PMO theo cùng cách.
 
 ## Secret hygiene
 
-On the official OAuth path there is **no Figma token to protect**. On the PAT fallback, `FIGMA_TOKEN` is a secret: reference it by `${FIGMA_TOKEN}` only, keep it in the `X-Figma-Token` header (never the URL), and never print, echo, log, or commit it. Full rules: skill `setup-agentflow` → *Secret hygiene*.
+Trên official OAuth path thì **không có Figma token nào cần bảo vệ**. Trên PAT fallback, `FIGMA_TOKEN` là một secret: chỉ tham chiếu nó qua `${FIGMA_TOKEN}`, giữ nó trong header `X-Figma-Token` (không bao giờ trong URL), và không bao giờ print, echo, log, hay commit nó. Full rules: skill `setup-agentflow` → *Secret hygiene*.

@@ -1,57 +1,57 @@
 # GitHub Projects v2 board (inbox queue + human mirror)
 
-> Reference for skill `project-board-protocol`. Read `../SKILL.md` first — this file is the
-> heavy, rarely-needed board mechanics, split out so the main protocol stays lean.
+> Tài liệu tham khảo cho skill `project-board-protocol`. Đọc `../SKILL.md` trước — file này chứa phần
+> board mechanics nặng, hiếm khi cần, được tách ra để protocol chính gọn nhẹ.
 
-**The one rule that overrides everything below:** the `flow:*` **LABEL is authoritative** for
-routing. The Projects v2 board is the orchestrator's **inbox queue + a human-visible mirror**.
-Sub-agents (PO/DEV/QC) decide what to do next by reading the issue's `flow:*` label — they **never**
-read a board column to make a decision. Mirror writes are **best-effort and may lag**. If a mirror
-write fails, log it and continue; the pipeline is unaffected.
+**Quy tắc duy nhất override mọi thứ bên dưới:** `flow:*` **LABEL is authoritative** cho việc
+routing. Board Projects v2 là **inbox queue + mirror cho người xem** của orchestrator.
+Các sub-agent (PMO/DEV/QC) quyết định làm gì tiếp theo bằng cách đọc label `flow:*` của issue — chúng **không bao giờ**
+đọc board column để ra quyết định. Việc ghi mirror là **best-effort và có thể trễ**. Nếu một lần ghi mirror
+fail, log lại và tiếp tục; pipeline không bị ảnh hưởng.
 
-## Contents
+## Nội dung
 
-- [How Projects v2 is driven (GraphQL vs the official MCP `projects` toolset)](#how-projects-v2-is-driven)
-- [Resolve the board](#resolve-the-board)
-- [Create a board (init: `github_project=create`)](#create-a-board)
-- [Link an existing board](#link-an-existing-board)
-- [Mirror a flow:* label → column](#mirror-a-flow-label--column)
-- [List actionable board items (orchestrator queue)](#list-actionable-board-items)
-- [Board-driven mode amendment](#board-driven-mode-amendment)
+- [Cách Projects v2 được điều khiển (GraphQL vs official MCP `projects` toolset)](#how-projects-v2-is-driven)
+- [Resolve board](#resolve-the-board)
+- [Tạo board (init: `github_project=create`)](#create-a-board)
+- [Link một board có sẵn](#link-an-existing-board)
+- [Mirror một flow:* label → column](#mirror-a-flow-label--column)
+- [Liệt kê các board item actionable (orchestrator queue)](#list-actionable-board-items)
+- [Bổ sung cho board-driven mode](#board-driven-mode-amendment)
 - [Canonical status_map (board-driven mode)](#canonical-status_map-board-driven-mode)
 - [Scopes](#scopes)
-- [Helper scripts](#helper-scripts)
+- [Các script helper](#helper-scripts)
 
 ## How Projects v2 is driven
 
-Projects v2 has **no `gh`-CLI REST path** — `gh issue edit` swaps a label but **cannot** move a
-card. Two mechanisms exist; pick **one** per install and be consistent:
+Projects v2 **không có `gh`-CLI REST path** — `gh issue edit` đổi được label nhưng **không thể** di chuyển một
+card. Có hai cơ chế; chọn **một** cho mỗi install và giữ nhất quán:
 
-1. **`gh api graphql`** (default — what the snippets below use). Works for everything: resolving the
-   board node id, **creating** the project and its single-select Status field, adding items, and
-   setting Status. Project + Status-**field** creation is **GraphQL-only** — the MCP server cannot
-   create the 8-option field.
-2. **The official `github` MCP server's `projects` toolset** (optional, item-level only). When the
-   server is run with the `projects` toolset enabled, it exposes `projects_list` / `projects_get`
-   (reads) and `projects_write` (methods `add_project_item` / `update_project_item` /
-   `delete_project_item`). It keys off **owner + project number**, not the `PVT_` node id, and it
-   **cannot** create the Status field. If a project adopts it for the per-item mirror, persist
-   **both** the project number and the `PVT_` node id under `board:`.
+1. **`gh api graphql`** (default — cái mà các snippet bên dưới dùng). Làm được mọi thứ: resolve
+   board node id, **tạo** project và single-select Status field của nó, thêm item, và
+   set Status. Việc tạo project + Status **field** là **GraphQL-only** — MCP server không tạo được
+   field 7 option.
+2. **`projects` toolset của `github` MCP server chính thức** (optional, chỉ ở mức item). Khi
+   server chạy với `projects` toolset được bật, nó expose `projects_list` / `projects_get`
+   (reads) và `projects_write` (methods `add_project_item` / `update_project_item` /
+   `delete_project_item`). Nó key theo **owner + project number**, không phải `PVT_` node id, và nó
+   **không thể** tạo Status field. Nếu một project dùng nó cho per-item mirror, lưu
+   **cả** project number lẫn `PVT_` node id dưới `board:`.
 
-**Recommended default: keep one mechanism — `gh api graphql` — for both bootstrap and mirror.** It
-avoids node-id-vs-number plumbing and needs no opt-in toolset. The MCP `projects_write` path is a
-documented alternative, not a requirement. (Bootstrapping the Status field always stays on GraphQL
-regardless.)
+**Default khuyến nghị: giữ một cơ chế duy nhất — `gh api graphql` — cho cả bootstrap lẫn mirror.** Nó
+tránh việc phải nối node-id-vs-number và không cần opt-in toolset nào. Đường `projects_write` của MCP là
+một lựa chọn thay thế có tài liệu, không phải bắt buộc. (Việc bootstrap Status field thì luôn nằm trên GraphQL
+bất kể thế nào.)
 
-Connection config: `connections.github_project` toggles the link (`enabled`, `owner`, `owner_type`,
-`auth.token_env`, `auth.scopes`, `mcp.server`) and `board.id` / `board.columns` carry the node id
-and the eight column names. A connection is usable only when `enabled:true` AND every required env
-var is present (see skill: `setup-agentflow`).
+Config của connection: `connections.github_project` bật/tắt link (`enabled`, `owner`, `owner_type`,
+`auth.token_env`, `auth.scopes`, `mcp.server`) còn `board.id` / `board.columns` mang node id
+và bảy tên column. Một connection chỉ dùng được khi `enabled:true` VÀ mọi env
+var bắt buộc đều có mặt (xem skill: `setup-agentflow`).
 
 ## Resolve the board
 
-A board has a **node id** of the form `PVT_xxx`. Resolve it from
-`connections.github_project.owner` + `owner_type` and the board **number** (or run
+Một board có **node id** dạng `PVT_xxx`. Resolve nó từ
+`connections.github_project.owner` + `owner_type` và **number** của board (hoặc chạy
 `scripts/resolve-board.sh <owner> <owner_type> <number>`):
 
 ```bash
@@ -68,16 +68,16 @@ gh api graphql -f query='
   }' -F login="<owner>" -F number=<N>
 ```
 
-The returned `id` (`PVT_…`) is what belongs in `board.id`. A human-facing project **number** (the
-`/projects/<N>` URL) maps to exactly one node id via the query above; store the node id, not the
-number, so later calls skip the lookup.
+`id` trả về (`PVT_…`) chính là thứ đặt vào `board.id`. Một project **number** hướng tới con người (URL
+`/projects/<N>`) map tới đúng một node id qua query bên trên; lưu node id, không lưu
+number, để các lần gọi sau bỏ qua bước lookup.
 
 ## Create a board
 
-Used by /agentflow-init when the user opts to create a board. Two steps: create the project, then
-give its **Status** field options that match `board.columns`.
+Dùng bởi /agentflow-init khi user chọn tạo board. Hai bước: tạo project, rồi
+cho **Status** field của nó các option khớp với `board.columns`.
 
-1. Create the Projects v2 project under the resolved owner node id:
+1. Tạo project Projects v2 dưới owner node id đã resolve:
 
 ```bash
 # get the owner node id first
@@ -91,12 +91,12 @@ gh api graphql -f query='
   }' -F owner="<ownerNodeId>" -F title="<project.name>"
 ```
 
-Persist the returned `projectV2.id` to `board.id` and set `connections.github_project.enabled: true`.
+Lưu `projectV2.id` trả về vào `board.id` và set `connections.github_project.enabled: true`.
 
-2. Locate or create the single-select **Status** field. A new project ships with a default `Status`
-   field carrying `Todo/In Progress/Done`. AgentFlow needs the **eight** options in `board.columns`
-   (Inbox, Refined, Ready for Dev, In Progress, In QC, Changes Requested, Ready for Human Review,
-   Done). Recreate the field with exactly those options, in order:
+2. Tìm hoặc tạo single-select **Status** field. Một project mới đi kèm default `Status`
+   field mang `Todo/In Progress/Done`. AgentFlow cần **bảy** option trong `board.columns`
+   (Inbox, Ready for Dev, In Progress, In QC, Refined, Ready for Human Review,
+   Done). Tạo lại field với đúng các option đó, theo thứ tự:
 
 ```bash
 gh api graphql -f query='
@@ -107,11 +107,10 @@ gh api graphql -f query='
       name: "Status",
       singleSelectOptions: [
         { name: "Inbox",                  color: GRAY,   description: "" },
-        { name: "Refined",                color: PURPLE, description: "" },
         { name: "Ready for Dev",          color: BLUE,   description: "" },
         { name: "In Progress",            color: YELLOW, description: "" },
         { name: "In QC",                  color: ORANGE, description: "" },
-        { name: "Changes Requested",      color: RED,    description: "" },
+        { name: "Refined",                color: RED,    description: "needs human — provide info, then move to Inbox" },
         { name: "Ready for Human Review", color: PINK,   description: "" },
         { name: "Done",                   color: GREEN,  description: "" }
       ]
@@ -119,18 +118,18 @@ gh api graphql -f query='
   }' -F project="<board.id>"
 ```
 
-The option `name` strings MUST equal the values under `board.columns` one-to-one — that string
-match is how a `flow:*` label is mapped to an option later. (`singleSelectOptions` requires
-`name`, `color`, and `description` on every option.)
+Các chuỗi `name` của option PHẢI bằng các value dưới `board.columns` một-đối-một — chính string
+match đó là cách một `flow:*` label được map tới một option về sau. (`singleSelectOptions` yêu cầu
+`name`, `color`, và `description` trên mỗi option.)
 
 ## Link an existing board
 
-Used by /agentflow-init when the user provides a board number/id. Validate, do not mutate the
-user's data:
+Dùng bởi /agentflow-init khi user cung cấp board number/id. Validate, không mutate
+dữ liệu của user:
 
-1. Resolve the id (Resolve the board, above). If it does not resolve under `owner`/`owner_type`,
-   stop and tell the user.
-2. Read its `Status` field and confirm an option exists for each of the eight `board.columns` values:
+1. Resolve id (xem Resolve the board, ở trên). Nếu nó không resolve được dưới `owner`/`owner_type`,
+   dừng và báo cho user.
+2. Đọc `Status` field của nó và xác nhận có option tồn tại cho mỗi trong bảy value của `board.columns`:
 
 ```bash
 gh api graphql -f query='
@@ -139,15 +138,15 @@ gh api graphql -f query='
   }}}' -F id="<board.id>"
 ```
 
-3. If any column is missing, do NOT silently rewrite the board — list the missing option names and
-   guide the user to add them (or to let init recreate the field).
+3. Nếu thiếu column nào, KHÔNG âm thầm ghi đè board — liệt kê các tên option còn thiếu và
+   hướng dẫn user thêm chúng (hoặc để init tạo lại field).
 
 ## Mirror a flow:* label → column
 
-Given an issue and its current `flow:*` label, mirror it to the board (or run
-`scripts/mirror-label-to-board.sh`). Map `labels.flow.<key>` → `board.columns.<key>` **one-to-one**
-(same `<key>`: e.g. `flow:in-qc` → key `in_qc` → `board.columns.in_qc` = "In QC"). Three ids are
-needed: the **item id** (the issue's card), the Status **field id**, and the target **option id**.
+Cho một issue và `flow:*` label hiện tại của nó, mirror nó sang board (hoặc chạy
+`scripts/mirror-label-to-board.sh`). Map `labels.flow.<key>` → `board.columns.<key>` **một-đối-một**
+(cùng `<key>`: ví dụ `flow:in-qc` → key `in_qc` → `board.columns.in_qc` = "In QC"). Cần ba id:
+**item id** (card của issue), Status **field id**, và **option id** đích.
 
 ```bash
 # 1. add the issue to the project (idempotent; returns the existing item if present)
@@ -169,19 +168,19 @@ gh api graphql -f query='
      -F field="<statusFieldId>" -F option="<optionId>"
 ```
 
-Resolve `<issueNodeId>` with `gh issue view <n> --json id` (or the GitHub MCP). Get
-`<statusFieldId>` and the `<optionId>` for the target column from the `Status` field query above,
-matching on the option `name`. This mirror runs **after** the label swap, never instead of it; on
-any error, log and move on.
+Resolve `<issueNodeId>` bằng `gh issue view <n> --json id` (hoặc GitHub MCP). Lấy
+`<statusFieldId>` và `<optionId>` cho column đích từ query `Status` field bên trên,
+match theo `name` của option. Mirror này chạy **sau** khi swap label, không bao giờ thay cho nó; khi
+có bất kỳ lỗi nào, log lại và đi tiếp.
 
 ## List actionable board items
 
-The orchestrator reads the **whole** board in one shot to build its **inbox queue**. This is the one
-query that reads board state as a *queue*. Paginate over every item and pull, per item: the issue
-**number**, the **item id** (reuse it directly in the mirror's `updateProjectV2ItemFieldValue`,
-skipping the `addProjectV2ItemById` round-trip), the issue's live **labels** (the authoritative
-`flow:*`), the issue **state** (skip `CLOSED`), the issue's **assignees** (for the unassigned-inbox
-claim filter), and the current **Status** option name.
+Orchestrator đọc **toàn bộ** board trong một lần để build **inbox queue** của nó. Đây là query
+duy nhất đọc board state như một *queue*. Paginate qua mọi item và lấy, cho mỗi item: **number** của
+issue, **item id** (dùng lại trực tiếp trong `updateProjectV2ItemFieldValue` của mirror,
+bỏ qua vòng round-trip `addProjectV2ItemById`), **labels** sống của issue (`flow:*` authoritative),
+**state** của issue (bỏ qua `CLOSED`), **assignees** của issue (cho filter claim unassigned-inbox),
+và tên option **Status** hiện tại.
 
 ```bash
 gh api graphql -f query='
@@ -211,66 +210,82 @@ gh api graphql -f query='
 # loop while .data.node.items.pageInfo.hasNextPage, passing endCursor as the next cursor
 ```
 
-The list returns **all** board items; the orchestrator applies the *inbox-claim* filter client-side:
-issue `state == OPEN`, carries `flow:inbox` (or no `flow:*` label yet → treat as inbox), and has
-**no assignee** (unclaimed). It claims one by self-assigning, then drives that ticket end-to-end off
-its live label. A **draft** card (no `content.number`) is outside the label state machine — surface
-it to the human to convert to an issue via `/task`.
+List trả về **tất cả** board item; orchestrator áp filter *inbox-claim* ở client-side:
+issue `state == OPEN`, mang `flow:inbox` (hoặc chưa có `flow:*` label → coi như inbox), và
+**không có assignee** (chưa được claim). Nó claim một cái bằng cách tự assign cho mình, rồi drive ticket đó end-to-end dựa trên
+label sống của nó. Một card **draft** (không có `content.number`) nằm ngoài label state machine — surface
+nó cho human để convert thành issue qua `/task`.
 
 ## Board-driven mode amendment
 
-Board-driven is now the **only** mode — the board is mandatory and `/start` requires it. The default
-protocol (in `../SKILL.md`) keeps the `flow:*` **label authoritative** and treats the board as the
-orchestrator's **inbox queue + a human-visible mirror**. The **orchestrator** (`/start`) reads the
-board for its **inbox queue** via the list query above — it scans only unassigned `flow:inbox`
-cards, claims one, then drives that ticket end-to-end. It is the *only* sanctioned reader of columns,
-and even it does not *trust* the column for state — for each item it re-reads the issue's live
-`flow:*` label and routes off the **label** (label wins on any drift), then re-mirrors Status to
-match. PO/DEV/QC sub-agents still **never** read or write the board; all board writes stay at the
-orchestrator layer (`/start`, `/task`). The board is the inbox queue + mirror; the label is the truth.
+Board-driven giờ là mode **duy nhất** — board là bắt buộc và `/start` yêu cầu nó. Protocol mặc định
+(trong `../SKILL.md`) giữ `flow:*` **label authoritative** và coi board là
+**inbox queue + mirror cho người xem** của orchestrator. **Orchestrator** (`/start`) đọc
+board để lấy **inbox queue** của nó qua query list bên trên — nó chỉ scan các card `flow:inbox`
+chưa được assign, claim một cái, rồi drive ticket đó end-to-end. Nó là reader *duy nhất* được phép đọc column,
+và ngay cả nó cũng không *tin* column cho state — với mỗi item nó đọc lại label `flow:*` sống
+của issue và route theo **label** (label thắng khi có bất kỳ drift nào), rồi re-mirror Status cho khớp.
+Các sub-agent PMO/DEV/QC vẫn **không bao giờ** đọc hay ghi board; mọi lần ghi board đều nằm ở tầng
+orchestrator (`/start`, `/task`). Board là inbox queue + mirror; label mới là sự thật.
 
 ## Canonical status_map (board-driven mode)
 
-`/start` uses the canonical table below as its single routing table — read it here, do not hardcode
-a different one. The `column` strings match the canonical `board.columns`; if a repo renamed a
-column, map by the **`<key>`** (e.g. `in_qc`), not the display string.
+`/start` dùng bảng canonical bên dưới làm routing table duy nhất — đọc nó ở đây, đừng hardcode
+một bảng khác. Các chuỗi `column` khớp với `board.columns` canonical; nếu một repo đổi tên một
+column, map theo **`<key>`** (ví dụ `in_qc`), không theo chuỗi hiển thị.
 
 ```yaml
 status_map:
-  inbox:                  { column: "Inbox",                  flow_label: "flow:inbox",                  owner: "po",    action: "claim (self-assign) → triage & refine into AC" }
-  refined:                { column: "Refined",                flow_label: "flow:refined",                owner: "po",    action: "DoR gate / clarification buffer / 2-strike re-spec (needs-human)" }
-  ready_for_dev:          { column: "Ready for Dev",          flow_label: "flow:ready-for-dev",          owner: "dev",   action: "implement on a type-named branch, open PR" }
+  inbox:                  { column: "Inbox",                  flow_label: "flow:inbox",                  owner: "pmo", action: "claim (self-assign) → triage + refine to DoR; DoR pass → ready-for-dev, else (needs human info) → refined" }
+  ready_for_dev:          { column: "Ready for Dev",          flow_label: "flow:ready-for-dev",          owner: "dev",   action: "implement on a type-named branch, open PR (rework if `rework`/`human-changes` aux present — read latest QC rejection / mirrored PR feedback first)" }
   in_progress:            { column: "In Progress",            flow_label: "flow:in-progress",            owner: "dev",   action: "active coding (claim held) — NOT re-spawnable; break out if paused/blocked" }
-  in_qc:                  { column: "In QC",                  flow_label: "flow:in-qc",                  owner: "qc",    action: "author tests + run the tier per touched surface" }
-  changes_requested:      { column: "Changes Requested",      flow_label: "flow:changes-requested",      owner: "dev",   action: "rework against the latest QC rejection" }
+  in_qc:                  { column: "In QC",                  flow_label: "flow:in-qc",                  owner: "qc",    action: "author tests + run tier; ✅ → ready-for-human-review, ❌ → ready-for-dev+rework (fail ≤ max_rework_returns) else refined (escalate)" }
+  refined:                { column: "Refined",                flow_label: "flow:refined",                owner: "human", action: "BLOCKED — human supplies missing info/decision (via /review-refined), then re-labels to flow:inbox to resume" }
   ready_for_human_review: { column: "Ready for Human Review", flow_label: "flow:ready-for-human-review", owner: "human", action: "human reviews / merges (QC ✅, merge-ready)" }
   done:                   { column: "Done",                   flow_label: "flow:done",                   owner: "human", action: "terminal" }
 ```
 
-> **`in_progress` is a special case.** Its `owner` is `dev` (the work belongs to DEV), but the card
-> is **in-flight (the claim is held)** — the orchestrator must **never re-spawn DEV** on it. A card
-> sitting in `flow:in-progress` between polls means DEV paused or is blocked → **break out to the
-> human**, do not route it forward. See `commands/start.md` (polling loop, "next step" decision).
+> **`in_progress` là một case đặc biệt.** `owner` của nó là `dev` (công việc thuộc về DEV), nhưng card
+> đang **in-flight (claim đang được giữ)** — orchestrator **không bao giờ được re-spawn DEV** trên nó. Một card
+> nằm ở `flow:in-progress` giữa các lần poll nghĩa là DEV đã pause hoặc bị block → **break out cho human**,
+> đừng route nó đi tiếp. Xem `commands/start.md` (polling loop, quyết định "next step").
+
+> **`refined` là human-intervention parking (owner: human).** Nó là một break-out/park giống
+> `ready_for_human_review`: mọi info-gap (PMO không đạt được DoR, DEV thiếu spec/Figma, QC gặp AC
+> mơ hồ, hoặc 2-strike escalation của QC) đều rơi vào đây. Khi break out về `flow:refined`,
+> orchestrator **unassign** ticket để nó có thể re-enter inbox queue. Con người dùng
+> `/review-refined` (hoặc sửa label tay) để bổ sung info/quyết định rồi **re-label về `flow:inbox`**;
+> PMO re-triage cái ticket đó và `consecutive_fail` reset. Xem `commands/review-refined.md` và
+> `commands/start.md` (break-out + unassign).
+>
+> **`ready_for_human_review` được re-scan, không chỉ park.** `owner` của nó là `human`, nhưng giữa các
+> lần poll human có thể để lại một PR review **"Request changes"** thay vì merge. Orchestrator
+> re-scan các ticket `flow:ready-for-human-review` của nó để tìm một review **Request changes** mới
+> từ trusted-maintainer (mới hơn lần cuối ticket vào state đó) và, khi trúng,
+> route ticket về lại DEV (`flow:ready-for-dev` + `human-changes`, reset `consecutive_fail`).
+> Đây là Status duy nhất mà orchestrator đọc vượt ra ngoài inbox queue. Aux label giữ
+> `status_map` không đổi (`flow:ready-for-dev` vẫn → owner `dev`). Xem `commands/start.md`
+> ("Human-review rework") và skill `project-board-protocol` ("Human-review rework").
 
 ## Scopes
 
-The board is **mandatory**, so `project` scope is always required — `/start` reads the board to
-build its inbox queue and stops at boot if `project` is missing.
+Board là **bắt buộc**, nên `project` scope luôn được yêu cầu — `/start` đọc board để
+build inbox queue và dừng lúc boot nếu thiếu `project`.
 
-- Org board: `GITHUB_TOKEN` needs `project` **and** `read:org`.
-- User board: `GITHUB_TOKEN` needs `project`.
-- If the optional MCP `projects` toolset is used for the mirror, the `github` MCP server must be run
-  with that toolset enabled (it is **not** on by default); otherwise the `projects_*` tools silently
-  do not exist and the mirror falls back to GraphQL.
+- Org board: `GITHUB_TOKEN` cần `project` **và** `read:org`.
+- User board: `GITHUB_TOKEN` cần `project`.
+- Nếu dùng MCP `projects` toolset optional cho mirror, `github` MCP server phải được chạy
+  với toolset đó bật (mặc định **không** bật); nếu không, các tool `projects_*` âm thầm
+  không tồn tại và mirror fallback về GraphQL.
 
 ## Helper scripts
 
-Two deterministic operations are bundled as scripts so the agent runs them instead of re-typing
-fragile GraphQL (low-freedom rule, see Anthropic skill best-practices):
+Hai thao tác deterministic được đóng gói thành script để agent chạy chúng thay vì gõ lại
+GraphQL mong manh (low-freedom rule, xem Anthropic skill best-practices):
 
-- `scripts/resolve-board.sh <owner> <owner_type> <number>` → prints the `PVT_…` node id.
+- `scripts/resolve-board.sh <owner> <owner_type> <number>` → in ra `PVT_…` node id.
 - `scripts/mirror-label-to-board.sh <board_id> <issue_node_id> <status_field_id> <option_id>` →
-  adds the issue to the board and sets its Status option (the two mutations above).
+  thêm issue vào board và set Status option của nó (hai mutation bên trên).
 
-Both are thin wrappers over `gh api graphql`; read them before first use to confirm they match your
-`board.columns`.
+Cả hai là wrapper mỏng bọc quanh `gh api graphql`; đọc chúng trước lần dùng đầu tiên để xác nhận chúng khớp với
+`board.columns` của bạn.

@@ -1,26 +1,26 @@
 ---
-description: Bootstrap AgentFlow in the current repo — resolve project + summary, wire connections (full auth/MCP spec), detect the surfaces that exist, create flow:*/type/*/component/* labels, a required board, optionally scaffold role-prefixed project skills, then write .claude/agentflow.yaml + README.agentflow.md.
-argument-hint: (no args — runs an interactive setup wizard)
+description: Bootstrap AgentFlow trong repo hiện tại — resolve project + summary, wire connections (full auth/MCP spec), detect các surface đang tồn tại, tạo các label flow:*/type/*/component/*, một board bắt buộc, tùy chọn scaffold project skills có role-prefix, rồi ghi .claude/agentflow.yaml + README.agentflow.md.
+argument-hint: (không có args — chạy một setup wizard tương tác)
 ---
 
-You are bootstrapping **AgentFlow** in the user's CURRENT repository. This is a one-time
-setup, but it is **idempotent and re-runnable** — users re-run it to re-detect surfaces,
-add a board later, register new skills, or refresh env/connections. Never destroy a
-hand-edited `.claude/agentflow.yaml` without warning; if one exists, read it, treat its
-values as the defaults for each step below, and confirm before overwriting.
+Bạn đang bootstrap **AgentFlow** trong repository HIỆN TẠI của user. Đây là setup một
+lần, nhưng nó **idempotent và chạy lại được** — user chạy lại để re-detect surfaces,
+thêm board sau, đăng ký skill mới, hoặc refresh env/connections. Không bao giờ hủy một
+`.claude/agentflow.yaml` đã sửa tay mà không cảnh báo; nếu đã có, đọc nó, coi các value của nó
+là default cho mỗi bước bên dưới, và xác nhận trước khi ghi đè.
 
-The generated `.claude/agentflow.yaml` is **the single source of truth** for the project —
-connections, secrets, surfaces, skills, labels and board all live there. Read the authoritative
-schema at `templates/agentflow.yaml.template` before writing.
+File `.claude/agentflow.yaml` được sinh ra là **the single source of truth** của project —
+connections, secrets, surfaces, skills, labels và board đều nằm ở đó. Đọc schema chuẩn
+tại `templates/agentflow.yaml.template` trước khi ghi.
 
-Work through the steps **in order**. If a precondition fails, tell the user exactly what to
-fix and **stop** — do not press on with a half-configured repo. Never echo a secret value.
+Thực hiện các bước **theo thứ tự**. Nếu một precondition fail, nói cho user chính xác cần
+fix gì rồi **stop** — đừng cố tiếp tục với một repo cấu hình dở dang. Không bao giờ echo giá trị secret.
 
 ---
 
 ## 1. Preconditions
 
-Run these and stop on the first failure with a precise fix:
+Chạy các lệnh sau và dừng ở lần fail đầu tiên kèm hướng fix chính xác:
 
 ```bash
 git rev-parse --is-inside-work-tree     # must be a git repo
@@ -28,84 +28,84 @@ git remote get-url origin               # must resolve to a GitHub remote
 gh auth status                          # must be authenticated
 ```
 
-- Not a git repo → "Run `git init` and add a GitHub `origin` remote first."
-- No `origin` → "Add a remote: `git remote add origin git@github.com:OWNER/REPO.git`."
-- `gh` not authenticated → "Run `gh auth login` (same account as your token) and retry."
+- Không phải git repo → "Chạy `git init` và thêm một GitHub `origin` remote trước."
+- Không có `origin` → "Thêm remote: `git remote add origin git@github.com:OWNER/REPO.git`."
+- `gh` chưa authenticate → "Chạy `gh auth login` (cùng account với token của bạn) rồi thử lại."
 
-The `github` and `figma` MCP servers are **HTTP** servers (hosted GitHub remote; official Figma
-server) — no Node/`npx` install is needed. The optional `figma` server signs in via OAuth
-(`/mcp` → figma → Authenticate) after the plugin loads.
+Các MCP server `github` và `figma` là các server **HTTP** (hosted GitHub remote; official Figma
+server) — không cần install Node/`npx`. Server `figma` tùy chọn đăng nhập qua OAuth
+(`/mcp` → figma → Authenticate) sau khi plugin load.
 
-## 2. Resolve project
+## 2. Xác định project
 
-Derive `OWNER/REPO`, the default branch, and the owner from the remote and `gh`:
+Suy ra `OWNER/REPO`, default branch, và owner từ remote và `gh`:
 
 ```bash
 gh repo view --json nameWithOwner,defaultBranchRef,owner,description \
   -q '{repo: .nameWithOwner, branch: .defaultBranchRef.name, owner: .owner.login, type: .owner.type, desc: .description}'
 ```
 
-- `OWNER/REPO` ← `nameWithOwner`; split on `/` for `OWNER` and `REPO`.
+- `OWNER/REPO` ← `nameWithOwner`; split theo `/` để lấy `OWNER` và `REPO`.
 - `DEFAULT_BRANCH` ← `defaultBranchRef.name`.
-- `PROJECT_OWNER` ← `owner.login`; `PROJECT_OWNER_TYPE` ← `Organization` → `org`, else `user`.
-- `PROJECT_NAME` ← `REPO` unless the user gives a friendlier name.
-- `PROJECT_SUMMARY` ← a short one-liner answering "what is this project?". Seed it from the
-  repo `description` (or a glance at the README), then **ask the user to confirm or edit**.
-  This goes to `project.summary` and is shown in `/status` and the READMEs.
+- `PROJECT_OWNER` ← `owner.login`; `PROJECT_OWNER_TYPE` ← `Organization` → `org`, ngược lại `user`.
+- `PROJECT_NAME` ← `REPO` trừ khi user đưa tên thân thiện hơn.
+- `PROJECT_SUMMARY` ← một one-liner ngắn trả lời "project này là gì?". Seed nó từ
+  `description` của repo (hoặc liếc qua README), rồi **hỏi user để xác nhận hoặc chỉnh**.
+  Cái này đi vào `project.summary` và hiển thị trong `/status` và các README.
 
-## 3. Env check (presence only — NEVER a value)
+## 3. Kiểm tra env (chỉ presence — KHÔNG BAO GIỜ giá trị)
 
-The `env:` list in `templates/agentflow.yaml.template` declares every secret by NAME, with
-`required` and `used_by`. Verify each is **present in the shell** — check presence, never the value:
+List `env:` trong `templates/agentflow.yaml.template` khai báo mọi secret theo NAME, kèm
+`required` và `used_by`. Verify từng cái **present trong shell** — kiểm tra presence, không bao giờ giá trị:
 
 ```bash
 [ -n "${GITHUB_TOKEN:-}" ] && echo "GITHUB_TOKEN: set" || echo "GITHUB_TOKEN: MISSING"
 [ -n "${FIGMA_TOKEN:-}" ]  && echo "FIGMA_TOKEN: set"  || echo "FIGMA_TOKEN: absent"
 ```
 
-- **`GITHUB_TOKEN` (required):** if unset → tell the user to put it in `.env`
-  (`cp .env.example .env`, fill `GITHUB_TOKEN=…` with a fine-grained PAT, scopes `repo` + `read:org`
-  + `project`), `source` it before launching Claude Code, then re-run. **Stop.**
-- **`FIGMA_TOKEN` (optional, legacy only):** the official Figma MCP server uses **OAuth** (no token),
-  so this is not required. Leave it unset unless running the legacy Framelink/REST fallback; note and continue.
+- **`GITHUB_TOKEN` (required):** nếu chưa set → bảo user đặt nó vào `.env`
+  (`cp .env.example .env`, điền `GITHUB_TOKEN=…` bằng một fine-grained PAT, scopes `repo` + `read:org`
+  + `project`), `source` nó trước khi khởi động Claude Code, rồi chạy lại. **Stop.**
+- **`FIGMA_TOKEN` (optional, legacy only):** official Figma MCP server dùng **OAuth** (không token),
+  nên cái này không bắt buộc. Để trống trừ khi chạy legacy Framelink/REST fallback; ghi chú và tiếp tục.
 
-Never print, log, or interpolate a token value. Reference vars only as `${GITHUB_TOKEN}` /
-`${FIGMA_TOKEN}`. See skill: **setup-agentflow** for how env names map to connections and MCP servers.
+Không bao giờ print, log, hay interpolate giá trị token. Chỉ tham chiếu biến dưới dạng `${GITHUB_TOKEN}` /
+`${FIGMA_TOKEN}`. Xem skill: **setup-agentflow** để biết env name map tới connections và MCP server ra sao.
 
 ## 4. Connections wizard
 
-Each connection is **fully specified in one place** — `auth` (token_env + scopes/cli|docs) and,
-when the service has an MCP server, `mcp` (server key in `.mcp.json` + `requires_env`). A
-connection is usable only when `enabled: true` AND every var in its auth/mcp requirements is
-present. Confirm each:
+Mỗi connection được **khai báo đầy đủ tại một chỗ** — `auth` (token_env + scopes/cli|docs) và,
+khi service có MCP server, `mcp` (server key trong `.mcp.json` + `requires_env`). Một
+connection chỉ dùng được khi `enabled: true` VÀ mọi var trong requirements auth/mcp của nó đều
+present. Xác nhận từng cái:
 
-- **github** — always `enabled: true`. `repo` ← `OWNER/REPO`.
+- **github** — luôn `enabled: true`. `repo` ← `OWNER/REPO`.
   `auth: { token_env: GITHUB_TOKEN, scopes: ["repo","read:org"], cli: "gh auth login" }`,
   `mcp: { server: "github", requires_env: ["GITHUB_TOKEN"] }`.
-- **github_project** (REQUIRED) — ask: *create a new board* or *link an existing board by
-  id/number* (no skip — the board is mandatory). Always `enabled: true` for Step 7. Needs the
-  `project` scope on `GITHUB_TOKEN`: verify it and, if absent, tell the user to run
-  `gh auth refresh -s project` and **stop**.
+- **github_project** (REQUIRED) — hỏi: *tạo board mới* hoặc *link board có sẵn theo
+  id/number* (không được skip — board là bắt buộc). Luôn `enabled: true` cho Step 7. Cần
+  scope `project` trên `GITHUB_TOKEN`: verify nó và, nếu thiếu, bảo user chạy
+  `gh auth refresh -s project` rồi **stop**.
   `auth.scopes: ["project","read:org"]`, `mcp: { server: "github", requires_env: ["GITHUB_TOKEN"] }`,
-  plus `owner`/`owner_type` from Step 2.
-- **figma** — optional design source via the **official Figma MCP server (OAuth — no token)**. Offer it
-  regardless of `FIGMA_TOKEN`. If enabling, set `enabled: true`,
+  cùng `owner`/`owner_type` từ Step 2.
+- **figma** — nguồn design tùy chọn qua **official Figma MCP server (OAuth — no token)**. Đề nghị nó
+  bất kể `FIGMA_TOKEN`. Nếu bật, set `enabled: true`,
   `auth: { method: oauth, fallback_token_env: FIGMA_TOKEN, docs: "/mcp → figma → Authenticate" }`,
-  `mcp: { server: "figma" }`, and seed `connections.figma.files` with any known file keys
-  (e.g. `[{ name: "Design System", key: "AbC123xyz" }]`), else `[]`. Tell the user to authenticate once via
-  `/mcp → figma → Authenticate`. If they decline → `enabled: false`.
+  `mcp: { server: "figma" }`, và seed `connections.figma.files` bằng các file key đã biết
+  (VD `[{ name: "Design System", key: "AbC123xyz" }]`), ngược lại `[]`. Bảo user authenticate một lần qua
+  `/mcp → figma → Authenticate`. Nếu họ từ chối → `enabled: false`.
 
-**Validate** each enabled connection: confirm every var in its `auth.token_env` + `mcp.requires_env`
-is present (presence only, from Step 3). If an enabled connection is missing a required var, warn
-and either disable it or stop. Tell the user they can copy a connection block in the yaml to add
-more services later (see skill: **setup-agentflow**).
+**Validate** mỗi connection đã enabled: xác nhận mọi var trong `auth.token_env` + `mcp.requires_env`
+của nó đều present (chỉ presence, từ Step 3). Nếu một connection đã enabled thiếu var bắt buộc, cảnh
+báo và hoặc disable nó hoặc dừng. Bảo user rằng họ có thể copy một connection block trong yaml để thêm
+service khác sau này (xem skill: **setup-agentflow**).
 
-## 5. Dynamic surface detection
+## 5. Phát hiện surface động
 
-AgentFlow is **tech-stack agnostic** and surfaces are an **OPEN MAP** — declare ONLY the parts
-this repo actually has. Do **NOT** assume the backend/frontend/mobile trio: a repo may be
-backend-only, frontend-only, mobile-only, or any mix. Scan for markers, then **PROPOSE** a
-surface key + path + commands per detected part; the user confirms, edits, or **renames** each.
+AgentFlow **tech-stack agnostic** và surfaces là một **OPEN MAP** — CHỈ khai báo những phần
+repo này thực sự có. **KHÔNG** giả định bộ ba backend/frontend/mobile: một repo có thể chỉ
+backend, chỉ frontend, chỉ mobile, hoặc bất kỳ mix nào. Scan tìm marker, rồi **ĐỀ XUẤT** một
+surface key + path + commands cho mỗi phần detect được; user xác nhận, chỉnh, hoặc **đổi tên** từng cái.
 
 ```bash
 ls package.json go.mod pom.xml build.gradle build.gradle.kts requirements.txt \
@@ -113,10 +113,10 @@ ls package.json go.mod pom.xml build.gradle build.gradle.kts requirements.txt \
 ls -d android ios web frontend backend server api admin mobile app 2>/dev/null
 ```
 
-Map markers to suggestions (illustrative, not exhaustive — adapt to what you find; the surface
-KEY is the user's to choose, e.g. `backend`, `web`, `api`, `admin`, `mobile`):
+Map marker sang gợi ý (minh họa, không đầy đủ — thích ứng theo cái bạn tìm thấy; surface KEY do
+user chọn, VD `backend`, `web`, `api`, `admin`, `mobile`):
 
-| Marker                                   | Suggested key | Suggested commands (confirm with user)              |
+| Marker                                   | Key gợi ý     | Commands gợi ý (xác nhận với user)                   |
 |------------------------------------------|---------------|------------------------------------------------------|
 | `package.json` (web deps)                | web/frontend  | `npm ci` / `npm run lint` / `npm test` / `npm run build` |
 | `go.mod`                                 | backend/api   | `go mod download` / `go vet ./...` / `go test ./...` / `go build ./...` |
@@ -127,19 +127,19 @@ KEY is the user's to choose, e.g. `backend`, `web`, `api`, `admin`, `mobile`):
 | `pubspec.yaml`, `android/`, `ios/`       | mobile        | `flutter pub get` / `flutter analyze` / `flutter test` / `flutter build` |
 | `composer.json`                          | backend       | `composer install` / `phpcs` / `phpunit` |
 
-Rules:
-- Write **ONLY the surfaces that exist** into the config. There is no fixed set — one surface or many.
-- A **single-app repo** uses one surface mapped to `path: "."`.
-- Leave any individual command `""` to skip it (e.g. no `integration`/`e2e` yet).
-- `coverage_command` must print ONE number 0–100 to stdout, or `""` to skip; set a per-surface
-  `coverage_threshold` (or `0` to defer to `agents.qc.coverage_threshold`).
-- The QC **tiers** (`quick` ⊆ `full` ⊆ `regression`) are lists of command-*types*, not shell
-  commands — the shell commands you collect here are what those tiers invoke per touched surface.
-  Leave tier definitions at template defaults unless the user asks otherwise.
+Quy tắc:
+- Chỉ ghi **CÁC surface thực sự tồn tại** vào config. Không có bộ cố định — một surface hoặc nhiều.
+- Một **repo single-app** dùng một surface map tới `path: "."`.
+- Để trống một command bất kỳ bằng `""` để skip (VD chưa có `integration`/`e2e`).
+- `coverage_command` phải in RA MỘT số 0–100 lên stdout, hoặc `""` để skip; set `coverage_threshold`
+  theo từng surface (hoặc `0` để defer sang `agents.qc.coverage_threshold`).
+- Các **tier** của QC (`quick` ⊆ `full` ⊆ `regression`) là danh sách command-*type*, không phải shell
+  command — các shell command bạn thu thập ở đây là cái mà các tier đó invoke cho mỗi surface bị đụng.
+  Để nguyên định nghĩa tier ở template default trừ khi user yêu cầu khác.
 
-For each confirmed surface key `<s>`, set `surfaces.<s>.label: "component/<s>"`. The
-`labels.component` map is then **generated to match** — one `component/<surface>` per declared
-surface (Step 6 / Step 8).
+Với mỗi surface key `<s>` đã xác nhận, set `surfaces.<s>.label: "component/<s>"`. Map
+`labels.component` sau đó được **sinh cho khớp** — một `component/<surface>` cho mỗi surface đã
+khai báo (Step 6 / Step 8).
 
 ```yaml
 # example: a backend-only repo declares exactly one surface
@@ -153,21 +153,20 @@ surfaces:
     forbidden_paths: []
 ```
 
-## 6. Create labels
+## 6. Tạo labels
 
-Create every AgentFlow label idempotently. Always: **8** `flow:*`, **3** `type/*`,
-`needs-clarification`, `needs-human` — PLUS **one `component/<surface>` per surface declared in
-Step 5** (the component labels are dynamic). Meanings live in skill: **project-board-protocol**.
-Use `--force` so re-runs update color/description instead of erroring:
+Tạo mọi AgentFlow label một cách idempotent. Luôn: **7** `flow:*`, **3** `type/*`,
+`rework`, `human-changes` — CỘNG **một `component/<surface>` cho mỗi surface
+khai báo ở Step 5** (các component label là động). Ý nghĩa nằm trong skill: **project-board-protocol**.
+Dùng `--force` để lần chạy lại update color/description thay vì báo lỗi:
 
 ```bash
 # flow:* (state machine — exactly one per active issue) — blue family
-gh label create "flow:inbox"                  --color 1D76DB --description "AgentFlow: triage"                 --force
-gh label create "flow:refined"                --color 1D76DB --description "AgentFlow: DoR gate / clarify / 2-strike re-spec" --force
+gh label create "flow:inbox"                  --color 1D76DB --description "AgentFlow: triage + DoR gate"       --force
 gh label create "flow:ready-for-dev"          --color 1D76DB --description "AgentFlow: DEV queue"              --force
 gh label create "flow:in-progress"            --color 1D76DB --description "AgentFlow: DEV coding (in-flight; claim held)" --force
 gh label create "flow:in-qc"                  --color 1D76DB --description "AgentFlow: QC reviewing"           --force
-gh label create "flow:changes-requested"      --color 1D76DB --description "AgentFlow: rework"                --force
+gh label create "flow:refined"                --color D93F0B --description "AgentFlow: human-intervention parking (owner: human)" --force
 gh label create "flow:ready-for-human-review" --color 1D76DB --description "AgentFlow: human review/merge"     --force
 gh label create "flow:done"                   --color 1D76DB --description "AgentFlow: terminal"               --force
 
@@ -182,36 +181,36 @@ for s in <surface keys from Step 5>; do
 done
 
 # aux signals — amber / red
-gh label create "needs-clarification" --color FBCA04 --description "AgentFlow: PO input needed"    --force
-gh label create "needs-human"         --color D93F0B --description "AgentFlow: escalated to human" --force
+gh label create "rework"              --color FBCA04 --description "AgentFlow: QC-rejection rework on flow:ready-for-dev → DEV đọc QC rejection mới nhất trước" --force
+gh label create "human-changes"       --color D93F0B --description "AgentFlow: human Request-changes review on PR → DEV rework" --force
 ```
 
-Do **not** create `component/*` labels for surfaces the repo doesn't have — they must mirror the
-declared `surfaces:` keys exactly.
+**Không** tạo `component/*` label cho surface mà repo không có — chúng phải mirror chính xác các
+key `surfaces:` đã khai báo.
 
-## 7. Board (required)
+## 7. Board (bắt buộc)
 
-Drive all GitHub Projects v2 details from skill: **project-board-protocol** (its GitHub Projects v2
-board section). The board is **required** — it is the orchestrator's inbox queue + the
-human-visible mirror; the `flow:*` label stays authoritative for routing.
+Điều khiển mọi chi tiết GitHub Projects v2 từ skill: **project-board-protocol** (phần GitHub Projects v2
+board của nó). Board là **required** — nó là inbox queue của orchestrator + mirror mà con người
+thấy được; label `flow:*` vẫn authoritative cho routing.
 
-- **create** or **link** (chosen in Step 4) → that skill creates/links the board, mirrors the
-  `flow:*` labels to a Status field (HUMAN MIRROR only — labels stay authoritative), and returns
-  the board **node id** (`PVT_…`). Store it at `board.id` and set
+- **create** hoặc **link** (đã chọn ở Step 4) → skill đó tạo/link board, mirror các label
+  `flow:*` sang một Status field (CHỈ HUMAN MIRROR — labels vẫn authoritative), và trả về
+  **node id** của board (`PVT_…`). Lưu nó ở `board.id` và set
   `connections.github_project.enabled: true`.
 
-`board.id` is always a real `PVT_…` and `connections.github_project.enabled` is always `true` —
-keep them **in sync**.
+`board.id` luôn là một `PVT_…` thật và `connections.github_project.enabled` luôn `true` —
+giữ chúng **in sync**.
 
 ## 8. Scaffold project skills (opt-in)
 
-Offer to create starter **role-prefixed** skill stubs under `.claude/skills/`, named
-`<role>-<area>` so the right agent picks them up: `dev-*` → DEV, `qc-*` → QC, `po-*` → PO.
-**Always scaffold `qc-automation-test` by default** — QC's authoring skill, which it loads to add
-the test IDs the suite needs and author test flows on the PR branch — and register it in `skills:`.
-Propose the rest matched to the detected surfaces, e.g. `dev-<surface>-development` per surface and
-`po-discovery`. **Ask before creating the offered stubs.** For each accepted stub, write a
-`SKILL.md` with YAML frontmatter (`name` = the directory name) + a short description + a TODO body:
+Đề nghị tạo các skill stub khởi đầu có **role-prefix** dưới `.claude/skills/`, đặt tên
+`<role>-<area>` để đúng agent nhặt được: `dev-*` → DEV, `qc-*` → QC, `pmo-*` → PMO.
+**Luôn scaffold `qc-automation-test` mặc định** — skill authoring của QC, mà nó load để thêm
+các test ID mà suite cần và author các test flow trên PR branch — và đăng ký nó trong `skills:`.
+Đề xuất phần còn lại khớp với các surface đã detect, VD `dev-<surface>-development` cho mỗi surface và
+`pmo-discovery`. **Hỏi trước khi tạo các stub đề nghị.** Với mỗi stub được chấp nhận, ghi một
+`SKILL.md` với YAML frontmatter (`name` = tên directory) + một description ngắn + một TODO body:
 
 ```markdown
 ---
@@ -224,69 +223,69 @@ description: API surface conventions for DEV — TODO: fill in.
 TODO: document this project's API conventions, patterns, and gotchas DEV should follow.
 ```
 
-Then **register** each in the yaml `skills:` map with `{ role, surfaces?, description? }` — this
-registry is the single source of truth / overview. Agents also auto-discover any
-`.claude/skills/<their-role>-*` even if unlisted; an agent loads the role-prefixed skills relevant
-to the surface(s) the current issue touches (registry `surfaces` matched to the issue's
-`component/*` labels; unlisted or no-`surfaces` = always relevant). See skill: **setup-agentflow**.
+Rồi **register** từng cái vào map `skills:` trong yaml với `{ role, surfaces?, description? }` — registry
+này là the single source of truth / tổng quan. Các agent cũng tự auto-discover bất kỳ
+`.claude/skills/<their-role>-*` kể cả khi không liệt kê; một agent load các skill role-prefix liên quan
+tới (các) surface mà issue hiện tại đụng (`surfaces` trong registry khớp với các label
+`component/*` của issue; không liệt kê hoặc không có `surfaces` = luôn liên quan). Xem skill: **setup-agentflow**.
 
 ```yaml
 skills:
   dev-api-development: { role: dev, surfaces: ["api"], description: "API surface conventions" }
   qc-automation-test:  { role: qc,  description: "E2E suite authoring" }
-  po-discovery:        { role: po,  description: "Discovery & story-mapping checklist" }
+  pmo-discovery:       { role: pmo, description: "Discovery & story-mapping checklist" }
 ```
 
-List exactly what was created. If the user declines the offered stubs, `skills:` still lists `qc-automation-test`.
+Liệt kê chính xác cái gì đã được tạo. Nếu user từ chối các stub đề nghị, `skills:` vẫn liệt kê `qc-automation-test`.
 
-## 9. Generate config
+## 9. Sinh config
 
-Write `.claude/agentflow.yaml` by copying `templates/agentflow.yaml.template` and substituting
-**every** placeholder, writing the **dynamic surfaces**, the **skills registry** (Step 8), and the
-**full connection spec** (Step 4). Read the template to confirm the full set; as of v0.1.0:
+Ghi `.claude/agentflow.yaml` bằng cách copy `templates/agentflow.yaml.template` và thay
+**mọi** placeholder, ghi các **dynamic surfaces**, **skills registry** (Step 8), và
+**full connection spec** (Step 4). Đọc template để xác nhận đủ bộ; tính đến v0.1.0:
 
 ```bash
 mkdir -p .claude
 ```
 
-| Placeholder                                 | Value                                                        |
+| Placeholder                                 | Giá trị                                                      |
 |---------------------------------------------|--------------------------------------------------------------|
-| `{{PROJECT_NAME}}`                          | project name (default = REPO)                                |
-| `{{PROJECT_SUMMARY}}`                       | the confirmed one-liner from Step 2                          |
-| `{{OWNER}}` / `{{REPO}}`                     | from Step 2 (`project.repo` and `connections.github.repo`)   |
-| `{{DEFAULT_BRANCH}}`                        | default branch from Step 2                                   |
+| `{{PROJECT_NAME}}`                          | tên project (default = REPO)                                 |
+| `{{PROJECT_SUMMARY}}`                       | one-liner đã xác nhận từ Step 2                              |
+| `{{OWNER}}` / `{{REPO}}`                     | từ Step 2 (`project.repo` và `connections.github.repo`)      |
+| `{{DEFAULT_BRANCH}}`                        | default branch từ Step 2                                     |
 | `{{PROJECT_OWNER}}` / `{{PROJECT_OWNER_TYPE}}` | owner login / `org`\|`user`                               |
-| `{{FIGMA_ENABLED}}`                         | `true` if the user enabled figma (OAuth — no token needed)   |
-| `{{PROJECT_ID}}`                            | board node id from Step 7 (always a real `PVT_…`, never empty)|
-| `surfaces:` block                           | one block per **detected** surface (Step 5): `path`, `label`, six `commands`, `coverage_command`, `coverage_threshold`, `forbidden_paths`. Delete the template's example/placeholder surface entirely. |
-| `labels.component`                          | one `<surface>: "component/<surface>"` per declared surface  |
-| `skills:`                                   | the Step 8 registry, or `{}`                                 |
-| `{{COVERAGE_THRESHOLD}}`                    | fallback `agents.qc.coverage_threshold` (e.g. `0` to disable)|
+| `{{FIGMA_ENABLED}}`                         | `true` nếu user bật figma (OAuth — không cần token)          |
+| `{{PROJECT_ID}}`                            | board node id từ Step 7 (luôn là `PVT_…` thật, không bao giờ rỗng)|
+| `surfaces:` block                           | một block cho mỗi surface **detect được** (Step 5): `path`, `label`, sáu `commands`, `coverage_command`, `coverage_threshold`, `forbidden_paths`. Xóa hoàn toàn surface example/placeholder của template. |
+| `labels.component`                          | một `<surface>: "component/<surface>"` cho mỗi surface đã khai báo |
+| `skills:`                                   | registry ở Step 8, hoặc `{}`                                 |
+| `{{COVERAGE_THRESHOLD}}`                    | fallback `agents.qc.coverage_threshold` (VD `0` để disable)  |
 
-Leave the curated comments and tier defaults from the template intact. Do not invent keys the
-template lacks. Confirm `{{PROJECT_ID}}` is a real `PVT_…` board id (the board is required), and that
-every `surfaces.<s>.label` has a matching `labels.component.<s>` entry and a created `component/<s>` label.
+Giữ nguyên các comment đã curate và tier default từ template. Đừng bịa ra key mà
+template không có. Xác nhận `{{PROJECT_ID}}` là một board id `PVT_…` thật (board là bắt buộc), và rằng
+mọi `surfaces.<s>.label` có một entry `labels.component.<s>` khớp và một label `component/<s>` đã tạo.
 
-## 10. Generate README
+## 10. Sinh README
 
-Write `README.agentflow.md` into the repo root from `templates/README.project.md` (substitute any
-project-specific values, otherwise copy verbatim). This is the per-repo quick reference pointing
-users at `/start`, `/task`, `/status`, and re-running `/agentflow-init`.
+Ghi `README.agentflow.md` vào repo root từ `templates/README.project.md` (thay các value riêng
+của project, còn lại copy nguyên văn). Đây là quick reference theo từng repo, trỏ user tới
+`/start`, `/task`, `/status`, và việc chạy lại `/agentflow-init`.
 
-## 11. Verify (light smoke check)
+## 11. Verify (smoke check nhẹ)
 
 ```bash
 # yaml parses
 python3 -c "import yaml; yaml.safe_load(open('.claude/agentflow.yaml'))" && echo "yaml: ok"
-# labels exist: 8 flow:*, 3 type/*, one component/* per surface, 2 needs-*
-gh label list --json name -q '.[].name' | grep -E '^(flow:|type/|component/|needs-)' | sort
+# labels exist: 7 flow:*, 3 type/*, one component/* per surface, rework, human-changes
+gh label list --json name -q '.[].name' | grep -E '^(flow:|type/|component/|rework|human-changes)' | sort
 ```
 
-- If a board was created/linked, confirm it resolves (defer to skill: **project-board-protocol**
-  for the lookup) and that `board.id` matches `connections.github_project.enabled`.
-- **Optional** end-to-end label check — **ask the user first**: create a throwaway issue, add
-  `flow:inbox`, swap it to `flow:refined`, then close it. Clean up after yourself; never leave
-  test artifacts behind without telling the user.
+- Nếu một board đã được tạo/link, xác nhận nó resolve được (giao cho skill: **project-board-protocol**
+  làm lookup) và rằng `board.id` khớp với `connections.github_project.enabled`.
+- Kiểm tra label end-to-end **tùy chọn** — **hỏi user trước**: tạo một issue bỏ đi, thêm
+  `flow:inbox`, đổi nó sang `flow:refined`, rồi close. Dọn dẹp sau khi xong; không bao giờ để lại
+  test artifact mà không nói cho user.
 
 ```bash
 # only with user consent
@@ -295,9 +294,9 @@ gh issue create --title "AgentFlow setup check" --body "temporary — safe to cl
 gh issue close <n> --comment "AgentFlow verification complete."
 ```
 
-## 12. Summary
+## 12. Tóm tắt
 
-Print a tight report:
+In ra một report gọn:
 
 ```
 AgentFlow initialized on <OWNER/REPO> (v0.1.0)
@@ -307,7 +306,7 @@ Connections : github ✓   github_project on PVT_…   figma <on (OAuth) | off>
 Env         : GITHUB_TOKEN set ✓   FIGMA_TOKEN <set | absent>
 Surfaces    : <key>=<path> [, <key>=<path> …]   (only the surfaces that exist)
               command coverage per surface: lint/test/integration/e2e/build
-Labels      : <13 + N> created/updated (flow:* ·8, type/* ·3, component/* ·N, needs-* ·2)
+Labels      : <12 + N> created/updated (flow:* ·7, type/* ·3, component/* ·N, rework ·1, human-changes ·1)
 Board       : <PVT_…>
 Skills      : <scaffolded role-prefixed stubs, or none>
 Files       : .claude/agentflow.yaml, README.agentflow.md, [.claude/skills/<role>-* …]
@@ -317,6 +316,6 @@ Next: run /start to enter team mode, then /task <description> to file your first
 
 ---
 
-**Re-runs:** safe at any time. Re-detect surfaces, re-link or recreate the board, register new skills,
-or refresh connections/env — each step reuses the existing `.claude/agentflow.yaml` values as
-defaults and asks before overwriting. Labels and any board are reconciled idempotently.
+**Re-runs:** an toàn bất cứ lúc nào. Re-detect surfaces, re-link hoặc tạo lại board, đăng ký skill mới,
+hoặc refresh connections/env — mỗi bước tái dùng các value `.claude/agentflow.yaml` hiện có làm
+default và hỏi trước khi ghi đè. Labels và board (nếu có) được reconcile một cách idempotent.

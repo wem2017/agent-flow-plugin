@@ -1,7 +1,7 @@
-# AgentFlow secrets — never commit real tokens. Only .env.example is committed.
+# AgentFlow secrets — không bao giờ commit token thật. Chỉ commit .env.example.
 .env
 .env.*
 !.env.example
 
-# OS noise
+# Rác hệ điều hành
 .DS_Store

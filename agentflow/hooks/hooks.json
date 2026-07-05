@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if [ -f .claude/agentflow.yaml ] && [ -z \"${GITHUB_TOKEN:-}\" ]; then echo '[agentflow] GITHUB_TOKEN not set — GitHub MCP calls will fail' >&2; fi"
+            "command": "if [ -f .claude/agentflow.yaml ] && [ -z \"${GITHUB_TOKEN:-}\" ]; then echo '[agentflow] GITHUB_TOKEN chưa được set — các GitHub MCP call sẽ fail' >&2; fi"
           }
         ]
       }

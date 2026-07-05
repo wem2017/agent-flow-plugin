@@ -1,30 +1,29 @@
 ---
-description: Show an overview of the AgentFlow pipeline for this repo — open-issue counts per flow:* state.
+description: Hiển thị tổng quan pipeline AgentFlow của repo này — số open-issue theo từng state flow:*.
 ---
 
-Print a concise pipeline summary for this repo.
+In ra một bản tóm tắt pipeline ngắn gọn cho repo này.
 
-1. Read `.claude/agentflow.yaml` for `project.repo` and `labels.flow`.
-2. Count open issues per state with one `gh` call each:
+1. Đọc `.claude/agentflow.yaml` để lấy `project.repo` và `labels.flow`.
+2. Đếm số open issue theo từng state, mỗi state một lệnh `gh`:
 
    ```bash
    gh issue list --repo <project.repo> --state open --label "<labels.flow.X>" --json number -q 'length'
    ```
 
-   For `done`, use `--label flow:done` (portable; avoid platform-specific `date` math).
-3. Print:
+   Với `done`, dùng `--label flow:done` (portable; tránh phép tính `date` phụ thuộc platform).
+3. In ra:
 
    ```
    PROJECT: <repo>
 
    Inbox                   <n>
-   Refined                 <n>
    Ready for Dev           <n>
    In Progress             <n>
    In QC                   <n>
-   Changes Requested       <n>
+   Refined (needs human)   <n>
    Ready for Human Review  <n>
    Done                    <n>
    ```
 
-Counts only — do not list individual cards.
+Chỉ đếm số lượng — không liệt kê từng card.
