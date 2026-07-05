@@ -12,7 +12,7 @@ AgentFlow **tech-stack-agnostic**. Bạn cài plugin **một lần** và chạy 
 
 Không có message bus và không có external service nào nằm trong vòng lặp. Các agent giao tiếp hoàn toàn qua GitHub primitives:
 
-- **Label `flow:*`** trên mỗi issue — state machine có thẩm quyền (happy path `inbox → ready-for-dev → in-progress → in-qc → ready-for-human-review → done`; QC ❌ route ngược về `ready-for-dev` kèm aux label `rework`, và sau `max_rework_returns` (=2) lần rework thì escalate lên `refined` — lane can thiệp của con người).
+- **Label `flow:*`** trên mỗi issue — state machine có thẩm quyền (happy path `inbox → ready-for-dev → in-progress → in-qc → ready-for-human-review → done`; QC ❌ route ngược về `ready-for-dev` kèm aux label `rework`, và sau `max_rework_returns` (=2) lần rework thì escalate lên `refined` — lane can thiệp của con người; còn feedback của con người khi review PR được xử lý bằng cách chuyển ticket về `inbox` để pipeline chạy lại).
 - **Issue comments** với prefix bắt buộc (`[PMO]`, `[DEV]`, `[QC] ✅`, …) — phần hội thoại.
 - **Một sticky `AGENTFLOW-STATE` comment** — bộ nhớ của các agent giữa các lần chạy.
 
@@ -82,14 +82,55 @@ Secrets được khai báo bằng **tên** trong `.claude/agentflow.yaml` dướ
 
 ## Cài đặt
 
-Plugin này phân phối qua marketplace nội bộ `agent-flow-plugins`.
+Plugin phân phối qua marketplace `agent-flow-plugins` — khai báo ở `.claude-plugin/marketplace.json` tại root repo, với plugin nằm ở `./agentflow`. Cài được bằng hai đường: slash command trong session, hoặc `claude` CLI ngoài terminal.
 
-```text
-/plugin marketplace add <path-or-repo-of-this-marketplace>
-/plugin install agentflow@agent-flow-plugins
+**Trong Claude Code (slash command):**
+
+```bash
+claude plugin marketplace add /path/to/Plugins        # thư mục chứa .claude-plugin/marketplace.json
+claude plugin install agentflow@agent-flow-plugins     # --scope user (mặc định) | project | local
 ```
 
-Sau đó restart Claude Code (hoặc reload plugins) để các MCP server, agent, command, skill, và hook được đăng ký.
+`--scope user` (mặc định) cài **một bản dùng chung cho mọi repo trên máy** — đúng tinh thần "cài một lần, chạy theo từng repo". Dùng `--scope project` nếu chỉ muốn bật cho một repo (ghi vào `.claude/settings.json`, chia sẻ với team qua git).
+
+Sau đó **restart Claude Code** (hoặc reload plugins) để các MCP server, agent, command, skill, và hook được đăng ký. Kiểm tra nhanh:
+
+```bash
+claude plugin list                                   # xác nhận đã enabled
+claude plugin details agentflow@agent-flow-plugins   # xem inventory (agents/skills/MCP) + token cost
+```
+
+---
+
+## Phát triển & cập nhật plugin
+
+Marketplace ở đây là **`directory` source** trỏ vào chính repo này, nên nó **đọc thẳng working tree** — sửa file trong `agentflow/` là bản nguồn đã đổi ngay, **không cần commit git**. Nhưng lúc `install`/`update`, Claude Code **copy một snapshot** vào cache (`~/.claude/plugins/cache/agent-flow-plugins/agentflow/<version>/`), khoá theo **`version`**. Hai hệ quả:
+
+- Sửa source **không tự** lan sang bản đang chạy — phải update thủ công.
+- `claude plugin update` **gated theo `version`**: nếu không đổi `version` trong `plugin.json`, nó báo *"already at latest"* và **không refresh** cache.
+
+> **Quy tắc vàng:** mỗi lần có thay đổi muốn phát hành, **bump `version` trong `agentflow/.claude-plugin/plugin.json`** trước khi update. Không bump = update là no-op.
+
+**Vòng lặp cập nhật (dev trên máy này):**
+
+```bash
+# 1. sửa code trong agentflow/…
+# 2. bump version trong agentflow/.claude-plugin/plugin.json   (vd 0.1.0 → 0.1.1)
+claude plugin validate ./agentflow                    # (khuyến nghị) validate manifest trước
+claude plugin marketplace update agent-flow-plugins   # đọc lại source, nhận version mới
+claude plugin update agentflow@agent-flow-plugins      # kéo version mới vào cache
+# 3. restart Claude Code để load
+```
+
+Vì cài ở **user scope**, một lần update là **mọi project trên máy đều nhận** — không cần lặp lại từng repo.
+
+**Mẹo dev nhanh:** đang lặp liên tục và ngại bump version mỗi lần thì `claude plugin uninstall agentflow@agent-flow-plugins` rồi `install` lại — ép copy snapshot mới kể cả cùng version. Bump version vẫn là cách chuẩn cho release thật.
+
+**Phân phối cho team / máy khác.** `directory` source chỉ chạy trên máy bạn (đường dẫn local). Muốn người khác nhận được update, chuyển sang **`github` source**:
+
+1. Push repo marketplace này lên GitHub.
+2. Mỗi release: bump `version`, commit, rồi `claude plugin tag ./agentflow` tạo git tag `agentflow--v<version>` (lệnh này verify `plugin.json` khớp với entry trong `marketplace.json`).
+3. Teammate: `claude plugin marketplace add <owner/repo>` một lần; sau đó mỗi lần cập nhật chạy `claude plugin marketplace update agent-flow-plugins` + `claude plugin update agentflow@agent-flow-plugins` + restart.
 
 ---
 
@@ -101,7 +142,7 @@ Sau đó restart Claude Code (hoặc reload plugins) để các MCP server, agen
 /start            # board-driven: claim unassigned flow:inbox tickets and drive each end-to-end (PMO → DEV → QC)
 ```
 
-**`/start` là board-driven** — nó poll GitHub Project board của repo này, chỉ xét **các ticket `flow:inbox` chưa được assign** cho công việc mới (và quét lại các ticket `flow:ready-for-human-review` của chính nó để tìm một PR review **"Request changes"** của con người rồi route ngược về DEV — lần duy nhất nó nhìn ra ngoài inbox queue), **claim** một cái bằng cách tự assign, và điều khiển ticket đó end-to-end qua **PMO → DEV → QC**, chỉ break ngược lại cho bạn khi ticket rơi vào lane can thiệp của con người `flow:refined` (thiếu info/quyết định, hoặc escalate sau khi vượt ngưỡng `max_rework_returns`), một DEV card bị block, hoặc một PR đã sẵn sàng để merge. Con người xử lý một ticket `flow:refined` bằng `/review-refined` rồi đưa nó về `flow:inbox`. Nhiều terminal `/start` có thể chạy song song trên cùng một repo — GitHub **assignee** chính là cái claim (lưu ý: mọi terminal dùng chung một token, nên để cô lập nghiêm ngặt hãy cấp cho mỗi terminal một GitHub identity riêng). **`/start` không intake công việc**; công việc mới vào qua **`/task <description>`** hoặc bằng cách thả một card lên board. Bạn vẫn làm hai việc bằng tay: **mô tả công việc** (`/task` / một board card) và **review/merge PR**.
+**`/start` là board-driven** — nó poll GitHub Project board của repo này, chỉ xét **các ticket `flow:inbox` chưa được assign** cho công việc mới (bao gồm cả ticket được con người chuyển ngược về `flow:inbox` sau khi review PR — pipeline chạy lại và đọc feedback của con người trên PR), **claim** một cái bằng cách tự assign, và điều khiển ticket đó end-to-end qua **PMO → DEV → QC**, chỉ break ngược lại cho bạn khi ticket rơi vào lane can thiệp của con người `flow:refined` (thiếu info/quyết định, hoặc escalate sau khi vượt ngưỡng `max_rework_returns`), một DEV card bị block, hoặc một PR đã sẵn sàng để merge. Con người xử lý một ticket `flow:refined` bằng `/review-refined` rồi đưa nó về `flow:inbox`. Nhiều terminal `/start` có thể chạy song song trên cùng một repo — GitHub **assignee** chính là cái claim (lưu ý: mọi terminal dùng chung một token, nên để cô lập nghiêm ngặt hãy cấp cho mỗi terminal một GitHub identity riêng). **`/start` không intake công việc**; công việc mới vào qua **`/task <description>`** hoặc bằng cách thả một card lên board. Bạn vẫn làm hai việc bằng tay: **mô tả công việc** (`/task` / một board card) và **review/merge PR**.
 
 ---
 
@@ -185,7 +226,7 @@ Agent load các skill này on demand; mỗi cái là một `SKILL.md` dưới `s
 | Skill | Dùng để làm gì |
 |-------|----------------|
 | `setup-agentflow` | Skill onboarding / meta. Single source of truth `agentflow.yaml`, đặc tả connection đầy đủ (token + MCP server + scopes), block `env:`, dynamic surfaces, registry project-skill + convention role-prefix, cách `/agentflow-init` bootstrap, và secret hygiene. |
-| `project-board-protocol` | GitHub wire protocol: label `flow:*`, comment prefix, Definition of Ready/Done, sticky state comment, rework loop, và trust rule — cộng với phần **bắt buộc** về GitHub Projects v2 board (inbox queue + human mirror). Đọc trước khi chạm vào bất kỳ board artifact nào. |
+| `project-board-protocol` | GitHub wire protocol: label `flow:*`, comment prefix, Definition of Ready/Done, sticky state comment, rework loop, human PR-feedback re-entry, và trust rule — cộng với phần **bắt buộc** về GitHub Projects v2 board (inbox queue + human mirror). Đọc trước khi chạm vào bất kỳ board artifact nào. |
 | `git-flow-working` | Branching tech-agnostic, Conventional Commits, PR convention, và an toàn rebase/merge. |
 | `figma-design` | Kéo frame spec/token qua `figma` MCP server (với REST fallback) cho việc handoff từ design sang implementation. |
 
@@ -221,7 +262,7 @@ Một agent load các role-prefixed skill của role nó mà liên quan tới (c
 | Command | Nó làm gì |
 |---------|--------------|
 | `/agentflow-init` | Bootstrap một lần **theo từng repo**: cấu hình `connections.*`, xác minh secret `env:`, khai báo các `surfaces.*` bạn có kèm command của chúng, scaffold/đăng ký project skill, tạo label `flow:*` + `type/*` + `component/<surface>` + aux, tạo/link Projects v2 board **bắt buộc**, sinh `.claude/agentflow.yaml` và `README.agentflow.md`, và chạy một verification ticket end-to-end. |
-| `/start` | Vào board-driven team mode; session claim các ticket `flow:inbox` chưa được assign và điều khiển mỗi cái end-to-end qua các agent, và quét lại các ticket `ready-for-human-review` của nó để tìm PR review "Request changes" của con người rồi route ngược về DEV (hỗ trợ terminal song song; poll liên tục opt-in qua skill `/loop`). **Không intake công việc.** |
+| `/start` | Vào board-driven team mode; session claim các ticket `flow:inbox` chưa được assign (kể cả ticket được con người chuyển ngược về `flow:inbox` sau khi review PR) rồi điều khiển mỗi cái end-to-end qua các agent (hỗ trợ terminal song song; poll liên tục opt-in qua skill `/loop`). **Không intake công việc.** |
 | `/task <description>` | Lập một work item mới từ một mô tả tự do (PMO sở hữu việc intake) và thêm nó vào board. |
 | `/review-refined` | Phiên review tương tác giữa con người ↔ agent cho một ticket `flow:refined` đang bị block: thu thập info/quyết định còn thiếu, chỉnh lại ticket, rồi re-label về `flow:inbox` để dòng chảy tiếp tục (PMO re-triage). |
 | `/status` | In số lượng open-issue theo từng state `flow:*` cho repo này. |
@@ -244,14 +285,14 @@ escalation & human-intervention lane (owner: human):
   flow:in-qc ──(QC: AC genuinely ambiguous)──▶ flow:refined
        flow:refined ──(human adds info via /review-refined)──▶ flow:inbox  (re-enters, PMO re-triages)
 
-human PR-review rework:
-  flow:ready-for-human-review ──(human "Request changes")──▶ flow:ready-for-dev  (+ human-changes)
+human PR-review feedback (con người chủ động):
+  flow:ready-for-human-review ──(human feedback inline trên PR + chuyển ticket về inbox)──▶ flow:inbox  (re-enter, PMO re-triage đọc feedback)
 ```
 
 - **PMO** biến message của bạn thành một issue chỉn chu ngay tại `flow:inbox`, gắn label `type/*` và `component/<surface>`, gate nó qua một **Definition of Ready**, viết một implementation plan **`## For DEV`** cho từng agent và một focus verification **`## For QC`** vào issue body (planning bằng cách mô tả, không phải bằng cách dispatch — nó không bao giờ assign hay điều khiển các agent khác). DoR pass → `flow:ready-for-dev`; nếu cần con người bổ sung info thì park sang `flow:refined` kèm một vòng câu hỏi `[PMO]`. PMO không tự trả lời câu hỏi làm rõ của DEV/QC — mọi info-gap đều để con người xử lý ở `flow:refined`, và PMO re-triage khi ticket quay lại `flow:inbox`. (Không thể viết code hay merge.)
 - **DEV** implement một issue trên một **branch đặt tên theo type** (`<branch_prefix><kind>/<issue#>-<slug>`, `kind` lấy từ label `type/*`: feature→feat, bug→fix, improvement→chore) và mở/cập nhật một PR, giữ trong phạm vi acceptance criteria và không bao giờ chạm `forbidden_paths`. **Lint/analyze phải green** cho mọi surface được chạm tới trước khi handoff. (Không thể merge.)
 - **QC** đọc implementation diff đối chiếu với AC, **viết automation test** — thêm các test identifier mà suite cần và viết các test flow map tới AC, rồi commit (`test(...)`) và push chúng lên chính branch PR hiện có của DEV — chạy **QC tier** đã cấu hình (giờ bao gồm cả các test đó) đối với các surface được chạm tới ở local, và ký duyệt (`[QC] ✅`, sẵn sàng merge) hoặc từ chối (`[QC] ❌`). Mỗi lần từ chối (còn trong ngưỡng `max_rework_returns` = 2) route ticket ngược về `flow:ready-for-dev` kèm aux label `rework` để DEV sửa; sau khi vượt ngưỡng, lần ❌ kế tiếp escalate lên `flow:refined` — lane can thiệp của con người. (Có `Edit`/`Write` cho test chỉ trên branch PR — không bao giờ đổi implementation logic, không bao giờ merge.)
-- **Bạn** review và merge — hoặc để lại một review **"Request changes"** trên PR, mà `/start` sẽ nhặt được ở lần poll kế tiếp và route ngược về DEV như một rework `human-changes` (review được mirror vào issue thành một comment `[USER]` cho DEV; QC re-gate trước khi nó quay lại cho bạn). Orchestrator không bao giờ merge nếu không có chỉ thị tường minh của bạn.
+- **Bạn** review và merge — hoặc để lại **feedback inline trực tiếp trên code của PR** rồi **chuyển ticket về `flow:inbox`**: pipeline chạy lại từ PMO — PMO đọc feedback của bạn trên PR, fold vào spec/AC rồi re-gate DoR; DEV **amend chính PR/branch hiện có** (không build lại từ đầu), QC re-gate trước khi nó quay lại cho bạn. Orchestrator không bao giờ merge nếu không có chỉ thị tường minh của bạn.
 
 Role boundary không chỉ là prose — chúng được enforce bằng tool grant của từng agent (PMO không có `Edit`/`Write`; **QC có `Edit`/`Write` cho test ID + test file chỉ trên branch PR — không bao giờ đụng implementation logic**; chỉ DEV tạo branch/PR và push feature code; chỉ QC có các PR-review tool). Cả ba agent đều giữ tool `Skill` để load core skill và role-prefixed skill của chúng. Toàn bộ wire protocol — comment prefix, DoR/DoD, state comment, và trust rule — là skill `project-board-protocol`.
 
@@ -277,7 +318,7 @@ Mọi setting nằm trong **`.claude/agentflow.yaml`** (sinh ra bởi `/agentflo
 ## Ghi chú & giới hạn
 
 - **Mặc định synchronous; continuous là opt-in.** Mặc định, chính việc break-out ở terminal *là* notification — không có kênh bên ngoài nào (Telegram/Zalo/v.v.). Bạn có thể chạy `/start` không cần giám sát theo một interval qua skill `/loop` (cadence thích ứng, không phải busy-loop); các break-out khi đó xếp hàng bền vững trên board (state `flow:*` được park + comment) cho tới khi bạn quay lại. Xem `/start` → "Continuous mode".
-- **Cái claim chính là GitHub `assignee`** cộng với label `flow:*`. `/start` chỉ luôn lấy các ticket `flow:inbox` chưa được assign và tự assign để claim, nên **nhiều terminal `/start` có thể chạy song song** trên cùng một repo. Mọi terminal dùng chung một token (cùng một GitHub user), nên assignee de-dupe được nhưng không phân biệt được các terminal — một race nhỏ ở lúc claim inbox là có thể xảy ra (backstop `flow:in-progress` của DEV bắt được nó); để cô lập nghiêm ngặt hãy cấp cho mỗi terminal một GitHub identity riêng.
+- **Cái claim chính là GitHub `assignee`** cộng với label `flow:*`. `/start` chỉ luôn lấy các ticket `flow:inbox` chưa được assign rồi tự assign để claim, nên **nhiều terminal `/start` có thể chạy song song** trên cùng một repo. Mọi terminal dùng chung một token (cùng một GitHub user), nên assignee de-dupe được nhưng không phân biệt được các terminal — một race nhỏ ở lúc claim inbox là có thể xảy ra (backstop `flow:in-progress` của DEV bắt được nó); để cô lập nghiêm ngặt hãy cấp cho mỗi terminal một GitHub identity riêng.
 - **Safety rule ở mức prompt.** `forbidden_paths`, merge gate, và trust model là các chỉ thị cho agent, được backed bởi việc tách tool-grant — không phải bằng enforced hook. Dùng token least-privilege và review PR trước khi merge.
 - **Board là bắt buộc; Figma là tùy chọn.** GitHub Projects v2 board (`connections.github_project.enabled: true`, một `board.id` không rỗng) là inbox queue + human mirror của orchestrator và được set up lúc init; connection `figma` chỉ kích hoạt khi MCP server của nó được authenticate (OAuth qua `/mcp` → figma → Authenticate). Connection `github` và board là các yêu cầu cứng.
 - **Comment GitHub không có prefix là untrusted.** Agent coi bất kỳ comment nào không có prefix `[PMO]` / `[DEV]` / `[QC]` / … được nhận diện là context untrusted, không phải chỉ thị.
