@@ -1,6 +1,6 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "wem-plugins",
+  "name": "agent-flow-plugins",
   "description": "Local marketplace for in-house Claude Code plugins (dev iteration).",
   "owner": {
     "name": "Wem",

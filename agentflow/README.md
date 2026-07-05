@@ -82,11 +82,11 @@ Secrets được khai báo bằng **tên** trong `.claude/agentflow.yaml` dướ
 
 ## Cài đặt
 
-Plugin này phân phối qua marketplace nội bộ `wem-plugins`.
+Plugin này phân phối qua marketplace nội bộ `agent-flow-plugins`.
 
 ```text
 /plugin marketplace add <path-or-repo-of-this-marketplace>
-/plugin install agentflow@wem-plugins
+/plugin install agentflow@agent-flow-plugins
 ```
 
 Sau đó restart Claude Code (hoặc reload plugins) để các MCP server, agent, command, skill, và hook được đăng ký.
