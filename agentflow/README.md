@@ -209,6 +209,7 @@ Một agent load các role-prefixed skill của role nó mà liên quan tới (c
 | `/task <description>` | Lập một work item mới từ một mô tả tự do (PMO sở hữu việc intake) và thêm nó vào board với Status "Inbox". |
 | `/review-refined` | Phiên review tương tác giữa con người ↔ agent cho một ticket "Refined" đang bị block: thu thập info/quyết định còn thiếu, chỉnh lại ticket, rồi đưa Status về "Inbox" để dòng chảy tiếp tục (PMO re-triage). |
 | `/status` | In số lượng open-issue theo từng Status column cho repo này; `--audit` chạy membership + reconcile + visibility/orphan check. |
+| `/improve [bài học]` | Capture một bài học từ usage thực tế (trống → tự mine session tìm friction point) và fold nó vào đúng file tri thức trong plugin **SOURCE** — minimal edit có duyệt diff, bump version + CHANGELOG, chạy release loop để version sau hoạt động chính xác hơn. `--no-release` để dồn nhiều cải tiến vào một lần release; `--release` để xả backlog đã tích mà không cần bài học mới. |
 
 ---
 

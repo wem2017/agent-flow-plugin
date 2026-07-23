@@ -17,6 +17,8 @@ claude plugin update agentflow@agent-flow-plugins      # kéo version mới vào
 
 Vì cài ở **user scope**, một lần update là **mọi project trên máy đều nhận** — không cần lặp lại từng repo.
 
+> Vòng lặp này đã được tự động hoá bằng command **`/improve`** — capture bài học từ usage thực tế, fold vào đúng file tri thức trong source (duyệt diff trước khi ghi), bump version + CHANGELOG, rồi chạy đúng các bước trên.
+
 **Mẹo dev nhanh:** đang lặp liên tục và ngại bump version mỗi lần thì `claude plugin uninstall agentflow@agent-flow-plugins` rồi `install` lại — ép copy snapshot mới kể cả cùng version. Bump version vẫn là cách chuẩn cho release thật.
 
 **Phân phối cho team / máy khác.** `directory` source chỉ chạy trên máy bạn (đường dẫn local). Muốn người khác nhận được update, chuyển sang **`github` source**:
