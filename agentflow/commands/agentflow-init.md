@@ -1,5 +1,5 @@
 ---
-description: Bootstrap AgentFlow trong repo hiện tại — resolve project + summary, wire connections (full auth/MCP spec), detect các surface đang tồn tại, tạo các label flow:*/type/*/component/*, một board bắt buộc, tùy chọn scaffold project skills có role-prefix, rồi ghi .claude/agentflow.yaml + README.agentflow.md.
+description: Bootstrap AgentFlow trong repo hiện tại — resolve project + summary, wire connections (full auth/MCP spec), detect các surface đang tồn tại, tạo các classification label type/*/component/* + rework, một board bắt buộc với Status field authoritative (7 option + built-in workflows), tùy chọn scaffold project skills có role-prefix, rồi ghi .claude/agentflow.yaml + README.agentflow.md. Re-run trên repo v0.3.x sẽ backfill Status từ các label flow:* di sản rồi dọn chúng.
 argument-hint: (không có args — chạy một setup wizard tương tác)
 ---
 
@@ -8,10 +8,6 @@ lần, nhưng nó **idempotent và chạy lại được** — user chạy lại
 thêm board sau, đăng ký skill mới, hoặc refresh env/connections. Không bao giờ hủy một
 `.claude/agentflow.yaml` đã sửa tay mà không cảnh báo; nếu đã có, đọc nó, coi các value của nó
 là default cho mỗi bước bên dưới, và xác nhận trước khi ghi đè.
-
-File `.claude/agentflow.yaml` được sinh ra là **the single source of truth** của project —
-connections, secrets, surfaces, skills, labels và board đều nằm ở đó. Đọc schema chuẩn
-tại `templates/agentflow.yaml.template` trước khi ghi.
 
 Thực hiện các bước **theo thứ tự**. Nếu một precondition fail, nói cho user chính xác cần
 fix gì rồi **stop** — đừng cố tiếp tục với một repo cấu hình dở dang. Không bao giờ echo giá trị secret.
@@ -32,15 +28,11 @@ Rồi **probe MCP** để xác nhận token hợp lệ: gọi `get_me` (context 
 
 - Không phải git repo → "Chạy `git init` và thêm một GitHub `origin` remote trước."
 - Không có `origin` → "Thêm remote: `git remote add origin git@github.com:OWNER/REPO.git`."
-- `GITHUB_TOKEN` thiếu hoặc `get_me` probe fail → "Đặt một fine-grained PAT vào `.env` (`GITHUB_TOKEN=…`), `source` nó trước khi khởi động Claude Code, rồi thử lại."
-
-Các MCP server `github` và `figma` là các server **HTTP** (hosted GitHub remote; official Figma
-server) — không cần install Node/`npx`. Server `figma` tùy chọn đăng nhập qua OAuth
-(`/mcp` → figma → Authenticate) sau khi plugin load.
+- `GITHUB_TOKEN` thiếu hoặc `get_me` probe fail → "Đặt một **classic PAT** (scopes: `repo`, `project`, + `read:org` cho org board) vào `.env` (`GITHUB_TOKEN=…`), `source` nó trước khi khởi động Claude Code, rồi thử lại — fine-grained PAT chưa được verify cho Projects v2 user-owned board."
 
 ## 2. Xác định project
 
-Suy ra `OWNER/REPO`, default branch, và owner từ **local git** (MCP không có repo-read tool):
+Suy ra `OWNER/REPO`, default branch, và owner — suy từ **local git** (MCP không biết checkout hiện tại thuộc repo GitHub nào):
 
 ```bash
 git remote get-url origin               # parse OWNER/REPO từ URL
@@ -61,8 +53,7 @@ git rev-parse --abbrev-ref origin/HEAD  # default branch (vd origin/main → mai
 
 ## 3. Kiểm tra env (chỉ presence — KHÔNG BAO GIỜ giá trị)
 
-List `env:` trong `templates/agentflow.yaml.template` khai báo mọi secret theo NAME, kèm
-`required` và `used_by`. Verify từng cái **present trong shell** — kiểm tra presence, không bao giờ giá trị:
+Verify mọi secret khai báo ở `env:` trong `${CLAUDE_PLUGIN_ROOT}/templates/agentflow.yaml.template` đều **present trong shell**:
 
 ```bash
 [ -n "${GITHUB_TOKEN:-}" ] && echo "GITHUB_TOKEN: set" || echo "GITHUB_TOKEN: MISSING"
@@ -70,8 +61,10 @@ List `env:` trong `templates/agentflow.yaml.template` khai báo mọi secret the
 ```
 
 - **`GITHUB_TOKEN` (required):** nếu chưa set → bảo user đặt nó vào `.env`
-  (`cp .env.example .env`, điền `GITHUB_TOKEN=…` bằng một fine-grained PAT, scopes `repo` + `read:org`
-  + `project`), `source` nó trước khi khởi động Claude Code, rồi chạy lại. **Stop.**
+  (`cp .env.example .env`, điền `GITHUB_TOKEN=…`). Dùng **classic PAT** (scopes: `repo`, `project`,
+  + `read:org` cho org board) — fine-grained PAT chưa được verify cho Projects v2 user-owned board;
+  board-write smoke test của init (Step 11) là nơi phát hiện token sai loại. `source` nó trước khi
+  khởi động Claude Code, rồi chạy lại. **Stop.**
 - **`FIGMA_TOKEN` (optional, legacy only):** official Figma MCP server dùng **OAuth** (không token),
   nên cái này không bắt buộc. Để trống trừ khi chạy legacy Framelink/REST fallback; ghi chú và tiếp tục.
 
@@ -80,18 +73,15 @@ Không bao giờ print, log, hay interpolate giá trị token. Chỉ tham chiế
 
 ## 4. Connections wizard
 
-Mỗi connection được **khai báo đầy đủ tại một chỗ** — `auth` (token_env + scopes/cli|docs) và,
-khi service có MCP server, `mcp` (server key trong `.mcp.json` + `requires_env`). Một
-connection chỉ dùng được khi `enabled: true` VÀ mọi var trong requirements auth/mcp của nó đều
-present. Xác nhận từng cái:
+Xác nhận từng cái:
 
 - **github** — luôn `enabled: true`. `repo` ← `OWNER/REPO`.
-  `auth: { token_env: GITHUB_TOKEN, scopes: ["repo","read:org"], docs: "fine-grained PAT trong .env" }`,
+  `auth: { token_env: GITHUB_TOKEN, scopes: ["repo","read:org"] }`,
   `mcp: { server: "github", requires_env: ["GITHUB_TOKEN"] }`.
 - **github_project** (REQUIRED) — hỏi: *tạo board mới* hoặc *link board có sẵn theo
   **number*** (không được skip — board là bắt buộc). Luôn `enabled: true` cho Step 7. Cần
   scope `project` trên `GITHUB_TOKEN`: nếu các board op (Step 7) fail vì thiếu quyền, bảo user
-  thêm scope `project` vào fine-grained PAT rồi cập nhật `.env` và **stop**.
+  thêm scope `project` vào classic PAT rồi cập nhật `.env` và **stop**.
   `auth.scopes: ["project","read:org"]`, `mcp: { server: "github", requires_env: ["GITHUB_TOKEN"] }`,
   cùng `owner`/`owner_type` từ Step 2.
 - **figma** — nguồn design tùy chọn qua **official Figma MCP server (OAuth — no token)**. Đề nghị nó
@@ -103,15 +93,14 @@ present. Xác nhận từng cái:
 
 **Validate** mỗi connection đã enabled: xác nhận mọi var trong `auth.token_env` + `mcp.requires_env`
 của nó đều present (chỉ presence, từ Step 3). Nếu một connection đã enabled thiếu var bắt buộc, cảnh
-báo và hoặc disable nó hoặc dừng. Bảo user rằng họ có thể copy một connection block trong yaml để thêm
-service khác sau này (xem skill: **setup-agentflow**).
+báo và hoặc disable nó hoặc dừng.
 
 ## 5. Phát hiện surface động
 
 AgentFlow **tech-stack agnostic** và surfaces là một **OPEN MAP** — CHỈ khai báo những phần
-repo này thực sự có. **KHÔNG** giả định bộ ba backend/frontend/mobile: một repo có thể chỉ
-backend, chỉ frontend, chỉ mobile, hoặc bất kỳ mix nào. Scan tìm marker, rồi **ĐỀ XUẤT** một
-surface key + path cho mỗi phần detect được; user xác nhận, chỉnh, hoặc **đổi tên** từng cái.
+repo này thực sự có, không có bộ cố định (một surface hoặc nhiều; **KHÔNG** giả định bộ ba
+backend/frontend/mobile). Scan tìm marker, rồi **ĐỀ XUẤT** một surface key + path cho mỗi
+phần detect được; user xác nhận, chỉnh, hoặc **đổi tên** từng cái.
 
 ```bash
 ls package.json go.mod pom.xml build.gradle build.gradle.kts requirements.txt \
@@ -119,58 +108,28 @@ ls package.json go.mod pom.xml build.gradle build.gradle.kts requirements.txt \
 ls -d android ios web frontend backend server api admin mobile app 2>/dev/null
 ```
 
-Map marker sang gợi ý (minh họa, không đầy đủ — thích ứng theo cái bạn tìm thấy; surface KEY do
-user chọn, VD `backend`, `web`, `api`, `admin`, `mobile`):
-
-| Marker                                   | Key gợi ý     |
-|------------------------------------------|---------------|
-| `package.json` (web deps)                | web/frontend  |
-| `go.mod`                                 | backend/api   |
-| `pom.xml`, `build.gradle`                | backend       |
-| `requirements.txt`, `pyproject.toml`     | backend/api   |
-| `Gemfile`                                | backend       |
-| `Cargo.toml`                             | backend       |
-| `pubspec.yaml`, `android/`, `ios/`       | mobile        |
-| `composer.json`                          | backend       |
+Map mỗi marker tìm được sang một key gợi ý — surface KEY cuối cùng do user chọn (VD `backend`,
+`web`, `api`, `admin`, `mobile`).
 
 Quy tắc:
-- Chỉ ghi **CÁC surface thực sự tồn tại** vào config. Không có bộ cố định — một surface hoặc nhiều.
 - Một **repo single-app** dùng một surface map tới `path: "."`.
-- Surface **KHÔNG** khai báo build/lint/test command hay coverage nữa. DEV và QC tự khám phá cách
-  build/lint/test mỗi surface bị đụng theo convention của repo (`package.json` scripts, `Makefile`,
-  `pubspec`, `go.mod`, CI config…) và tự phán đoán — marker ở trên chỉ để chốt surface key + path.
+- Surface **KHÔNG** khai báo build/lint/test command hay coverage — marker ở trên chỉ để chốt
+  surface key + path; DEV và QC tự khám phá cách build/lint/test mỗi surface bị đụng theo
+  convention của repo.
 
-Với mỗi surface key `<s>` đã xác nhận, set `surfaces.<s>.label: "component/<s>"`. Map
-`labels.component` sau đó được **sinh cho khớp** — một `component/<surface>` cho mỗi surface đã
-khai báo (Step 6 / Step 8).
-
-```yaml
-# example: a backend-only repo declares exactly one surface
-surfaces:
-  api:
-    path: "."
-    label: "component/api"
-    forbidden_paths: []
-```
+Với mỗi surface key `<s>` đã xác nhận, set `surfaces.<s>.label: "component/<s>"`.
 
 ## 6. Tạo labels
 
-Tạo mọi AgentFlow label một cách idempotent. Luôn: **7** `flow:*`, **3** `type/*`,
-`rework` — CỘNG **một `component/<surface>` cho mỗi surface
-khai báo ở Step 5** (các component label là động). Ý nghĩa nằm trong skill: **project-board-protocol**.
-Với mỗi label, gọi `label_write` method=`create` (idempotent). Trên lần chạy lại, dùng
-method=`update` để re-apply color/description thay vì báo lỗi (params: `name` / `color` / `description`):
+Tạo mọi AgentFlow label một cách idempotent. **Label không mang state** — label chỉ còn
+classification: `type/*` (feat/bug/…), `component/*` (surface bị đụng), và aux `rework`; state sống
+trong **Status field trên board** (Step 7). Luôn: **3** `type/*`, `rework` — CỘNG **một
+`component/<surface>` cho mỗi surface khai báo ở Step 5** (các component label là động). Ý nghĩa nằm
+trong skill: **project-board-protocol**. Với mỗi label, gọi `label_write` method=`create` (idempotent).
+Trên lần chạy lại, dùng method=`update` để re-apply color/description thay vì báo lỗi
+(params: `name` / `color` / `description`):
 
 ```
-# flow:* (state machine — exactly one per active issue) — blue family
-label_write  name="flow:inbox"                  color=1D76DB  description="AgentFlow: triage + DoR gate"
-label_write  name="flow:ready-for-dev"          color=1D76DB  description="AgentFlow: DEV queue"
-label_write  name="flow:in-progress"            color=1D76DB  description="AgentFlow: DEV coding (in-flight; claim held)"
-label_write  name="flow:in-qc"                  color=1D76DB  description="AgentFlow: QC reviewing"
-label_write  name="flow:refined"                color=D93F0B  description="AgentFlow: human-intervention parking (owner: human)"
-label_write  name="flow:ready-for-human-review" color=1D76DB  description="AgentFlow: human review/merge"
-label_write  name="flow:done"                   color=1D76DB  description="AgentFlow: terminal"
-
 # type/* — green family
 label_write  name="type/feature"     color=0E8A16  description="AgentFlow: new capability"
 label_write  name="type/improvement" color=0E8A16  description="AgentFlow: enhancement"
@@ -180,35 +139,83 @@ label_write  name="type/bug"         color=0E8A16  description="AgentFlow: defec
 for s in <surface keys from Step 5>: label_write name="component/$s" color=5319E7 description="AgentFlow: $s surface"
 
 # aux signal — amber
-label_write  name="rework"              color=FBCA04  description="AgentFlow: QC-rejection rework on flow:ready-for-dev → DEV đọc QC rejection mới nhất trước"
+label_write  name="rework"              color=FBCA04  description="AgentFlow: QC-rejection rework trên Status 'Ready for Dev' → DEV đọc QC rejection mới nhất trước"
 ```
 
-(Feedback PR review của con người **không** dùng aux label: con người tự chuyển ticket về
-`flow:inbox` và PMO re-triage đọc PR feedback — xem skill: **project-board-protocol**.)
-
-**Không** tạo `component/*` label cho surface mà repo không có — chúng phải mirror chính xác các
-key `surfaces:` đã khai báo.
+**Re-run trên repo cũ (di sản v0.3.x):** nếu `list_label` còn trả về label `flow:*` — state label
+của AgentFlow < 1.0.0 — thì KHÔNG tạo lại chúng; đánh dấu để chạy **Migration** ở Step 7 sau khi
+board đã validate xong.
 
 ## 7. Board (bắt buộc)
 
 Điều khiển mọi chi tiết GitHub Projects v2 từ skill: **project-board-protocol** (phần GitHub Projects v2
-board của nó). Board là **required** — nó là inbox queue của orchestrator + mirror mà con người
-thấy được; label `flow:*` vẫn authoritative cho routing.
+board của nó). Board là **required**.
 
 - **create** hoặc **link** (đã chọn ở Step 4):
   - *create*: gọi `projects_write` method=`create_project` (owner, owner_type, title) → tạo
     board **rỗng** (chỉ có title). Lưu project **number** vào `board.number`.
   - *link*: resolve board có sẵn theo number qua `projects_get` method=`get_project`.
 - **Status field (7 option) — bước thủ công một lần:** MCP KHÔNG tạo được single-select
-  field. Hướng dẫn user mở board trong GitHub UI → thêm một **Status** field với đúng **7**
-  option khớp `board.columns` (mirror các label `flow:*`). Sau đó **validate** qua
-  `projects_list` method=`list_project_fields` — assert Status field có đủ 7 option đúng tên
+  field. Hướng dẫn user mở board trong GitHub UI → sửa/thêm **Status** field với đúng **7**
+  option khớp `board.columns` **một-đối-một**. `board.columns` chính là **state enum
+  authoritative**; các option name là **load-bearing wire value** được resolve by-name, nên đổi
+  tên một option trong UI là break routing. Sau đó **validate** qua `projects_list`
+  method=`list_project_fields` — assert Status field có đủ 7 option đúng tên
   (NEVER dùng `gh api graphql`).
-- Mirror các label `flow:*` sang Status field là **CHỈ HUMAN MIRROR** — labels vẫn authoritative.
+- **Built-in workflows — thủ công-UI (không API nào config được):** hướng dẫn user mở Project
+  settings → Workflows và bật:
+  - **Item added to project** → Status: `Inbox`
+  - **Item reopened** → Status: `Inbox`
+  - **Item closed** → Status: `Done`
+
+  Rationale (cạnh nào được phủ, same-value race, vì sao `/task` và PMO intake vẫn ghi
+  Status="Inbox" explicit): reference §Create a board bước 3 của skill **project-board-protocol**.
+- **`Status` field trên board LÀ state authoritative** cho routing — không có mirror, không có
+  bản copy thứ hai; label không mang state (chỉ classification).
 - Set `connections.github_project.enabled: true`.
 
-`board.number` luôn là một project number thật và `connections.github_project.enabled` luôn
-`true` — giữ chúng **in sync**.
+### Migration từ v0.3.x — dọn state label `flow:*` di sản (chỉ khi re-run)
+
+Chỉ chạy khi Step 6 phát hiện label `flow:*` còn tồn tại (repo đã init với AgentFlow < 1.0.0, thời
+label còn mang state). Xác nhận với user trước khi migrate. Board phải đã validate xong ở trên
+(Status field đủ 7 option) — backfill ghi qua đúng authoritative path:
+
+1. **Backfill Status cho issue OPEN:** với mỗi label trong map di sản dưới đây, `list_issues`
+   state=open filter theo label đó; với mỗi issue tìm thấy: `projects_write` method=`add_project_item`
+   (idempotent — trả item có sẵn nếu đã tồn tại) rồi method=`update_project_item` set Status = column
+   tương ứng (by-name shape — recipe canonical ở skill: **project-board-protocol**):
+
+   | Label di sản                  | → `board.columns.<key>`                        |
+   |-------------------------------|------------------------------------------------|
+   | `flow:inbox`                  | `inbox` (vd "Inbox")                           |
+   | `flow:ready-for-dev`          | `ready_for_dev` (vd "Ready for Dev")           |
+   | `flow:in-progress`            | `in_progress` (vd "In Progress")               |
+   | `flow:in-qc`                  | `in_qc` (vd "In QC")                           |
+   | `flow:refined`                | `refined` (vd "Refined")                       |
+   | `flow:ready-for-human-review` | `ready_for_human_review` (vd "Ready for Human Review") |
+   | `flow:done`                   | `done` (vd "Done")                             |
+
+2. **Gỡ label `flow:*` khỏi issue** — CHỈ SAU khi Status của issue đó đã ghi thành công (Status
+   trước, gỡ label sau: crash giữa chừng thì label thừa vô hại và đánh dấu chính xác các issue
+   chưa backfill; gỡ trước mà crash là mất state). `issue_write` method=`update` với `labels` =
+   set hiện tại trừ label `flow:*` (full-replacement — đọc set hiện tại trước).
+
+3. **Xóa 7 label definition** — toolset `labels` của MCP không có delete, dùng `gh` qua Bash.
+   Check `command -v gh` trước (`gh` đọc `GITHUB_TOKEN` từ env — không cần auth thêm); nếu `gh`
+   vắng mặt → fallback: hướng dẫn user xóa 7 label `flow:*` trong GitHub UI (Issues → Labels)
+   rồi chạy lại verify (Step 11):
+
+   ```bash
+   command -v gh   # vắng mặt → xóa 7 label flow:* trong GitHub UI rồi chạy lại verify
+   for l in inbox ready-for-dev in-progress in-qc refined ready-for-human-review done; do
+     gh label delete "flow:$l" --yes
+   done
+   ```
+
+   Issue CLOSED bỏ qua backfill (terminal — không cần routing); bước này tự gỡ label khỏi chúng
+   khi xóa definition.
+
+4. **Refresh yaml:** Step 9 ghi lại config theo template mới — block `labels.flow` di sản biến mất.
 
 ## 8. Scaffold project skills (opt-in)
 
@@ -218,39 +225,21 @@ thấy được; label `flow:*` vẫn authoritative cho routing.
 các test ID mà suite cần và author các test flow trên PR branch — và đăng ký nó trong `skills:`.
 Đề xuất phần còn lại khớp với các surface đã detect, VD `dev-<surface>-development` cho mỗi surface và
 `pmo-discovery`. **Hỏi trước khi tạo các stub đề nghị.** Với mỗi stub được chấp nhận, ghi một
-`SKILL.md` với YAML frontmatter (`name` = tên directory) + một description ngắn + một TODO body:
+`SKILL.md` với YAML frontmatter (`name` = tên directory) + một description ngắn + một TODO body.
 
-```markdown
----
-name: dev-api-development
-description: API surface conventions for DEV — TODO: fill in.
----
-
-# dev-api-development
-
-TODO: document this project's API conventions, patterns, and gotchas DEV should follow.
-```
-
-Rồi **register** từng cái vào map `skills:` trong yaml với `{ role, surfaces?, description? }` — registry
-này là the single source of truth / tổng quan. Các agent cũng tự auto-discover bất kỳ
-`.claude/skills/<their-role>-*` kể cả khi không liệt kê; một agent load các skill role-prefix liên quan
-tới (các) surface mà issue hiện tại đụng (`surfaces` trong registry khớp với các label
-`component/*` của issue; không liệt kê hoặc không có `surfaces` = luôn liên quan). Xem skill: **setup-agentflow**.
-
-```yaml
-skills:
-  dev-api-development: { role: dev, surfaces: ["api"], description: "API surface conventions" }
-  qc-automation-test:  { role: qc,  description: "E2E suite authoring" }
-  pmo-discovery:       { role: pmo, description: "Discovery & story-mapping checklist" }
-```
+Rồi **register** từng cái vào map `skills:` trong yaml với `{ role, surfaces?, description? }`. Một agent
+load các skill role-prefix liên quan tới (các) surface mà issue hiện tại đụng (`surfaces` trong registry
+khớp với các label `component/*` của issue; không liệt kê hoặc không có `surfaces` = luôn liên quan).
+Xem skill: **setup-agentflow**.
 
 Liệt kê chính xác cái gì đã được tạo. Nếu user từ chối các stub đề nghị, `skills:` vẫn liệt kê `qc-automation-test`.
 
 ## 9. Sinh config
 
-Ghi `.claude/agentflow.yaml` bằng cách copy `templates/agentflow.yaml.template` và thay
-**mọi** placeholder, ghi các **dynamic surfaces**, **skills registry** (Step 8), và
-**full connection spec** (Step 4). Đọc template để xác nhận đủ bộ; tính đến v0.1.0:
+Ghi `.claude/agentflow.yaml` bằng cách copy `${CLAUDE_PLUGIN_ROOT}/templates/agentflow.yaml.template`
+và thay **mọi** placeholder, ghi các **dynamic surfaces**, **skills registry** (Step 8), và
+**full connection spec** (Step 4). Đọc template để xác nhận đủ bộ — không đọc được template →
+STOP, không tự dựng yaml từ trí nhớ:
 
 ```bash
 mkdir -p .claude
@@ -258,6 +247,7 @@ mkdir -p .claude
 
 | Placeholder                                 | Giá trị                                                      |
 |---------------------------------------------|--------------------------------------------------------------|
+| `agentflow_version`                         | KHÔNG phải placeholder — template pin sẵn `1.0.0` (config-format/protocol version); copy nguyên văn, KHÔNG substitute từ `plugin.json` |
 | `{{PROJECT_NAME}}`                          | tên project (default = REPO)                                 |
 | `{{PROJECT_SUMMARY}}`                       | one-liner đã xác nhận từ Step 2                              |
 | `{{OWNER}}` / `{{REPO}}`                     | từ Step 2 (`project.repo` và `connections.github.repo`)      |
@@ -270,63 +260,93 @@ mkdir -p .claude
 | `skills:`                                   | registry ở Step 8, hoặc `{}`                                 |
 
 Giữ nguyên các comment đã curate từ template. Đừng bịa ra key mà
-template không có. Xác nhận `{{BOARD_NUMBER}}` là một board number thật (board là bắt buộc), và rằng
-mọi `surfaces.<s>.label` có một entry `labels.component.<s>` khớp và một label `component/<s>` đã tạo.
+template không có. Xác nhận mọi `surfaces.<s>.label` có một entry `labels.component.<s>` khớp và
+một label `component/<s>` đã tạo.
 
 ## 10. Sinh README
 
-Ghi `README.agentflow.md` vào repo root từ `templates/README.project.md` (thay các value riêng
-của project, còn lại copy nguyên văn). Đây là quick reference theo từng repo, trỏ user tới
+Ghi `README.agentflow.md` vào repo root từ `${CLAUDE_PLUGIN_ROOT}/templates/README.project.md`:
+substitute 3 placeholder `{{PROJECT_NAME}}`, `{{PROJECT_SUMMARY}}` (Step 2), `{{BOARD_NUMBER}}`
+(Step 7) khi copy, còn lại copy nguyên văn. Đây là quick reference theo từng repo, trỏ user tới
 `/start`, `/task`, `/status`, và việc chạy lại `/agentflow-init`.
 
-## 11. Verify (smoke check nhẹ)
+## 11. Verify (BẮT BUỘC — đây là nơi bắt payload lỗi)
 
 ```bash
 # yaml parses (giữ python)
 python3 -c "import yaml; yaml.safe_load(open('.claude/agentflow.yaml'))" && echo "yaml: ok"
 ```
 
-- **Labels exist:** gọi `list_label` và kiểm đủ **7** `flow:*`, **3** `type/*`, một `component/*`
-  cho mỗi surface, và `rework`.
-- Nếu một board đã được tạo/link, xác nhận nó resolve được qua `projects_get` method=`get_project`
-  (theo `board.number`) và `projects_list` method=`list_project_fields` (đủ 7 option Status) —
-  giao cho skill: **project-board-protocol** làm lookup — và rằng `board.number` khớp với
-  `connections.github_project.enabled`.
-- Kiểm tra label end-to-end **tùy chọn** — **hỏi user trước**: tạo một issue bỏ đi, thêm
-  `flow:inbox`, đổi nó sang `flow:refined`, rồi close. Dọn dẹp sau khi xong; không bao giờ để lại
-  test artifact mà không nói cho user.
+- **Labels exist:** gọi `list_label` và kiểm đủ **3** `type/*`, một `component/*`
+  cho mỗi surface, và `rework` — và **không còn** label `flow:*` nào (còn → Migration ở Step 7
+  chưa chạy hoặc chưa xong).
+- **Board resolve:** `projects_get` method=`get_project` (theo `board.number`) + `projects_list`
+  method=`list_project_fields` (đủ 7 option Status) — giao cho skill: **project-board-protocol** làm
+  lookup — và `board.number` khớp `connections.github_project.enabled`.
+
+### Board write smoke test — bắt buộc, KHÔNG hỏi consent
+
+Board resolve được **không** chứng minh AgentFlow ghi được vào nó. Read-only check bỏ sót cả một class
+lỗi payload — và Status write giờ là **authoritative path, mandatory-success** (fail-stop): một
+`updated_field` sai shape sẽ dừng pipeline ngay ở ticket thật đầu tiên. Chạy trọn vòng dưới đây trên
+một issue bỏ đi để bắt lỗi đó ngay lúc init — nó **phải** xanh trước khi init báo thành công. Đây là
+lần duy nhất trong đời một repo mà authoritative write path được kiểm chứng end-to-end trước khi có
+ticket thật phụ thuộc vào nó.
 
 ```
-# only with user consent
-issue_write  method=create   title="AgentFlow setup check"  body="temporary — safe to close"  labels=["flow:inbox"]
-# ...swap label flow:inbox → flow:refined để chứng minh transition (full-set):
-issue_write  method=update   labels=["flow:refined"]        # (giữ mọi aux; ở đây issue chỉ có 1 flow label)
-# ...rồi close + comment:
-issue_write  method=update   state=closed
-add_issue_comment  body="AgentFlow verification complete."
+# 1. issue tạm
+issue_write method=create title="AgentFlow setup check" body="temporary — safe to close"
+#   → #<n>
+
+# 2. add lên board  → item_id
+projects_write method=add_project_item
+  owner=<owner> owner_type=<org|user> project_number=<board.number>
+  item_type=issue item_owner=<owner> item_repo=<repo> issue_number=<n>
+
+# 3. set Status=Inbox — BY-NAME shape (recipe canonical: skill project-board-protocol)
+projects_write method=update_project_item
+  owner=<owner> owner_type=<org|user> project_number=<board.number>
+  item_owner=<owner> item_repo=<repo> issue_number=<n>
+  updated_field={ name: "Status", value: "<board.columns.inbox>" }
+
+# 4. READ-BACK — thiếu bước này thì bước 3 không chứng minh được gì
+projects_get method=get_project_item item_id=<item_id> field_names=["Status"]
+#   → assert Status == "<board.columns.inbox>"
+
+# 5. transition Inbox → Refined, read-back lần nữa
+projects_write method=update_project_item ... updated_field={ name: "Status", value: "<board.columns.refined>" }
+projects_get   method=get_project_item item_id=<item_id> field_names=["Status"]
+#   → assert Status == "<board.columns.refined>"
+
+# 6. dọn dẹp (chạy KỂ CẢ khi 4/5 fail — dọn trước, báo lỗi sau)
+projects_write method=delete_project_item owner=<owner> project_number=<board.number> item_id=<item_id>
+issue_write    method=update state=closed
 ```
+
+**Bước 4/5 fail → STOP**, và báo user đúng nguyên nhân:
+
+| Triệu chứng | Nguyên nhân | Fix |
+|---|---|---|
+| `option_not_found` (kèm candidates) | Tên option Status trên board không khớp `board.columns` | Sửa trong GitHub UI cho khớp **một-đối-một**, chạy lại `/agentflow-init` |
+| Lỗi khác về `updated_field` | Sai shape — by-id shape không resolve được option theo tên | Dùng **by-name** shape; recipe canonical ở skill: **project-board-protocol**. Không tự chế shape khác. |
+| Status read-back rỗng/vắng | Thiếu `field_names:["Status"]` ở call read | Luôn truyền `field_names` |
 
 ## 12. Tóm tắt
 
 In ra một report gọn:
 
 ```
-AgentFlow initialized on <OWNER/REPO> (v0.1.0)
+AgentFlow initialized on <OWNER/REPO> (protocol v<agentflow_version từ template, vd 1.0.0>)
 
 Project     : <name> — <summary>
 Connections : github ✓   github_project on board #<N>   figma <on (OAuth) | off>
 Env         : GITHUB_TOKEN set ✓   FIGMA_TOKEN <set | absent>
 Surfaces    : <key>=<path> [, <key>=<path> …]   (only the surfaces that exist)
-Labels      : <11 + N> created/updated (flow:* ·7, type/* ·3, component/* ·N, rework ·1)
-Board       : #<N>
+Labels      : <4 + N> created/updated (type/* ·3, component/* ·N, rework ·1)
+Board       : #<N> — Status field 7 option (state authoritative), built-in workflows đã hướng dẫn bật
+Migration   : <chỉ khi re-run repo v0.3.x: X issue backfill Status, 7 label flow:* đã xóa>
 Skills      : <scaffolded role-prefixed stubs, or none>
 Files       : .claude/agentflow.yaml, README.agentflow.md, [.claude/skills/<role>-* …]
 
 Next: run /start to enter team mode, then /task <description> to file your first item.
 ```
-
----
-
-**Re-runs:** an toàn bất cứ lúc nào. Re-detect surfaces, re-link hoặc tạo lại board, đăng ký skill mới,
-hoặc refresh connections/env — mỗi bước tái dùng các value `.claude/agentflow.yaml` hiện có làm
-default và hỏi trước khi ghi đè. Labels và board (nếu có) được reconcile một cách idempotent.

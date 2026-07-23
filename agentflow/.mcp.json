@@ -5,7 +5,7 @@
       "url": "https://api.githubcopilot.com/mcp/",
       "headers": {
         "Authorization": "Bearer ${GITHUB_TOKEN}",
-        "X-MCP-Toolsets": "context,repos,issues,pull_requests,users,labels,projects"
+        "X-MCP-Toolsets": "context,issues,pull_requests,users,labels,projects"
       }
     },
     "figma": {

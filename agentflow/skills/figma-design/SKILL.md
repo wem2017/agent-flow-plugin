@@ -7,21 +7,14 @@ description: Kéo design context từ Figma trong lúc làm UI và map nó tới
 
 **DEV** agent fetch design context như thế nào khi một issue đụng vào visual surface (bất kỳ `component/<surface>` nào mà surface được khai báo trong `surfaces:` có UI — web, admin, mobile, …) và AC tham chiếu một Figma design.
 
-**Design quyết định thứ đó TRÔNG như thế nào và layout ra sao; AC của issue định nghĩa CÁI GÌ phải đúng.** Hai thứ này không thay thế cho nhau được — xem *Handoff discipline*. Theo chính guidance của Figma, MCP server chỉ cung cấp *structured context + một điểm khởi đầu về code*; **bạn adapt nó vào codebase này — bạn không bao giờ paste output của nó nguyên văn.**
+MCP server chỉ cung cấp *structured context + một điểm khởi đầu về code*; **bạn adapt nó vào codebase này — bạn không bao giờ paste output của nó nguyên văn.** Ranh giới design-vs-AC: xem *Handoff discipline*.
 
 ## Gate trước khi dùng
 
 Figma là một connection như mọi connection khác — đọc wiring của nó trong `.claude/agentflow.yaml` trước (xem skill: `setup-agentflow` để biết full spec về connection/env). **Không** gọi bất kỳ Figma tool hay REST endpoint nào trừ khi `connections.figma.enabled: true` **và** ít nhất một access path bên dưới thực sự khả dụng:
 
 - **Official Figma MCP server (preferred)** — khả dụng khi `figma` MCP server đã được connect và OAuth-authenticated. Verify bằng một call `whoami` (nó trả về identity đang đăng nhập); nếu lỗi, server chưa được authenticate.
-- **PAT fallback** — khả dụng khi biến được đặt tên bởi `connections.figma.auth.token_env` (vd `FIGMA_TOKEN`) có mặt, dùng cho legacy Framelink server / REST path.
-
-```bash
-# Gate check — connection on?
-yq '.connections.figma.enabled' .claude/agentflow.yaml      # → true
-# then probe a path: official MCP (whoami) OR a present PAT for the fallback
-[ -n "${FIGMA_TOKEN:-}" ] && echo "PAT path available" || echo "PAT absent — needs official MCP"
-```
+- **PAT fallback** — khả dụng khi biến được đặt tên bởi `connections.figma.auth.fallback_token_env` (vd `FIGMA_TOKEN`) có mặt, dùng cho legacy Framelink server / REST path.
 
 Nếu gate fail (disabled, hoặc không có path nào khả dụng) → **skip toàn bộ design lookup** và build từ AC của issue **khi AC tự đủ**. Note lại trong comment `[DEV]` của bạn (vd `design lookup skipped: figma not configured — built from AC only`) để reviewer biết implementation là AC-driven. **Không bao giờ block dev work chỉ để chờ một optional connection** — nhưng một màn hình mới mà AC thực sự cần một design chưa từng được cung cấp thì đó là *missing input*, không phải build chỉ-từ-AC: xem *Handoff discipline*.
 
@@ -37,7 +30,7 @@ Official server (Dev Mode MCP của Figma) authenticate qua **OAuth** — trên 
 | 4. Visual check | `get_screenshot` | Một PNG của node để diff implementation của bạn nhằm đảm bảo độ chính xác về layout. |
 | 5. Reuse component thật | `get_code_connect_map` | Trả về `{ nodeId: { componentName, source, snippet, … } }` — code component thực tế mà một Figma node map tới. **Ưu tiên component đã được map thay vì markup viết mới.** |
 
-**Prompt các tool bằng thông tin cụ thể của project** (theo guidance "write effective prompts" của Figma): nêu framework của project, thư mục component đích, và layout system, để output khớp codebase này thay vì mặc định React+Tailwind. Vài ví dụ để lồng vào cách bạn gọi `get_design_context`:
+**Prompt các tool bằng thông tin cụ thể của project**: nêu framework của project, thư mục component đích, và layout system, để output khớp codebase này thay vì mặc định React+Tailwind. Vài ví dụ để lồng vào cách bạn gọi `get_design_context`:
 
 - Framework: *"generate this selection in `<the project's framework>`"* (vd Vue, SwiftUI, HTML+CSS thuần).
 - Reuse: *"using components from `<surfaces.<surface>.path>/components`"*.
@@ -68,7 +61,7 @@ curl -s -H "X-Figma-Token: $FIGMA_TOKEN" \
   "https://api.figma.com/v1/images/$FILE_KEY?ids=$NODE_ID&format=png&scale=2"
 ```
 
-Các endpoint hữu ích: `/v1/files/<FILE_KEY>` (full tree), `/v1/files/<FILE_KEY>/nodes?ids=<NODE_ID>` (một frame), `/v1/images/<FILE_KEY>?ids=<NODE_ID>` (PNG/SVG đã render). Legacy Framelink MCP server (`figma-developer-mcp`) đọc cùng `FIGMA_TOKEN` dưới dạng `FIGMA_API_KEY` và expose các tool `mcp__figma__*` — discover chúng at runtime nếu server đó là cái được wire trong `.mcp.json`.
+Legacy Framelink MCP server (`figma-developer-mcp`) đọc cùng `FIGMA_TOKEN` dưới dạng `FIGMA_API_KEY` và expose các tool `mcp__figma__*` — discover chúng at runtime nếu server đó là cái được wire trong `.mcp.json`.
 </details>
 
 ## Parse URL
@@ -105,22 +98,16 @@ Biến mỗi item thành một implementation note cụ thể, rồi map các no
 
 **Ưu tiên design token và component sẵn có của project thay vì giá trị hardcode.** Nếu design chỉ định `#1A73E8` và project có token `--color-primary` cùng giá trị, hãy tham chiếu token đó. Chỉ hardcode khi không có token nào, và flag lại để follow-up.
 
-Tạo một **implementation checklist** ngắn gắn với AC, vd:
-
-```
-AC-2 (button states): default/hover/disabled fills from frame 1234:5678;
-  map to existing Button component (get_code_connect_map → src/ui/Button.tsx);
-  spacing 8px gap (token: space-2 via get_variable_defs).
-```
+Tạo một **implementation checklist** ngắn gắn với AC, mỗi entry trích dẫn frame/node nguồn và token/component mà nó map tới.
 
 ## Handoff discipline
 
 - **AC là nguồn chân lý cho CÁI GÌ; design là nguồn chân lý cho việc nó TRÔNG như thế nào.** Khi chúng khớp nhau, implement theo cả hai.
-- **Khi design và AC mâu thuẫn** — frame hiển thị một field mà AC không nhắc tới, hoặc AC yêu cầu một behavior mà design bỏ qua — thì **không** âm thầm làm theo design thay vì AC. Đây là một **human-intervention case**: post một comment `[DEV→PMO ?]` với tối đa 3 câu hỏi được đánh số, swap state sang `flow:refined` (owner: human), rồi dừng — con người bổ sung thông tin qua `/review-refined` rồi đưa ticket về `flow:inbox` (xem skill: `project-board-protocol`).
-- **Khi issue là một màn hình mới mà AC tham chiếu một design nhưng không có Figma nào được cung cấp** — không có URL/node trong AC và không có gì khớp trong `connections.figma.files` — thì **không** tự bịa ra visual design. Coi design bị thiếu là một **missing input** và xử lý như **cùng human-intervention case đó**: post một `[DEV→PMO ?]` với tối đa 3 câu hỏi được đánh số, swap state sang `flow:refined` (owner: human), rồi dừng — con người bổ sung design/spec qua `/review-refined` rồi đưa ticket về `flow:inbox`. Chỉ build thẳng từ AC khi AC tự đặc tả đầy đủ màn hình đó.
+- **Khi design và AC mâu thuẫn** — frame hiển thị một field mà AC không nhắc tới, hoặc AC yêu cầu một behavior mà design bỏ qua — thì **không** âm thầm làm theo design thay vì AC. Đây là một **human-intervention case**: post một comment `[DEV→PMO ?]` với tối đa 3 câu hỏi được đánh số, tự ghi Status → "Refined" qua `update_project_item` (human-intervention lane, owner con người), rồi dừng — con người bổ sung thông tin qua `/review-refined`, hoặc kéo card về "Inbox" sau khi tự bổ sung info (xem skill: `project-board-protocol`).
+- **Khi issue là một màn hình mới mà AC tham chiếu một design nhưng không có Figma nào được cung cấp** — không có URL/node trong AC và không có gì khớp trong `connections.figma.files` — thì **không** tự bịa ra visual design. Coi design bị thiếu là một **missing input** và xử lý như **cùng human-intervention case đó** (`[DEV→PMO ?]` → Status "Refined" → dừng; con người bổ sung design/spec qua `/review-refined`). Chỉ build thẳng từ AC khi AC tự đặc tả đầy đủ màn hình đó.
 - Trích dẫn cụ thể frame (`FILE_KEY` + `NODE_ID`) trong comment `[DEV]` của bạn để QC và PMO có thể mở cùng một node.
-- Thay đổi design sau khi issue đã ở `flow:ready-for-dev` là một thay đổi AC/scope, không phải quyết định tùy tiện của DEV — route chúng qua PMO theo cùng cách.
+- Thay đổi design sau khi issue đã ở "Ready for Dev" là một thay đổi AC/scope, không phải quyết định tùy tiện của DEV — route chúng qua PMO theo cùng cách.
 
 ## Secret hygiene
 
-Trên official OAuth path thì **không có Figma token nào cần bảo vệ**. Trên PAT fallback, `FIGMA_TOKEN` là một secret: chỉ tham chiếu nó qua `${FIGMA_TOKEN}`, giữ nó trong header `X-Figma-Token` (không bao giờ trong URL), và không bao giờ print, echo, log, hay commit nó. Full rules: skill `setup-agentflow` → *Secret hygiene*.
+Trên official OAuth path thì **không có Figma token nào cần bảo vệ**. Trên PAT fallback, `FIGMA_TOKEN` là một secret: chỉ tham chiếu qua `${FIGMA_TOKEN}`, giữ trong header `X-Figma-Token` (không bao giờ trong URL). Full rules: skill `setup-agentflow` → *Secret hygiene*.

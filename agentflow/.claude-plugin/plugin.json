@@ -1,7 +1,7 @@
 {
   "name": "agentflow",
-  "version": "0.2.0",
-  "description": "Dev workflow tech-stack-agnostic cho một GitHub repo: một team agent PMO/DEV/QC phối hợp qua GitHub issue + label flow:* và một GitHub Projects v2 board bắt buộc, với nhiều terminal /start chạy song song claim việc qua issue assignee. Ship sẵn 4 core skill (setup-agentflow, project-board-protocol, git-flow-working, figma-design) và cho phép mỗi project thêm skill có prefix theo role (dev-*, qc-*, pmo-*). Connection được đặc tả đầy đủ (token + MCP server) cho GitHub, GitHub Projects, và Figma, quản lý secret .env an toàn, và một config single-source-of-truth mô tả các project surface động (kết hợp tùy ý backend/frontend/mobile/…).",
+  "version": "0.5.0",
+  "description": "Dev workflow tech-stack-agnostic cho một GitHub repo: một team agent PMO/DEV/QC phối hợp qua GitHub issue + Status field của một GitHub Projects v2 board bắt buộc (state authoritative; label chỉ mang classification type/* + component/*), với nhiều terminal /start chạy song song claim việc qua issue assignee. Ship sẵn 4 core skill (setup-agentflow, project-board-protocol, git-flow-working, figma-design) và cho phép mỗi project thêm skill có prefix theo role (dev-*, qc-*, pmo-*). Connection được đặc tả đầy đủ (token + MCP server) cho GitHub, GitHub Projects, và Figma, quản lý secret .env an toàn, và một config single-source-of-truth mô tả các project surface động (kết hợp tùy ý backend/frontend/mobile/…).",
   "author": {
     "name": "Wem",
     "email": "huynh.developer@gmail.com"

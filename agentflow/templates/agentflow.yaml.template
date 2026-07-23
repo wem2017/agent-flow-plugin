@@ -2,13 +2,13 @@
 # Nằm ở .claude/agentflow.yaml trong repo CỦA BẠN (mỗi project một file).
 #
 # ░░ FILE NÀY LÀ SINGLE SOURCE OF TRUTH CHO PROJECT. ░░
-# Nó mô tả toàn bộ project trong một cái nhìn: nó kết nối tới cái gì, cần secret
-# nào, có surface (phần) nào, và agent của nó dùng skill nào. Các agent và bốn
-# built-in skill CHỈ đọc file này để hiểu repo.
+# Các agent và bốn built-in skill CHỈ đọc file này để hiểu repo.
 # AgentFlow là tech-stack agnostic — không bao giờ giả định ngôn ngữ hay framework.
 #
-# Pin phiên bản plugin mà config này được viết dựa theo.
-agentflow_version: "0.1.0"
+# Pin phiên bản config-format (protocol) mà file này được viết theo. Các command/agent gate nó
+# trước khi hành động: config < 1.0.0 thuộc thế hệ state-label cũ và sẽ route sai — hard-stop,
+# chạy lại /agentflow-init để migrate. Đừng sửa tay.
+agentflow_version: "1.0.0"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PROJECT OVERVIEW — các thông tin cốt lõi. Mọi thứ khác đều dựa vào đây.
@@ -42,10 +42,10 @@ connections:
       requires_env: ["GITHUB_TOKEN"]      # server không khởi động nếu thiếu cái này
 
   github_project:
-    # BẮT BUỘC. Routing mirror mà con người thấy được + inbox queue của orchestrator (GitHub Projects v2).
-    # Agent điều khiển state từ các LABEL flow:*, không bao giờ từ board columns. Dùng github
-    # MCP server projects toolset (không có server riêng). Board number + tên column nằm dưới
-    # `board:` bên dưới.  See skill: project-board-protocol
+    # BẮT BUỘC. `Status` field trên board LÀ state authoritative cho routing; board cũng là
+    # inbox queue của orchestrator (GitHub Projects v2). Mọi agent (PMO/DEV/QC lẫn orchestrator)
+    # đọc và ghi state qua github MCP server projects toolset (không có server riêng). Board
+    # number + tên column nằm dưới `board:` bên dưới.  See skill: project-board-protocol
     enabled: true
     owner: "{{PROJECT_OWNER}}"            # org hoặc user login sở hữu board
     owner_type: "{{PROJECT_OWNER_TYPE}}"  # org | user
@@ -83,31 +83,22 @@ connections:
 # TUYỆT ĐỐI không đặt GIÁ TRỊ secret ở đây. Mọi GIÁ TRỊ secret nằm trong file .env (copy
 # .env.example → .env, điền vào, và `source` nó trước khi khởi động Claude Code).
 # .env KHÔNG BAO GIỜ được commit; chỉ .env.example thôi. `used_by` liên kết chéo tới
-# (các) connection tiêu thụ mỗi var. /agentflow-init từ chối hoàn tất nếu một var
-# bắt buộc bị thiếu.
+# (các) connection tiêu thụ mỗi var.
 # ─────────────────────────────────────────────────────────────────────────────
 env:
   - name: "GITHUB_TOKEN"
     required: true
     used_by: ["github", "github_project"]
-    description: "GitHub PAT (fine-grained preferred). Scopes: repo + read:org + project."
+    description: "GitHub classic PAT (fine-grained chưa được verify cho Projects v2 user-owned board). Scopes: repo + read:org + project."
   - name: "FIGMA_TOKEN"
     required: false
     used_by: ["figma"]
     description: "Figma PAT — ONLY for the legacy Framelink/REST fallback path. The official Figma MCP server uses OAuth and needs no token."
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SURFACES — các phần build được của project NÀY. OPEN MAP: chỉ khai báo cái bạn
-# có. Một project có thể có một surface hoặc nhiều; các key là tên BẠN tự chọn
-# (backend, web, api, admin, mobile, …). /agentflow-init chỉ ghi những surface
-# nó detect được; thêm/đổi tên/xoá tuỳ ý. Mỗi surface chỉ khai báo `path`, component
-# `label`, và `forbidden_paths` — AgentFlow giữ tech-agnostic và KHÔNG khai báo command.
-# DEV/QC tự chạy build/lint/test của project theo convention của chính repo (đọc
-# package.json scripts, Makefile, pubspec, go.mod, CI config, …) để biết cách build/lint/test
-# từng surface bị đụng tới. `label` gắn surface với một GitHub label component/* để PMO
-# tag được issue đụng tới surface nào.
-#
-# Các ví dụ bên dưới chỉ minh hoạ — CHỈ GIỮ NHỮNG CÁI PROJECT CỦA BẠN THỰC SỰ CÓ.
+# SURFACES — các phần build được của project NÀY. OPEN MAP: chỉ khai báo cái bạn có,
+# key do BẠN chọn; mỗi surface chỉ có `path` + component `label` + `forbidden_paths`
+# (không khai báo command — tech-agnostic). Chi tiết: skill project-board-protocol.
 # ─────────────────────────────────────────────────────────────────────────────
 surfaces:
   {{SURFACE_KEY}}:                        # e.g. backend | frontend | mobile | api | web | "."
@@ -124,12 +115,9 @@ surfaces:
 #
 # Một project có thể thêm skill RIÊNG của nó dưới .claude/skills/, đặt tên <role>-<area> để
 # đúng agent nhặt được:   dev-*  → DEV     qc-*  → QC     pmo-*  → PMO
-# (ví dụ: dev-mobile-development, qc-automation-test, pmo-discovery).
 #
-# Đăng ký chúng ở đây để file này vẫn là single source of truth và để bạn có thể
-# scope một skill vào các surface cụ thể. Agent CŨNG tự động auto-discover bất kỳ
-# .claude/skills/<role>-* nào kể cả khi không liệt kê; liệt kê chỉ làm overview rõ ràng hơn.
-# /agentflow-init có thể scaffold starter stubs và điền phần này vào.
+# Đăng ký chúng ở đây để scope một skill vào các surface cụ thể. Agent CŨNG tự động
+# auto-discover bất kỳ .claude/skills/<role>-* nào kể cả khi không liệt kê.
 # ─────────────────────────────────────────────────────────────────────────────
 skills: {}
   # Ví dụ (bỏ comment / để init điền vào):
@@ -138,12 +126,10 @@ skills: {}
   # pmo-discovery:          { role: pmo, description: "Discovery & story-mapping checklist" }
 
 board:
-  # BẮT BUỘC. GitHub Projects v2 project number (MCP key theo owner + number).
-  # Mirror của connections.github_project.enabled — init giữ chúng đồng bộ. Agent không bao
-  # giờ di chuyển columns thủ công; orchestrator drive board qua MCP projects tools (không
-  # phải GraphQL); board là inbox queue của orchestrator + một mirror mà con người thấy được
-  # (label flow:* vẫn là authoritative cho việc routing).
-  number: {{PROJECT_NUMBER}}
+  # BẮT BUỘC. `number` = Projects v2 project number; `columns` = bảy tên option của Status
+  # field. Đi đôi với connections.github_project.enabled (init giữ đồng bộ). Chi tiết: skill
+  # project-board-protocol.
+  number: {{BOARD_NUMBER}}
   columns:
     inbox:                  "Inbox"
     ready_for_dev:          "Ready for Dev"
@@ -154,27 +140,13 @@ board:
     done:                   "Done"
 
 labels:
-  # State machine authoritative. ĐÚNG MỘT label flow:* cho mỗi issue đang active.
-  flow:
-    inbox:                  "flow:inbox"
-    ready_for_dev:          "flow:ready-for-dev"
-    in_progress:            "flow:in-progress"
-    in_qc:                  "flow:in-qc"
-    refined:                "flow:refined"          # human-intervention parking (owner: human)
-    ready_for_human_review: "flow:ready-for-human-review"
-    done:                   "flow:done"
+  # Label không mang state — chỉ classification: type/* + component/* (khớp một-đối-một với
+  # surfaces.<name>.label; init sinh ra). Chi tiết: skill project-board-protocol.
   type:
     feature:     "type/feature"
     improvement: "type/improvement"
     bug:         "type/bug"
-  # Issue đụng tới (những) surface nào. Init sinh ra để khớp các key `surfaces:` —
-  # một component/<surface> cho mỗi surface đã khai báo. PMO gắn một hoặc nhiều; DEV/QC dùng
-  # chúng để biết (những) surface nào cần build/lint/test. Mirror của surfaces.<name>.label.
   component:
     {{SURFACE_KEY}}: "component/{{SURFACE_KEY}}"
     # ... một cái cho mỗi surface
-  # Tín hiệu auxiliary (thêm/gỡ kèm với label flow:*, không phải thay cho nó).
-  # QC ❌ (chưa vượt ngưỡng) → flow:ready-for-dev + rework; DEV đọc QC rejection mới nhất trước.
-  # (Feedback PR review của con người KHÔNG dùng aux label: con người tự chuyển ticket về
-  #  flow:inbox và PMO re-triage đọc PR feedback trực tiếp. See skill: project-board-protocol.)
-  rework:        "rework"
+  # aux label `rework` là plugin constant (như threshold=2) — không configurable.
