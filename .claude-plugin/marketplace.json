@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "agentflow",
-      "description": "Tech-stack-agnostic dev workflow for a single GitHub repo: a PO/DEV/QC agent team coordinated via GitHub issues + flow:* labels and a required GitHub Projects v2 board, with parallel /start terminals that claim work via issue assignee. Ships 4 core skills (setup-agentflow, project-board-protocol, git-flow-working, figma-design) and lets each project add role-prefixed skills (dev-*, qc-*, po-*). Fully specified connections (token + MCP server) for GitHub, GitHub Projects, and Figma, secure .env secret management, and a single-source-of-truth config describing dynamic project surfaces (any mix of backend/frontend/mobile/…).",
+      "description": "Tech-stack-agnostic dev workflow for a single GitHub repo: a PMO/DEV/QC agent team coordinated via GitHub issues and the Status field of a required GitHub Projects v2 board (Status is the authoritative state; labels carry classification only — type/*, component/*, aux rework), with parallel /start terminals that claim work via issue assignee. Human merge gate is enforced at the tool layer (no sub-agent can call merge_pull_request). Ships 4 core skills (setup-agentflow, project-board-protocol, git-flow-working, figma-design) and lets each project add role-prefixed skills (dev-*, qc-*, pmo-*). Fully specified connections (token/OAuth + MCP server) for GitHub, GitHub Projects, Figma, plus optional Telegram break-out notifications; secure .env secret management, and a single-source-of-truth config describing dynamic project surfaces (any mix of backend/frontend/mobile/…).",
       "author": {
         "name": "Wem"
       },

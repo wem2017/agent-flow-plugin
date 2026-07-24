@@ -15,6 +15,12 @@ claude plugin update agentflow@agent-flow-plugins      # kéo version mới vào
 # 3. restart Claude Code để load
 ```
 
+> **Lưu ý một khoảng mù.** `claude plugin validate` chỉ kiểm **shape của manifest** — nó không biết gì
+> về hành vi (hành vi của plugin này sống hoàn toàn trong prose: tên MCP method, `board.columns` key,
+> comment prefix, `disallowedTools`…), và nó **không đọc được** `.claude-plugin/marketplace.json` vì
+> file đó nằm **ngoài** `agentflow/`. Chính khoảng mù thứ hai đã để card marketplace drift qua 2
+> version mà không ai bắt được — nên khi sửa mô tả plugin, nhớ sửa **cả hai** file bằng tay.
+
 Vì cài ở **user scope**, một lần update là **mọi project trên máy đều nhận** — không cần lặp lại từng repo.
 
 > Vòng lặp này đã được tự động hoá bằng command **`/improve`** — capture bài học từ usage thực tế, fold vào đúng file tri thức trong source (duyệt diff trước khi ghi), bump version + CHANGELOG, rồi chạy đúng các bước trên.

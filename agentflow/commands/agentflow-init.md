@@ -56,8 +56,10 @@ git rev-parse --abbrev-ref origin/HEAD  # default branch (vd origin/main → mai
 Verify mọi secret khai báo ở `env:` trong `${CLAUDE_PLUGIN_ROOT}/templates/agentflow.yaml.template` đều **present trong shell**:
 
 ```bash
-[ -n "${GITHUB_TOKEN:-}" ] && echo "GITHUB_TOKEN: set" || echo "GITHUB_TOKEN: MISSING"
-[ -n "${FIGMA_TOKEN:-}" ]  && echo "FIGMA_TOKEN: set"  || echo "FIGMA_TOKEN: absent"
+[ -n "${GITHUB_TOKEN:-}" ]       && echo "GITHUB_TOKEN: set"       || echo "GITHUB_TOKEN: MISSING"
+[ -n "${FIGMA_TOKEN:-}" ]        && echo "FIGMA_TOKEN: set"        || echo "FIGMA_TOKEN: absent"
+[ -n "${TELEGRAM_BOT_TOKEN:-}" ] && echo "TELEGRAM_BOT_TOKEN: set" || echo "TELEGRAM_BOT_TOKEN: absent"
+[ -n "${TELEGRAM_CHAT_ID:-}" ]   && echo "TELEGRAM_CHAT_ID: set"   || echo "TELEGRAM_CHAT_ID: absent"
 ```
 
 - **`GITHUB_TOKEN` (required):** nếu chưa set → bảo user đặt nó vào `.env`
@@ -67,6 +69,9 @@ Verify mọi secret khai báo ở `env:` trong `${CLAUDE_PLUGIN_ROOT}/templates/
   khởi động Claude Code, rồi chạy lại. **Stop.**
 - **`FIGMA_TOKEN` (optional, legacy only):** official Figma MCP server dùng **OAuth** (không token),
   nên cái này không bắt buộc. Để trống trừ khi chạy legacy Framelink/REST fallback; ghi chú và tiếp tục.
+- **`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` (optional):** chỉ cần khi bật connection `notify`
+  (Step 4). Thiếu → `notify` tự tắt lúc runtime, pipeline chạy bình thường; ghi chú và tiếp tục.
+  **Không bao giờ stop vì thiếu chúng.**
 
 Không bao giờ print, log, hay interpolate giá trị token. Chỉ tham chiếu biến dưới dạng `${GITHUB_TOKEN}` /
 `${FIGMA_TOKEN}`. Xem skill: **setup-agentflow** để biết env name map tới connections và MCP server ra sao.
@@ -90,6 +95,31 @@ Xác nhận từng cái:
   `mcp: { server: "figma" }`, và seed `connections.figma.files` bằng các file key đã biết
   (VD `[{ name: "Design System", key: "AbC123xyz" }]`), ngược lại `[]`. Bảo user authenticate một lần qua
   `/mcp → figma → Authenticate`. Nếu họ từ chối → `enabled: false`.
+- **notify** — outbound notification tùy chọn (Telegram). Hỏi: *bật ping ra ngoài khi pipeline
+  break-out ra con người?* Giải thích ngắn giá trị: cần cho việc chạy `/start` unattended qua `/loop`
+  — không có nó, ticket park ở `Refined` / `Ready for Human Review` mà không ai biết cho tới khi bạn
+  quay lại terminal. Nói rõ đây là ping **một chiều cho người**, không phải kênh liên lạc giữa agent.
+  - Bật → `enabled: true`, `channel: "telegram"`,
+    `auth: { token_env: TELEGRAM_BOT_TOKEN, docs: "https://core.telegram.org/bots/api#sendmessage" }`,
+    `target_env: "TELEGRAM_CHAT_ID"`, `events: ["refined","blocked","stuck","ready_for_human_review"]`
+    (cho user bỏ bớt event nếu muốn ít ồn). **Không** ghi block `mcp:` — đây là HTTPS call thuần.
+    Nếu một trong hai var còn thiếu (Step 3), vẫn ghi `enabled: true` nhưng **cảnh báo một dòng**:
+    notify sẽ tự tắt lúc runtime cho tới khi điền `.env` — hướng dẫn lấy token qua `@BotFather` và
+    chat id qua `@userinfobot`.
+  - Từ chối → `enabled: false`.
+  - **Smoke test (chỉ khi cả hai var đã present)** — gửi một tin thử để bắt sai chat id/token ngay
+    tại init thay vì lúc break-out thật. Fail thì **cảnh báo rồi tiếp tục**, không bao giờ stop init:
+
+    ```bash
+    curl -sS --max-time 10 -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+      --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+      --data-urlencode "text=AgentFlow: notify wired ✅ (setup check)" \
+      -o /dev/null -w '%{http_code}\n' \
+      || echo "notify smoke test FAILED — kiểm tra TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID"
+    ```
+
+    `200` = ok. `401` = bot token sai. `400 chat not found` = chat id sai, hoặc bạn chưa nhắn `/start`
+    cho bot một lần (Telegram chặn bot nhắn trước tới user chưa từng chat).
 
 **Validate** mỗi connection đã enabled: xác nhận mọi var trong `auth.token_env` + `mcp.requires_env`
 của nó đều present (chỉ presence, từ Step 3). Nếu một connection đã enabled thiếu var bắt buộc, cảnh
@@ -254,6 +284,7 @@ mkdir -p .claude
 | `{{DEFAULT_BRANCH}}`                        | default branch từ Step 2                                     |
 | `{{PROJECT_OWNER}}` / `{{PROJECT_OWNER_TYPE}}` | owner login / `org`\|`user`                               |
 | `{{FIGMA_ENABLED}}`                         | `true` nếu user bật figma (OAuth — không cần token)          |
+| `{{NOTIFY_ENABLED}}`                        | `true` nếu user bật notify ở Step 4, ngược lại `false`       |
 | `{{BOARD_NUMBER}}`                          | board project number từ Step 7 (một integer thật, không bao giờ rỗng)|
 | `surfaces:` block                           | một block cho mỗi surface **detect được** (Step 5): `path`, `label`, `forbidden_paths`. Xóa hoàn toàn surface example/placeholder của template. |
 | `labels.component`                          | một `<surface>: "component/<surface>"` cho mỗi surface đã khai báo |
@@ -339,8 +370,8 @@ In ra một report gọn:
 AgentFlow initialized on <OWNER/REPO> (protocol v<agentflow_version từ template, vd 1.0.0>)
 
 Project     : <name> — <summary>
-Connections : github ✓   github_project on board #<N>   figma <on (OAuth) | off>
-Env         : GITHUB_TOKEN set ✓   FIGMA_TOKEN <set | absent>
+Connections : github ✓   github_project on board #<N>   figma <on (OAuth) | off>   notify <on (telegram, smoke ✓) | on (chưa có secret — sẽ tự tắt) | off>
+Env         : GITHUB_TOKEN set ✓   FIGMA_TOKEN <set | absent>   TELEGRAM_BOT_TOKEN/CHAT_ID <set | absent>
 Surfaces    : <key>=<path> [, <key>=<path> …]   (only the surfaces that exist)
 Labels      : <4 + N> created/updated (type/* ·3, component/* ·N, rework ·1)
 Board       : #<N> — Status field 7 option (state authoritative), built-in workflows đã hướng dẫn bật

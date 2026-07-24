@@ -79,6 +79,8 @@ Map bài học tới **một** đích chính dưới `$SRC`:
 | **Auto-invoke sai lúc/sai chỗ** | `description:` frontmatter của file tương ứng (đó là cái điều khiển auto-invoke) |
 | Shape config/README sinh mới | `templates/*` (đổi key yaml = protocol-change class §2) |
 | Hook / MCP server | `hooks/hooks.json` / `.mcp.json` |
+| Capability restriction của một role (agent được/không được gọi tool nào) | `disallowedTools` trong frontmatter `agents/<role>.md` |
+| Break-out notification ra ngoài (connection `notify`) | `commands/start.md` → §Notifications |
 
 Đụng nhiều file → chọn MỘT primary home (nơi agent sẽ đọc nó đúng lúc cần), file khác tối đa một
 dòng link. Thật sự cần 2 edit độc lập → show cả 2 diff, duyệt một lượt, một bump + một mục CHANGELOG

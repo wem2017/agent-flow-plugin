@@ -71,6 +71,25 @@ connections:
       # server chính thức không cần env var; server Framelink legacy thì sẽ cần FIGMA_TOKEN
     files: []                             # e.g. [{ name: "Design System", key: "AbC123xyz" }]
 
+  notify:
+    # TÙY CHỌN. Outbound notification MỘT CHIỀU tới con người khi orchestrator break-out.
+    # KHÔNG phải message bus giữa các agent (non-goal): agent vẫn chỉ phối hợp qua board.
+    # Chỉ /start gửi, và chỉ ở các break-out mà owner là human. Gửi fail = bỏ qua kèm note,
+    # KHÔNG BAO GIỜ block pipeline (khác Status write vốn là mandatory-success).
+    enabled: {{NOTIFY_ENABLED}}
+    channel: "telegram"                   # kênh duy nhất được hỗ trợ sẵn hiện nay
+    auth:
+      token_env: "TELEGRAM_BOT_TOKEN"     # tên secret — tạo bot qua @BotFather
+      docs: "https://core.telegram.org/bots/api#sendmessage"
+    target_env: "TELEGRAM_CHAT_ID"        # chat/group/channel id nhận tin (lấy qua @userinfobot)
+    # Các break-out được phép ping. Bỏ bớt để bớt ồn; để rỗng = tắt hiệu quả.
+    #   refined                = cần bạn bổ sung info/quyết định (gồm cả 2-strike escalation của QC)
+    #   blocked                = DEV [DEV] Blocked, ticket đứng ở "In Progress"
+    #   stuck                  = no-progress guard (vd QC infra-stop) đã park sang "Refined"
+    #   ready_for_human_review = PR sẵn sàng để bạn review/merge
+    events: ["refined", "blocked", "stuck", "ready_for_human_review"]
+    # KHÔNG có block `mcp:` — đây là một HTTPS call thuần qua Bash, không có MCP server.
+
   # Add your own, e.g.:
   # sentry:
   #   enabled: false
@@ -94,6 +113,14 @@ env:
     required: false
     used_by: ["figma"]
     description: "Figma PAT — ONLY for the legacy Framelink/REST fallback path. The official Figma MCP server uses OAuth and needs no token."
+  - name: "TELEGRAM_BOT_TOKEN"
+    required: false
+    used_by: ["notify"]
+    description: "Telegram bot token từ @BotFather (dạng 123456:ABC-...). Chỉ cần khi connections.notify.enabled = true."
+  - name: "TELEGRAM_CHAT_ID"
+    required: false
+    used_by: ["notify"]
+    description: "Chat/group/channel id nhận break-out notification (lấy qua @userinfobot; group id thường âm). Chỉ cần khi connections.notify.enabled = true."
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SURFACES — các phần build được của project NÀY. OPEN MAP: chỉ khai báo cái bạn có,
