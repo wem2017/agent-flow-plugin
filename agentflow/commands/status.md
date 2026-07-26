@@ -9,7 +9,7 @@ In ra một bản tóm tắt pipeline ngắn gọn cho repo này.
 2. Đếm qua **một** lượt `projects_list` method=`list_project_items`, paginate toàn board (`per_page` ≤50, `after` để paginate, LUÔN truyền **`field_names: ["Status"]`** — caveat: reference §"List actionable board items"):
 
    - Params: `owner`/`owner_type` (từ `connections.github_project`), `project_number` (= `board.number`).
-   - Group theo tên option Status, map về `board.columns.<key>`. Sáu state đầu chỉ đếm item có issue `state == open`; **Done đếm riêng**: mọi item Status "Done" bất kể issue open/closed (ticket Done thường đã close).
+   - Group theo tên option Status, map về `board.columns.<key>`. Bảy state đầu chỉ đếm item có issue `state == open`; **Done đếm riêng**: mọi item Status "Done" bất kể issue open/closed (ticket Done thường đã close).
    - Item có Status **trống** → đếm vào dòng `(Status trống)` riêng — phân loại nó bằng `--audit` (Missing-Status rule — reference §"Missing Status & membership").
 3. In ra:
 
@@ -18,6 +18,7 @@ In ra một bản tóm tắt pipeline ngắn gọn cho repo này.
    PROJECT: <repo>
 
    Inbox                   <n>
+   In Design               <n>
    Ready for Dev           <n>
    In Progress             <n>
    In QC                   <n>
@@ -26,6 +27,8 @@ In ra một bản tóm tắt pipeline ngắn gọn cho repo này.
    Done                    <n>
    (Status trống)          <n>      # chỉ in khi > 0
    ```
+
+Bỏ hẳn dòng `In Design` khi `design.enabled` không phải `true` (hoặc không surface nào có `ui: true`) — đừng in một dòng luôn bằng 0 cho một state mà repo không dùng. Lưu ý option `In Design` vẫn phải **tồn tại** trên board kể cả khi ẩn dòng này (Status write là fail-stop).
 
 Chỉ đếm số lượng — không liệt kê từng card.
 
@@ -68,7 +71,7 @@ hoặc con người vừa kéo card); (3) ticket unassigned đứng ở một st
      DoR rồi tự chuyển).
    - **Assigned + Status ∈ {Ready for Dev, In Progress, In QC}** → **ticket đang dở, KHÔNG tự resume
      được** — liệt kê. Lưu ý: đây **không chỉ** là dấu hiệu crash. Case này sinh ra ở cả các đường
-     **bình thường**: `/start` chạm safety cap 8-call, user turn kết thúc giữa pipeline, hoặc DEV
+     **bình thường**: `/start` chạm safety cap 12-call, user turn kết thúc giữa pipeline, hoặc DEV
      `[DEV] Blocked` (giữ Status "In Progress" có chủ đích). Ở mọi case, `/start` sẽ **không bao giờ**
      nhặt lại nó vì loop chỉ scan `Inbox + unassigned`. Hướng dẫn phục hồi (giống nhau cho cả bốn
      nguyên nhân): **unassign + kéo card về Inbox** — PMO re-triage resume từ AGENTFLOW-STATE + open

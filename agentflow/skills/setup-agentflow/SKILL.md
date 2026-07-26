@@ -5,11 +5,11 @@ description: Giải thích cách đọc .claude/agentflow.yaml — single source
 
 # Setup AgentFlow
 
-Đọc file này **đầu tiên** — nó mô tả một AgentFlow project và quyết định bạn được phép nói chuyện với cái gì.
+Đọc file này **đầu tiên** — nó mô tả một AgentFlow project và quyết định bạn được phép nói chuyện với cái gì. Dù bạn là một agent (PMO/DESIGNER/DEV/QC) hay một người đang onboard, mọi thứ bạn cần đều nằm trong một file.
 
 ## Metadata là single source of truth
 
-`.claude/agentflow.yaml` (một file mỗi repo, được sinh bởi `/agentflow-init`) mô tả **toàn bộ** project trong một cái nhìn: overview, các external service nó kết nối tới, các secret nó cần, các surface (những phần build được) nó có, và các skill mà agent của nó dùng. Các agent và bốn built-in skill chỉ đọc **duy nhất** file này để hiểu repo — đừng bao giờ giả định language, framework, repo, owner, label, hay env name; đọc trực tiếp từ file. AgentFlow là tech-stack agnostic.
+`.claude/agentflow.yaml` (một file mỗi repo, được sinh bởi `/agentflow-init`) mô tả **toàn bộ** project trong một cái nhìn: overview, các external service nó kết nối tới, các secret nó cần, các surface (những phần build được) nó có, và các skill mà agent của nó dùng. Các agent và năm built-in skill chỉ đọc **duy nhất** file này để hiểu repo — đừng bao giờ giả định language, framework, repo, owner, label, hay env name; đọc trực tiếp từ file. AgentFlow là tech-stack agnostic.
 
 | Section         | Trả lời                                              |
 |-----------------|------------------------------------------------------|
@@ -88,9 +88,9 @@ Nếu gate fail (disabled, thiếu block, thiếu một required env var, hoặc
 
 **github** — xương sống. Issue, label, comment, PR, và review đều chảy qua nó; **label không mang state** — label chỉ còn classification: `type/*`, `component/*`, và aux `rework`; state sống trong `Status` field của board (xem `github_project`). Dùng **một đường duy nhất**: `github` MCP server đọc `${GITHUB_TOKEN}`, lo mọi GitHub-API op (issue, label, comment, PR, review, board). VCS thì dùng local `git` (branch/commit/push/checkout/rebase) trên working tree — MCP không thay được. Xem skill: project-board-protocol.
 
-**github_project** — bắt buộc (GitHub Projects v2): **`Status` field trên board LÀ state authoritative** cho routing, và board là inbox queue của `/start` orchestrator. Dùng chung `GITHUB_TOKEN` nhưng cần `project` scope (luôn bắt buộc), và dùng **cùng** `github` MCP server (không có server riêng) — điều khiển qua `projects` toolset của server đó, phải được enable tường minh trong `.mcp.json` qua header `X-MCP-Toolsets: context,issues,pull_requests,users,labels,projects` (trong đó `labels` + `projects` là opt-in, không có trong default toolset). Board được key theo **project number** (owner + number), không phải `PVT_` node id. Mọi agent (PMO/DEV/QC lẫn orchestrator) đọc và ghi state qua các tool `projects_*`; một Status write fail là **pipeline dừng có chủ đích** (fail-stop). `board.number` + tên column nằm dưới `board:` — `board.columns` chính là **state enum authoritative**; các option name là wire value được resolve by-name, nên đổi tên một option trong UI là break routing. Xem skill: project-board-protocol.
+**github_project** — bắt buộc (GitHub Projects v2): **`Status` field trên board LÀ state authoritative** cho routing, và board là inbox queue của `/start` orchestrator. Dùng chung `GITHUB_TOKEN` nhưng cần `project` scope (luôn bắt buộc), và dùng **cùng** `github` MCP server (không có server riêng) — điều khiển qua `projects` toolset của server đó, phải được enable tường minh trong `.mcp.json` qua header `X-MCP-Toolsets: context,issues,pull_requests,users,labels,projects` (trong đó `labels` + `projects` là opt-in, không có trong default toolset). Board được key theo **project number** (owner + number), không phải `PVT_` node id. Mọi agent (PMO/DESIGNER/DEV/QC lẫn orchestrator) đọc và ghi state qua các tool `projects_*`; một Status write fail là **pipeline dừng có chủ đích** (fail-stop). `board.number` + tên column nằm dưới `board:` — `board.columns` chính là **state enum authoritative**; các option name là wire value được resolve by-name, nên đổi tên một option trong UI là break routing. Xem skill: project-board-protocol.
 
-**notify** — outbound notification tuỳ chọn. Gửi một tin nhắn **một chiều cho CON NGƯỜI** khi orchestrator `/start` break-out ở một state mà owner là human. **Đây không phải message bus** (non-goal cứng): agent vẫn chỉ phối hợp qua board, không agent nào đọc hay nhận gì từ kênh này — nó chỉ mirror ra ngoài đúng cái break-out mà bạn vốn đã thấy trên terminal, để chạy `/loop` unattended không còn mù. Chỉ **`/start`** gửi; PMO/DEV/QC không bao giờ gửi (giữ agent prompt gọn).
+**notify** — outbound notification tuỳ chọn. Gửi một tin nhắn **một chiều cho CON NGƯỜI** khi orchestrator `/start` break-out ở một state mà owner là human. **Đây không phải message bus** (non-goal cứng): agent vẫn chỉ phối hợp qua board, không agent nào đọc hay nhận gì từ kênh này — nó chỉ mirror ra ngoài đúng cái break-out mà bạn vốn đã thấy trên terminal, để chạy `/loop` unattended không còn mù. Chỉ **`/start`** gửi; PMO/DESIGNER/DEV/QC không bao giờ gửi (giữ agent prompt gọn).
 
 - Gate: `enabled: true` **VÀ** cả `auth.token_env` (`TELEGRAM_BOT_TOKEN`) lẫn `target_env` (`TELEGRAM_CHAT_ID`) đều present. Thiếu bất kỳ cái nào → **bỏ qua im lặng kèm một note**, không bao giờ block (degrade gracefully như mọi optional connection).
 - `events` lọc break-out nào được ping: `refined` | `ready_for_human_review` | `stuck`. List rỗng = tắt.
@@ -170,11 +170,11 @@ Một agent load các role-prefixed skill **cho role của nó** mà **liên qua
 
 ## /agentflow-init
 
-`/agentflow-init` bootstrap một repo: nó detect các surface, ghi `.claude/agentflow.yaml` (overview + connections + env + surfaces + các `component/*` label được sinh ra + skill stubs), verify các required env var, và tạo các classification label `type/*`/`rework`/`component/*` (và board bắt buộc — MCP không tạo được single-select `Status` field, nên init hướng dẫn bước UI thủ công cho bảy option, giờ là load-bearing wire value, rồi validate qua `list_project_fields`).
+`/agentflow-init` bootstrap một repo: nó detect các surface, ghi `.claude/agentflow.yaml` (overview + connections + env + surfaces + các `component/*` label được sinh ra + skill stubs), verify các required env var, và tạo các classification label `type/*`/`rework`/`design-review`/`component/*` (và board bắt buộc — MCP không tạo được single-select `Status` field, nên init hướng dẫn bước UI thủ công cho tám option, giờ là load-bearing wire value, rồi validate qua `list_project_fields`).
 
 ## Board-driven mode (mode duy nhất — single repo + one board)
 
-Repo này gắn **một** GitHub Projects v2 board (`board.number` không rỗng + `connections.github_project.enabled: true`) để `/start` orchestrator poll nó như inbox queue của mình (các ticket OPEN + Status "Inbox" — hoặc Status trống, xem Missing-Status rule trong reference — + unassigned) và đẩy từng cái qua PMO → DEV → QC. Cơ chế của board, `status_map` chuẩn, và các scope bắt buộc nằm trong skill: `project-board-protocol` → `reference/projects-v2-board.md`.
+Repo này gắn **một** GitHub Projects v2 board (`board.number` không rỗng + `connections.github_project.enabled: true`) để `/start` orchestrator poll nó như inbox queue của mình (các ticket OPEN + Status "Inbox" — hoặc Status trống, xem Missing-Status rule trong reference — + unassigned) và đẩy từng cái qua PMO → DESIGNER → DEV → QC (bước DESIGNER là có điều kiện — chỉ ticket đụng surface `ui: true` khi `design.enabled`). Cơ chế của board, `status_map` chuẩn, và các scope bắt buộc nằm trong skill: `project-board-protocol` → `reference/projects-v2-board.md`.
 
 ## Secret hygiene
 

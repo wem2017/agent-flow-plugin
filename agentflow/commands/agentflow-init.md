@@ -1,5 +1,5 @@
 ---
-description: Bootstrap AgentFlow trong repo hiện tại — resolve project + summary, wire connections (full auth/MCP spec), detect các surface đang tồn tại, tạo các classification label type/*/component/* + rework, một board bắt buộc với Status field authoritative (7 option + built-in workflows), tùy chọn scaffold project skills có role-prefix, rồi ghi .claude/agentflow.yaml + README.agentflow.md. Re-run trên repo v0.3.x sẽ backfill Status từ các label flow:* di sản rồi dọn chúng.
+description: Bootstrap AgentFlow trong repo hiện tại — resolve project + summary, wire connections (full auth/MCP spec), detect các surface đang tồn tại, tạo các classification label type/*/component/* + rework + design-review, một board bắt buộc với Status field authoritative (8 option + built-in workflows), tùy chọn scaffold project skills có role-prefix, rồi ghi .claude/agentflow.yaml + README.agentflow.md. Re-run trên repo v0.3.x sẽ backfill Status từ các label flow:* di sản rồi dọn chúng.
 argument-hint: (không có args — chạy một setup wizard tương tác)
 ---
 
@@ -149,11 +149,39 @@ Quy tắc:
 
 Với mỗi surface key `<s>` đã xác nhận, set `surfaces.<s>.label: "component/<s>"`.
 
+## 5b. Design step (tuỳ chọn)
+
+Bước design chèn một agent DESIGNER giữa PMO và DEV cho **các ticket đụng UI**. Nó có điều kiện —
+repo backend-only nên tắt và pipeline chạy y như cũ.
+
+1. **Đánh dấu surface nào là UI.** Với mỗi surface đã xác nhận ở Step 5, hỏi user (hoặc đề xuất
+   dựa trên marker đã detect: `package.json` có react/vue/svelte, `pubspec.yaml`, `*.xcodeproj`,
+   thư mục `components/`) và set `surfaces.<s>.ui: true|false`. Đây là **nơi khai báo duy nhất**
+   cho "surface nào là UI" — mọi thứ khác đọc từ đây. Không surface nào `ui: true` → set
+   `design.enabled: false` và bỏ qua phần còn lại của bước này.
+
+2. **Hỏi có bật design step không.** Tắt (default cho repo không có UI) → `design.enabled: false`,
+   xong. Bật → tiếp tục.
+
+3. **Design folder.** Hỏi design artifact sống ở đâu, đề xuất `designs/` nếu thư mục đó đã tồn tại.
+   User chỉ dùng Figma → để `""` (figma-only mode; spec sẽ đi vào issue body thay vì file).
+
+4. **Rules file.** Set `design.rules_file` (đề xuất `.claude/design-rules.md`). Nếu file **chưa
+   tồn tại**, đề nghị scaffold một stub gồm các heading: tokens (color/spacing/typography),
+   component inventory, layout & responsive, accessibility floor, và cái gì được phép hardcode.
+   > Nói cho user biết: nếu họ có plugin Figma, skill **`figma-create-design-system-rules`** sinh
+   > file này từ chính design system của họ và tốt hơn hẳn một stub viết tay. Stub chỉ để không
+   > chặn init.
+
+5. **Design review.** Hỏi có muốn DESIGNER review lại UI sau khi QC ✅ không → `design.design_review`.
+   Default `false` — nó thêm một vòng vào pipeline, nên để user chọn bật.
+
 ## 6. Tạo labels
 
 Tạo mọi AgentFlow label một cách idempotent. **Label không mang state** — label chỉ còn
-classification: `type/*` (feat/bug/…), `component/*` (surface bị đụng), và aux `rework`; state sống
-trong **Status field trên board** (Step 7). Luôn: **3** `type/*`, `rework` — CỘNG **một
+classification: `type/*` (feat/bug/…), `component/*` (surface bị đụng), và hai aux `rework` +
+`design-review`; state sống trong **Status field trên board** (Step 7). Luôn: **3** `type/*`,
+`rework`, `design-review` — CỘNG **một
 `component/<surface>` cho mỗi surface khai báo ở Step 5** (các component label là động). Ý nghĩa nằm
 trong skill: **project-board-protocol**. Với mỗi label, gọi `label_write` method=`create` (idempotent).
 Trên lần chạy lại, dùng method=`update` để re-apply color/description thay vì báo lỗi
@@ -170,7 +198,11 @@ for s in <surface keys from Step 5>: label_write name="component/$s" color=5319E
 
 # aux signal — amber
 label_write  name="rework"              color=FBCA04  description="AgentFlow: QC-rejection rework trên Status 'Ready for Dev' → DEV đọc QC rejection mới nhất trước"
+label_write  name="design-review"       color=FBCA04  description="AgentFlow: trên Status 'In Design' → DESIGNER đang review UI đã build (sau QC ✅), không phải đang tạo design"
 ```
+
+Vẫn tạo `design-review` **kể cả khi user tắt design ở Step 5b** — label rẻ, idempotent, và có sẵn
+thì bật design về sau không cần chạy lại init.
 
 **Re-run trên repo cũ (di sản v0.3.x):** nếu `list_label` còn trả về label `flow:*` — state label
 của AgentFlow < 1.0.0 — thì KHÔNG tạo lại chúng; đánh dấu để chạy **Migration** ở Step 7 sau khi
@@ -185,12 +217,14 @@ board của nó). Board là **required**.
   - *create*: gọi `projects_write` method=`create_project` (owner, owner_type, title) → tạo
     board **rỗng** (chỉ có title). Lưu project **number** vào `board.number`.
   - *link*: resolve board có sẵn theo number qua `projects_get` method=`get_project`.
-- **Status field (7 option) — bước thủ công một lần:** MCP KHÔNG tạo được single-select
-  field. Hướng dẫn user mở board trong GitHub UI → sửa/thêm **Status** field với đúng **7**
-  option khớp `board.columns` **một-đối-một**. `board.columns` chính là **state enum
-  authoritative**; các option name là **load-bearing wire value** được resolve by-name, nên đổi
-  tên một option trong UI là break routing. Sau đó **validate** qua `projects_list`
-  method=`list_project_fields` — assert Status field có đủ 7 option đúng tên
+- **Status field (8 option) — bước thủ công một lần:** MCP KHÔNG tạo được single-select
+  field. Hướng dẫn user mở board trong GitHub UI → sửa/thêm **Status** field với đúng **8**
+  option khớp `board.columns` **một-đối-một**, đặt **In Design ngay sau Inbox** (thứ tự option =
+  thứ tự column con người nhìn thấy). `board.columns` chính là **state enum authoritative**; các
+  option name là **load-bearing wire value** được resolve by-name, nên đổi tên một option trong UI
+  là break routing. `In Design` là bắt buộc kể cả khi repo tắt design — Status write là fail-stop,
+  thiếu option thì ticket UI đầu tiên pass DoR sẽ dừng pipeline. Sau đó **validate** qua
+  `projects_list` method=`list_project_fields` — assert Status field có đủ 8 option đúng tên
   (NEVER dùng `gh api graphql`).
 - **Built-in workflows — thủ công-UI (không API nào config được):** hướng dẫn user mở Project
   settings → Workflows và bật:
@@ -208,7 +242,7 @@ board của nó). Board là **required**.
 
 Chỉ chạy khi Step 6 phát hiện label `flow:*` còn tồn tại (repo đã init với AgentFlow < 1.0.0, thời
 label còn mang state). Xác nhận với user trước khi migrate. Board phải đã validate xong ở trên
-(Status field đủ 7 option) — backfill ghi qua đúng authoritative path:
+(Status field đủ 8 option) — backfill ghi qua đúng authoritative path:
 
 1. **Backfill Status cho issue OPEN:** với mỗi label trong map di sản dưới đây, `list_issues`
    state=open filter theo label đó; với mỗi issue tìm thấy: `projects_write` method=`add_project_item`
@@ -218,6 +252,7 @@ label còn mang state). Xác nhận với user trước khi migrate. Board phả
    | Label di sản                  | → `board.columns.<key>`                        |
    |-------------------------------|------------------------------------------------|
    | `flow:inbox`                  | `inbox` (vd "Inbox")                           |
+   | `flow:in-design`              | `in_design` (vd "In Design") — chỉ có ở repo đã bật design |
    | `flow:ready-for-dev`          | `ready_for_dev` (vd "Ready for Dev")           |
    | `flow:in-progress`            | `in_progress` (vd "In Progress")               |
    | `flow:in-qc`                  | `in_qc` (vd "In QC")                           |
@@ -230,7 +265,7 @@ label còn mang state). Xác nhận với user trước khi migrate. Board phả
    chưa backfill; gỡ trước mà crash là mất state). `issue_write` method=`update` với `labels` =
    set hiện tại trừ label `flow:*` (full-replacement — đọc set hiện tại trước).
 
-3. **Xóa 7 label definition** — toolset `labels` của MCP không có delete, dùng `gh` qua Bash.
+3. **Xóa các label definition `flow:*`** — toolset `labels` của MCP không có delete, dùng `gh` qua Bash.
    Check `command -v gh` trước (`gh` đọc `GITHUB_TOKEN` từ env — không cần auth thêm); nếu `gh`
    vắng mặt → fallback: hướng dẫn user xóa 7 label `flow:*` trong GitHub UI (Issues → Labels)
    rồi chạy lại verify (Step 11):
@@ -286,7 +321,10 @@ mkdir -p .claude
 | `{{FIGMA_ENABLED}}`                         | `true` nếu user bật figma (OAuth — không cần token)          |
 | `{{NOTIFY_ENABLED}}`                        | `true` nếu user bật notify ở Step 4, ngược lại `false`       |
 | `{{BOARD_NUMBER}}`                          | board project number từ Step 7 (một integer thật, không bao giờ rỗng)|
-| `surfaces:` block                           | một block cho mỗi surface **detect được** (Step 5): `path`, `label`, `forbidden_paths`. Xóa hoàn toàn surface example/placeholder của template. |
+| `{{DESIGN_ENABLED}}`                        | `true`/`false` từ Step 5b                                    |
+| `{{DESIGN_FOLDER}}`                         | design folder từ Step 5b, hoặc `""` cho figma-only            |
+| `{{DESIGN_RULES_FILE}}`                     | rules file từ Step 5b                                        |
+| `surfaces:` block                           | một block cho mỗi surface **detect được** (Step 5): `path`, `label`, `ui` (Step 5b), `forbidden_paths`. Xóa hoàn toàn surface example/placeholder của template. |
 | `labels.component`                          | một `<surface>: "component/<surface>"` cho mỗi surface đã khai báo |
 | `skills:`                                   | registry ở Step 8, hoặc `{}`                                 |
 
@@ -309,10 +347,10 @@ python3 -c "import yaml; yaml.safe_load(open('.claude/agentflow.yaml'))" && echo
 ```
 
 - **Labels exist:** gọi `list_label` và kiểm đủ **3** `type/*`, một `component/*`
-  cho mỗi surface, và `rework` — và **không còn** label `flow:*` nào (còn → Migration ở Step 7
-  chưa chạy hoặc chưa xong).
+  cho mỗi surface, `rework`, và `design-review` — và **không còn** label `flow:*` nào (còn →
+  Migration ở Step 7 chưa chạy hoặc chưa xong).
 - **Board resolve:** `projects_get` method=`get_project` (theo `board.number`) + `projects_list`
-  method=`list_project_fields` (đủ 7 option Status) — giao cho skill: **project-board-protocol** làm
+  method=`list_project_fields` (đủ 8 option Status) — giao cho skill: **project-board-protocol** làm
   lookup — và `board.number` khớp `connections.github_project.enabled`.
 
 ### Board write smoke test — bắt buộc, KHÔNG hỏi consent
@@ -373,8 +411,9 @@ Project     : <name> — <summary>
 Connections : github ✓   github_project on board #<N>   figma <on (OAuth) | off>   notify <on (telegram, smoke ✓) | on (chưa có secret — sẽ tự tắt) | off>
 Env         : GITHUB_TOKEN set ✓   FIGMA_TOKEN <set | absent>   TELEGRAM_BOT_TOKEN/CHAT_ID <set | absent>
 Surfaces    : <key>=<path> [, <key>=<path> …]   (only the surfaces that exist)
-Labels      : <4 + N> created/updated (type/* ·3, component/* ·N, rework ·1)
-Board       : #<N> — Status field 7 option (state authoritative), built-in workflows đã hướng dẫn bật
+Design      : <on — folder=<path>, rules=<path>, ui surfaces=<list>, review=<on|off> | off>
+Labels      : <5 + N> created/updated (type/* ·3, component/* ·N, rework ·1, design-review ·1)
+Board       : #<N> — Status field 8 option (state authoritative), built-in workflows đã hướng dẫn bật
 Migration   : <chỉ khi re-run repo v0.3.x: X issue backfill Status, 7 label flow:* đã xóa>
 Skills      : <scaffolded role-prefixed stubs, or none>
 Files       : .claude/agentflow.yaml, README.agentflow.md, [.claude/skills/<role>-* …]

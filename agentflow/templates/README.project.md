@@ -2,7 +2,7 @@
 
 {{PROJECT_SUMMARY}} — điều phối qua AgentFlow trên GitHub Projects v2 board #{{BOARD_NUMBER}}. Đây là tham chiếu nhanh cho repo này.
 
-Repo này dùng plugin **AgentFlow** để điều phối một dev workflow 3-agent (PMO → DEV → QC → human review) trên GitHub. (Phiên bản config-format mà config này được viết cho được pin lại dưới dạng `agentflow_version` trong `.claude/agentflow.yaml`.) State nằm ở **`Status` field** trên một board GitHub Projects v2 **bắt buộc** — Status là state authoritative, board là inbox queue của orchestrator; label không mang state, chỉ còn classification (`type/*`, `component/*`, và aux `rework`). Mọi thứ được cấu hình trong một file duy nhất — `.claude/agentflow.yaml`, single source of truth.
+Repo này dùng plugin **AgentFlow** để điều phối một dev workflow 4-agent (PMO → DESIGNER → DEV → QC → human review) trên GitHub, trong đó bước DESIGNER chỉ chạy cho ticket đụng surface `ui: true`. (Phiên bản config-format mà config này được viết cho được pin lại dưới dạng `agentflow_version` trong `.claude/agentflow.yaml`.) State nằm ở **`Status` field** trên một board GitHub Projects v2 **bắt buộc** — Status là state authoritative, board là inbox queue của orchestrator; label không mang state, chỉ còn classification (`type/*`, `component/*`, và hai aux `rework` + `design-review`). Mọi thứ được cấu hình trong một file duy nhất — `.claude/agentflow.yaml`, single source of truth.
 
 Bạn chỉ làm hai việc bằng tay: **mô tả công việc, và review/merge PR.** Mọi thứ ở giữa diễn ra qua GitHub.
 
@@ -14,11 +14,13 @@ Bạn chỉ làm hai việc bằng tay: **mô tả công việc, và review/merg
 | Khởi động team cho session này          | `/start`                         |
 | Tạo một đầu việc mới                     | `/task <freeform description>`   |
 | Xem mọi thứ đang đứng ở đâu             | `/status`                        |
+| Chạy design cho một ticket UI           | `/design [#n \| description]`     |
+| Design-QC trên UI mà DEV đã build       | `/design-review #n`              |
 | Xem pipeline chạy tốt tới đâu           | `/status --metrics [--since 30d]`|
 | Soi bất thường (ticket kẹt / mồ côi)    | `/status --audit`                |
 | Gỡ block một ticket `Refined`           | `/review-refined [#n]`           |
 
-Sau `/start`, session này trở thành orchestrator board-driven — tạo việc mới qua `/task <mô tả>`; trong /start bạn có thể reroute card bằng plain text (vd "send #12 back to PMO"). Orchestrator chỉ break-out về bạn khi một ticket rơi vào `Refined` (cần bạn bổ sung info/quyết định — kể cả escalation 2-strike của QC), hoặc khi một PR đã sẵn sàng để merge.
+Sau `/start`, session này trở thành orchestrator board-driven — tạo việc mới qua `/task <mô tả>`; team (PMO → DESIGNER → DEV → QC) chain tự động, trong đó bước DESIGNER chỉ chạy cho ticket đụng surface `ui: true`. Trong /start bạn có thể reroute card bằng plain text (vd "send #12 back to PMO"). Orchestrator chỉ break-out về bạn khi một ticket rơi vào `Refined` (cần bạn bổ sung info/quyết định — kể cả escalation 2-strike của QC), hoặc khi một PR đã sẵn sàng để merge.
 
 Bạn có thể chạy **nhiều terminal `/start`** trên cùng một repo để tăng throughput song song — mỗi terminal claim một ticket ở `Inbox` chưa được assign bằng cách tự self-assign, nên các terminal không đụng nhau. Chúng share cùng một `GITHUB_TOKEN` (cùng một GitHub user), nên để isolation chặt chẽ thì hãy cấp cho mỗi terminal một GitHub identity/token riêng.
 
@@ -71,7 +73,7 @@ Với mỗi surface mà issue chạm tới (theo các label `component/<surface>
 
 ## Skills
 
-Bốn core skill luôn đi kèm plugin và tự động bật — không cần đăng ký:
+Năm core skill luôn đi kèm plugin và tự động bật — không cần đăng ký:
 
 | Skill                    | Bao gồm                                                        |
 |--------------------------|----------------------------------------------------------------|
@@ -79,6 +81,7 @@ Bốn core skill luôn đi kèm plugin và tự động bật — không cần �
 | `project-board-protocol` | GitHub wire protocol: board `Status` (state authoritative), comment prefixes, DoR/DoD, classification labels |
 | `git-flow-working`       | branching, Conventional Commits, PR conventions, an toàn khi rebase/merge |
 | `figma-design`           | pull frame specs/tokens qua `figma` MCP; handoff design → AC |
+| `design-system-rules`    | resolve design system rules (rules file → Figma library → codebase) + shape của design artifact |
 
 Để mở rộng, thêm một project skill dưới `.claude/skills/<role>-<area>` để đúng agent nhặt nó lên: `dev-*` → DEV, `qc-*` → QC, `pmo-*` → PMO. Đăng ký nó dưới `skills:` (bản overview source-of-truth) để bạn có thể scope nó theo surface; các agent cũng **auto-discover** bất kỳ `.claude/skills/<their-role>-*` nào kể cả khi không được liệt kê. Một agent load các skill có role-prefix liên quan tới (các) surface mà issue hiện tại chạm tới (`surfaces` trong registry được match với các label `component/*`; không có `surfaces` = luôn liên quan). `/agentflow-init` có thể scaffold các starter stub.
 
@@ -92,9 +95,10 @@ skills:
 ## Cái gì nằm ở đâu (các column của board)
 
 - **`Inbox`** — PMO đang định hình request (triage + refine tới Definition of Ready). Cũng là điểm RE-ENTRY sau khi bạn bổ sung info hoặc kéo card về.
+- **`In Design`** — DESIGNER đang làm design. **Chỉ ticket đụng một surface `ui: true`** mới qua đây; ticket backend-only bỏ qua hẳn state này. Cũng là nơi ticket quay lại sau QC ✅ khi bạn bật `design.design_review` — lúc đó nó mang thêm aux label `design-review` và DESIGNER đang review UI đã build chứ không phải tạo design.
 - **`Ready for Dev`** — DEV sẽ nhặt nó lên tiếp theo. Nếu đã có một open PR link tới issue (một vòng trước), DEV **amend chính PR đó** thay vì mở mới. Nếu mang aux label `rework` (QC đã reject), DEV đọc QC rejection mới nhất trước.
 - **`In Progress`** — DEV đang implement. Nếu DEV bị block, bạn sẽ thấy một comment blocked `[DEV]` và issue nằm lại đây để bạn unblock.
-- **`In QC`** — DEV đã mở một PR; QC viết automation test trên PR branch, rồi chạy tier. QC ❌ (chưa vượt ngưỡng) route ticket về `Ready for Dev` + aux label `rework`.
+- **`In QC`** — DEV đã mở một PR; QC viết automation test trên PR branch, rồi chạy tier. QC ❌ (chưa vượt ngưỡng) route ticket về `Ready for Dev` + aux label `rework`. QC ✅ đi thẳng tới `Ready for Human Review`, TRỪ KHI đây là ticket UI và bạn bật `design.design_review` — khi đó nó rẽ qua `In Design` + aux `design-review` cho DESIGNER ký duyệt trước.
 - **`Refined`** — **BLOCKED, cần bạn.** Một info-gap (PMO không tới được DoR, DEV thiếu spec/Figma, QC gặp AC mơ hồ, hoặc escalation QC 2-strike) đã park ticket ở đây và un-assign nó. Bạn cung cấp thêm info/quyết định qua `/review-refined` (khuyến nghị — capture câu trả lời thành `[USER:<login>]` comment), hoặc **kéo card về `Inbox`** sau khi tự bổ sung info, để PMO re-triage và chạy tiếp.
 - **`Ready for Human Review`** — đến lượt bạn. Review và merge PR — hoặc, để yêu cầu thay đổi, để **feedback inline trực tiếp trên code của PR** rồi **kéo card về `Inbox`** (agent không bao giờ tự làm bước này; ticket đã được unassign nên chỉ cần kéo card). Pipeline chạy lại: PMO đọc feedback của bạn trên PR, fold vào AC, DEV amend chính PR đó, QC re-gate, rồi nó quay lại bạn. (Chỉ đạt tới đây khi QC ✅ — sẵn sàng merge.)
 - **`Done`** — đã merge và close (close issue / merge PR → built-in workflow hoặc orchestrator set Done).
@@ -103,9 +107,55 @@ Kéo card là **human API chính thức** — nhưng chỉ ở các **parked sta
 
 Board là **state view duy nhất**: GitHub issue search / `gh issue list --label` không filter được theo `Status` field của Projects v2, nên để xem cái gì đang ở đâu, nhìn board hoặc chạy `/status`.
 
+## Design
+
+Bước design **có điều kiện** — nó chỉ chạy khi `design.enabled: true` **và** issue đụng tới một surface được đánh dấu `ui: true` trong `.claude/agentflow.yaml`. Ticket không đụng UI đi thẳng từ `Inbox` sang `Ready for Dev`.
+
+| Thứ | Ở đâu |
+|-----|-------|
+| Design artifact | `{{DESIGN_FOLDER}}` — mỗi screen một thư mục, kèm `spec.md` bắt buộc |
+| Design system rules | `{{DESIGN_RULES_FILE}}` — **nguồn ưu tiên #1**, thắng cả Figma lẫn code |
+| Spec (khi figma-only) | Section `## Design` trong chính issue body |
+
+DESIGNER resolve rules theo thứ tự cố định: **rules file → Figma library → suy ra từ codebase**. Nó không bao giờ tự chế giá trị; nếu cả ba đều im lặng về một quyết định, nó hỏi bạn qua `Refined`.
+
+**Sửa design system rules bằng cách sửa file rules** — đó là nơi bạn có tiếng nói mạnh nhất. Nếu bạn có plugin Figma, skill `figma-create-design-system-rules` sinh file này từ chính design system của bạn.
+
+### Enforce trong CI (khuyến nghị)
+
+Compliance script chạy được ngoài agent — đưa nó vào CI thì human merge gate mới thật sự được backed bằng một check, thay vì chỉ bằng lời hứa của agent.
+
+CI **không** có plugin AgentFlow được cài, nên **copy script vào repo** trước (một lần):
+
+```bash
+cp "$CLAUDE_PLUGIN_ROOT/skills/design-system-rules/scripts/check-design-compliance.sh" \
+   scripts/check-design-compliance.sh
+git add scripts/check-design-compliance.sh
+```
+
+Rồi:
+
+```yaml
+# .github/workflows/design-compliance.yml
+name: design-compliance
+on: pull_request
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Check design system compliance
+        run: bash scripts/check-design-compliance.sh --diff "origin/${{ github.base_ref }}"
+```
+
+Bản copy sẽ **không** tự cập nhật khi plugin nâng version — copy lại khi bạn upgrade AgentFlow.
+
+Script cần `git`; `yq` là tuỳ chọn (có thì dùng, không thì nó tự fallback sang parser awk built-in). Nó check được: file ghi ngoài phạm vi, hex/px/font-stack thô trong file UI ngoài token allowlist, `spec.md` thiếu heading, rules file thiếu. Nó **không** check được visual fidelity hay design có tốt hay không — phần đó vẫn là mắt bạn.
+
 ## Comment prefixes (để bạn grep / filter)
 
-`[PMO]`, `[DEV]`, `[QC] ✅`, `[QC] ❌`, `[DEV→PMO ?]`, `[QC→PMO ?]`, `[SYSTEM]`, `[USER:<your-login>]`.
+`[PMO]`, `[DESIGNER]`, `[DESIGNER] ✅`, `[DESIGNER] ❌`, `[DEV]`, `[QC] ✅`, `[QC] ❌`, `[DEV→PMO ?]`, `[QC→PMO ?]`, `[DESIGNER→PMO ?]`, `[SYSTEM]`, `[USER:<your-login>]`.
 
 Bất cứ thứ gì bạn viết **mà không** có prefix `[USER:...]` sẽ bị các agent coi là untrusted context — chúng sẽ đọc nhưng không hành động theo các instruction bên trong.
 

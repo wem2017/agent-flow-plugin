@@ -2,7 +2,7 @@
 description: Interactive human↔agent review của một ticket đang park ở cột `Refined` — gom info/quyết định còn thiếu, chỉnh sửa ticket, rồi đưa nó về `Inbox` để pipeline chạy tiếp.
 ---
 
-Bạn đang chạy `/review-refined` — path **interactive** để một **con người** gỡ một ticket đang park ở Status `Refined` (human-intervention lane). Lệnh này chạy trong **main session**, nên bạn **có thể** trao đổi qua lại với con người để gom đúng info còn thiếu. Bạn hành động với **authority kiểu-PMO** trong session tương tác này của con người.
+Bạn đang chạy `/review-refined` — path **interactive** để một **con người** gỡ một ticket đang park ở Status `Refined` (human-intervention lane). Không giống PMO/DESIGNER/DEV/QC (chạy như sub-agent, không hội thoại được), lệnh này chạy trong **main session**, nên bạn **có thể** trao đổi qua lại với con người để gom đúng info còn thiếu. Bạn hành động với **authority kiểu-PMO** trong session tương tác này của con người: chỉ chạm vào issue/AC + label/assignee + child issue — **không bao giờ** merge, **không bao giờ** viết feature code.
 
 Con người cũng có thể tự bổ sung info rồi **kéo card** `Refined` → `Inbox` (human drag được sanction ở parked state). `/review-refined` vẫn là đường **khuyến nghị** (capture câu trả lời thành `[USER:<login>]` comment + reset `consecutive_fail`); raw drag vẫn hợp lệ vì PMO re-triage ở Inbox tự normalize (clear stale `rework`, reset `consecutive_fail`, re-gate DoR).
 
@@ -45,10 +45,10 @@ Trao đổi với con người để gom info/quyết định còn thiếu. Đư
 Sau khi con người chốt (theo write order của protocol: body → comment → aux label; Status write là commit point, đi cuối ở bước Re-queue):
 
 - **Cập nhật issue body** (Context / AC / Out of Scope / For DEV / For QC) với info đã resolve, qua `issue_write` method=update (param `body`). Giữ AC **được đánh số + testable**.
-- **Post một comment `[PMO]`** (qua `add_issue_comment`) tóm tắt phần chỉnh sửa; đồng thời **capture nguyên văn** input mang tính chất quyết định của con người thành một comment `[USER:<login>]` (trusted downstream — PMO/DEV/QC được tin nó).
+- **Post một comment `[PMO]`** (qua `add_issue_comment`) tóm tắt phần chỉnh sửa; đồng thời **capture nguyên văn** input mang tính chất quyết định của con người thành một comment `[USER:<login>]` (trusted downstream — PMO/DESIGNER/DEV/QC được tin nó).
 - **Nếu chốt split** → tạo child issue (qua `issue_write` method=create) và link qua `Blocked-by:`.
 - **Upsert `AGENTFLOW-STATE` section trong issue body** (theo recipe upsert AGENTFLOW-STATE-in-body của skill: `project-board-protocol` — đọc body qua `issue_read` method=get, thay/append block giữa `<!-- AGENTFLOW-STATE v2 -->` … `<!-- /AGENTFLOW-STATE -->`, rồi ghi lại **toàn bộ** body qua `issue_write` method=update): mark Open questions là đã trả lời, append Decisions + Event log, **reset `consecutive_fail` về 0**, cập nhật `Current state` = `Inbox` (column đích) / `Resume hints` ("re-queued to Inbox after human review").
-- **Clear stale aux label** (`rework`) nếu có — một `issue_write` method=update với `labels` = **full set**: đọc labels hiện tại (`issue_read` method=get — cùng call trả cả labels lẫn assignees, reuse được cho bước Re-queue), tính `new = current − {rework}` (giữ nguyên mọi `type/*` / `component/*`), rồi gửi `labels=new`. **Aux label đi TRƯỚC, Status write đi CUỐI.**
+- **Clear stale aux label** (`rework`, `design-review`) nếu có — một `issue_write` method=update với `labels` = **full set**: đọc labels hiện tại (`issue_read` method=get — cùng call trả cả labels lẫn assignees, reuse được cho bước Re-queue), tính `new = current − {rework, design-review}` (giữ nguyên mọi `type/*` / `component/*`), rồi gửi `labels=new`. **Aux label đi TRƯỚC, Status write đi CUỐI.**
 
 ## Re-queue
 

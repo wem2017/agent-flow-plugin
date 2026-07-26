@@ -2,7 +2,7 @@
 # Nằm ở .claude/agentflow.yaml trong repo CỦA BẠN (mỗi project một file).
 #
 # ░░ FILE NÀY LÀ SINGLE SOURCE OF TRUTH CHO PROJECT. ░░
-# Các agent và bốn built-in skill CHỈ đọc file này để hiểu repo.
+# Các agent và năm built-in skill CHỈ đọc file này để hiểu repo.
 # AgentFlow là tech-stack agnostic — không bao giờ giả định ngôn ngữ hay framework.
 #
 # Pin phiên bản config-format (protocol) mà file này được viết theo. Các command/agent gate nó
@@ -43,7 +43,7 @@ connections:
 
   github_project:
     # BẮT BUỘC. `Status` field trên board LÀ state authoritative cho routing; board cũng là
-    # inbox queue của orchestrator (GitHub Projects v2). Mọi agent (PMO/DEV/QC lẫn orchestrator)
+    # inbox queue của orchestrator (GitHub Projects v2). Mọi agent (PMO/DESIGNER/DEV/QC lẫn orchestrator)
     # đọc và ghi state qua github MCP server projects toolset (không có server riêng). Board
     # number + tên column nằm dưới `board:` bên dưới.  See skill: project-board-protocol
     enabled: true
@@ -57,7 +57,7 @@ connections:
       requires_env: ["GITHUB_TOKEN"]
 
   figma:
-    # TÙY CHỌN, nguồn design. DEV kéo frame specs/tokens khi làm UI.
+    # TÙY CHỌN, nguồn design. DESIGNER dựng frame; DEV kéo frame specs/tokens khi làm UI.
     # KHUYẾN NGHỊ: Figma MCP server CHÍNH THỨC (OAuth — không có token trong env). Bật một lần:
     #   claude mcp add --transport http figma https://mcp.figma.com/mcp
     #   rồi /mcp → figma → Authenticate.  See skill: figma-design
@@ -131,17 +131,43 @@ surfaces:
   {{SURFACE_KEY}}:                        # e.g. backend | frontend | mobile | api | web | "."
     path: "{{SURFACE_PATH}}"              # glob root, ví dụ "api/", "web/", hoặc "." cho repo single-surface
     label: "component/{{SURFACE_KEY}}"
+    ui: false                             # true = surface này có giao diện. Issue đụng tới nó sẽ đi
+                                          # qua Status "In Design" trước khi tới DEV (khi design.enabled).
+                                          # Đây là NƠI DUY NHẤT khai báo "surface nào là UI".
     forbidden_paths: []                   # e.g. mobile: ["android/key.properties", "ios/Runner/GoogleService-Info.plist"]
   # ... lặp lại một block cho mỗi surface project bạn có. Xoá block comment này nếu single-surface.
 
 # ─────────────────────────────────────────────────────────────────────────────
+# DESIGN — design system + design artifact. KHÔNG phải một connection (folder
+# designs/ là local, không phải service ngoài) và KHÔNG phải một surface.
+#
+# Gate: bước Status "In Design" CHỈ chạy khi design.enabled: true VÀ issue mang một
+# label component/* của một surface có `ui: true`. Ngược lại ticket đi thẳng
+# Inbox → Ready for Dev y như khi chưa có DESIGNER.
+#
+# KHÔNG khai báo "dùng folder hay figma" ở đây — nó suy ra được: folder mode khả
+# dụng iff `folder` tồn tại trên disk, figma mode khả dụng iff connections.figma
+# pass gate enabled+authenticated. See skill: design-system-rules
+# ─────────────────────────────────────────────────────────────────────────────
+design:
+  enabled: {{DESIGN_ENABLED}}
+  folder: "{{DESIGN_FOLDER}}"             # nơi design artifact sống, ví dụ "designs/". "" = figma-only.
+  rules_file: "{{DESIGN_RULES_FILE}}"     # design system rules của repo, ví dụ ".claude/design-rules.md".
+                                          # Đây là NGUỒN ƯU TIÊN #1 — thắng mọi conflict.
+  design_review: false                    # true → sau khi QC ✅ một ticket UI, DESIGNER review lại UI
+                                          # đã build (ticket quay lại Status "In Design" + aux design-review).
+
+# ─────────────────────────────────────────────────────────────────────────────
 # SKILLS — các agent skill.
 #
-# Bốn skill LUÔN đi kèm plugin AgentFlow và không cần đăng ký:
+# Năm skill LUÔN đi kèm plugin AgentFlow và không cần đăng ký:
 #   setup-agentflow · project-board-protocol · git-flow-working · figma-design
+#   · design-system-rules
 #
 # Một project có thể thêm skill RIÊNG của nó dưới .claude/skills/, đặt tên <role>-<area> để
-# đúng agent nhặt được:   dev-*  → DEV     qc-*  → QC     pmo-*  → PMO
+# đúng agent nhặt được:
+#   dev-* → DEV    qc-* → QC    pmo-* → PMO    designer-* → DESIGNER
+# (ví dụ: dev-mobile-development, qc-automation-test, pmo-discovery, designer-motion).
 #
 # Đăng ký chúng ở đây để scope một skill vào các surface cụ thể. Agent CŨNG tự động
 # auto-discover bất kỳ .claude/skills/<role>-* nào kể cả khi không liệt kê.
@@ -151,14 +177,16 @@ skills: {}
   # dev-mobile-development: { role: dev, surfaces: ["mobile"], description: "Mobile state & navigation conventions" }
   # qc-automation-test:     { role: qc,  surfaces: ["web", "mobile"], description: "E2E suite authoring" }
   # pmo-discovery:          { role: pmo, description: "Discovery & story-mapping checklist" }
+  # designer-motion:        { role: designer, surfaces: ["web"], description: "Motion & transition specs" }
 
 board:
-  # BẮT BUỘC. `number` = Projects v2 project number; `columns` = bảy tên option của Status
+  # BẮT BUỘC. `number` = Projects v2 project number; `columns` = tám tên option của Status
   # field. Đi đôi với connections.github_project.enabled (init giữ đồng bộ). Chi tiết: skill
   # project-board-protocol.
   number: {{BOARD_NUMBER}}
   columns:
     inbox:                  "Inbox"
+    in_design:              "In Design"               # đặt NGAY SAU Inbox trong GitHub UI
     ready_for_dev:          "Ready for Dev"
     in_progress:            "In Progress"
     in_qc:                  "In QC"
@@ -176,4 +204,14 @@ labels:
   component:
     {{SURFACE_KEY}}: "component/{{SURFACE_KEY}}"
     # ... một cái cho mỗi surface
-  # aux label `rework` là plugin constant (như threshold=2) — không configurable.
+  # Hai aux label `rework` và `design-review` là plugin constant (như threshold=2) —
+  # không configurable. Chúng được add/remove KÈM THEO một Status write, không bao giờ
+  # thay cho nó, và luôn land TRƯỚC Status write.
+  #   rework        — QC ❌ (chưa vượt ngưỡng) → Status "Ready for Dev" + rework;
+  #                   DEV đọc QC rejection mới nhất trước khi đụng code.
+  #   design-review — QC ✅ trên ticket UI khi design.design_review: true → Status
+  #                   "In Design" + design-review. Aux label này phân biệt DESIGNER chạy
+  #                   TRƯỚC implementation (không có label) với chạy SAU implementation
+  #                   để review UI (có label). Cùng một Status, hai hướng.
+  # (Feedback PR review của con người KHÔNG dùng aux label: con người tự kéo card về
+  #  Inbox và PMO re-triage đọc PR feedback trực tiếp. See skill: project-board-protocol.)

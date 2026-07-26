@@ -5,7 +5,7 @@
 
 **Quy tắc nền tảng:** **`Status` field trên board LÀ state authoritative** cho routing. Không có
 mirror, không có bản copy thứ hai — label không mang state (chỉ classification: `type/*`,
-`component/*`, aux `rework`). Mọi agent (PMO/DEV/QC lẫn orchestrator) đọc và ghi state qua đúng các
+`component/*`, aux `rework` + `design-review`). Mọi agent (PMO/DESIGNER/DEV/QC lẫn orchestrator) đọc và ghi state qua đúng các
 tool `projects_*` mô tả dưới đây. Một Status write fail là **pipeline dừng có chủ đích** (fail-stop),
 không phải desync — không còn khái niệm "best-effort".
 
@@ -39,7 +39,7 @@ Cả orchestrator lẫn ba sub-agent đều cần chúng.
 
 Config của connection: `connections.github_project` bật/tắt link (`enabled`, `owner`, `owner_type`,
 `auth.token_env`, `auth.scopes`, `mcp.server`) còn `board.number` / `board.columns` mang **project
-number** và bảy tên column — `board.columns` chính là **state enum authoritative**; các option name
+number** và tám tên column — `board.columns` chính là **state enum authoritative**; các option name
 là wire value được resolve by-name, nên đổi tên một option trong UI là break routing (init validate,
 xem dưới). Một connection chỉ dùng được khi `enabled:true` VÀ mọi env var bắt buộc đều có mặt
 (xem skill: `setup-agentflow`).
@@ -63,7 +63,7 @@ là không có state machine.
 ## Create a board
 
 Dùng bởi /agentflow-init khi user chọn tạo board. Ba bước: tạo project (chỉ title) qua MCP, rồi cho
-**Status** field bảy option khớp `board.columns` (thủ công-UI), rồi bật **built-in workflows**
+**Status** field tám option khớp `board.columns` (thủ công-UI), rồi bật **built-in workflows**
 (thủ công-UI).
 
 1. Tạo project Projects v2 rỗng (chỉ title):
@@ -78,12 +78,18 @@ projects_write method=create_project
 Lưu **number** trả về vào `board.number` và set `connections.github_project.enabled: true`. (MCP key
 board theo number — KHÔNG lưu node id.)
 
-2. **Status field 7 option — CARVE-OUT thủ công (MCP không tạo được).** Một project mới đi kèm default
-   `Status` field mang `Todo/In Progress/Done`. AgentFlow cần **bảy** option đúng bằng `board.columns`
-   (Inbox, Ready for Dev, In Progress, In QC, Refined, Ready for Human Review, Done). Hướng dẫn user
-   mở board trong **GitHub Projects UI** và sửa field `Status`: thêm/đổi tên option cho đủ đúng bảy
-   tên trên, khớp `board.columns` **một-đối-một**. Các option name giờ là **load-bearing wire value**
-   của state machine — validate kỹ:
+2. **Status field 8 option — CARVE-OUT thủ công (MCP không tạo được).** Một project mới đi kèm default
+   `Status` field mang `Todo/In Progress/Done`. AgentFlow cần **tám** option đúng bằng `board.columns`
+   (Inbox, **In Design**, Ready for Dev, In Progress, In QC, Refined, Ready for Human Review, Done).
+   Hướng dẫn user mở board trong **GitHub Projects UI** và sửa field `Status`: thêm/đổi tên option cho
+   đủ đúng tám tên trên, khớp `board.columns` **một-đối-một**. **Đặt `In Design` ngay sau `Inbox`** —
+   thứ tự option chính là thứ tự column mà con người nhìn thấy. Các option name giờ là **load-bearing
+   wire value** của state machine — validate kỹ:
+
+   > `In Design` là một state **có điều kiện** (chỉ ticket UI khi `design.enabled`). Nhưng vì Status
+   > là authoritative và một Status write fail là fail-stop, option này vẫn **bắt buộc phải tồn tại**
+   > trên mọi board — kể cả repo chưa bật design. Thiếu nó, PMO sẽ fail-stop ngay lần đầu một ticket
+   > UI pass DoR.
 
 ```
 projects_list method=list_project_fields
@@ -92,7 +98,7 @@ projects_list method=list_project_fields
   project_number: <board.number>
 ```
 
-   Assert field `Status` (single-select) có đủ một option cho mỗi trong bảy value của `board.columns`;
+   Assert field `Status` (single-select) có đủ một option cho mỗi trong tám value của `board.columns`;
    nếu thiếu, liệt kê các tên option còn thiếu và yêu cầu user thêm trong UI rồi validate lại.
 
 3. **Built-in workflows — thủ công-UI (không API nào config được, kể cả GraphQL chỉ đọc).** Hướng dẫn
@@ -113,7 +119,7 @@ Dùng bởi /agentflow-init khi user cung cấp board number. Validate, không m
 1. Resolve theo number — [Resolve the board](#resolve-the-board).
 
 2. Đọc `Status` field của nó qua `list_project_fields` (block ở [Tạo board](#create-a-board)) và xác
-   nhận có option tồn tại cho mỗi trong bảy value của `board.columns`.
+   nhận có option tồn tại cho mỗi trong tám value của `board.columns`.
 
 3. Nếu thiếu column nào, KHÔNG âm thầm ghi đè board — liệt kê các tên option còn thiếu và hướng dẫn
    user thêm chúng trong GitHub Projects UI (MCP không tạo được single-select field).
@@ -235,7 +241,7 @@ Thay cho quy ước cũ "không có state → coi như inbox", phân biệt ba t
 
 Board-driven là mode **duy nhất** — board bắt buộc và `/start` yêu cầu nó lúc boot. Orchestrator đọc
 queue qua [List actionable board items](#list-actionable-board-items) và **tin Status** — không có
-nguồn state thứ hai để đối chiếu. Sub-agent PMO/DEV/QC tự thực hiện transition của mình qua
+nguồn state thứ hai để đối chiếu. Sub-agent PMO/DESIGNER/DEV/QC tự thực hiện transition của mình qua
 `update_project_item` (xem SKILL.md, Write order); orchestrator đọc lại Status sau mỗi sub-agent run
 (qua `get_project_item` với `item_id` nó đã có) để quyết định bước tiếp theo trong chain.
 
@@ -247,10 +253,11 @@ column, map theo **`<key>`** (ví dụ `in_qc`), không theo chuỗi hiển th�
 
 ```yaml
 status_map:
-  inbox:                  { column: "Inbox",                  owner: "pmo",   action: "claim (self-assign) → triage + refine to DoR; DoR pass → Ready for Dev, else (needs human info) → Refined" }
+  inbox:                  { column: "Inbox",                  owner: "pmo",   action: "claim (self-assign) → triage + refine to DoR; DoR pass → In Design if the design gate holds (design.enabled AND a component/* maps to a surface with ui:true) else Ready for Dev; needs human info → Refined" }
+  in_design:              { column: "In Design",              owner: "designer", action: "CONDITIONAL — only entered when the design gate holds. No `design-review` aux → produce/update design artifacts + spec against the design system rules; done → Ready for Dev. With `design-review` aux (post QC ✅) → review the built UI: ✅ → Ready for Human Review, ❌ → Ready for Dev + rework. Blocked/ambiguous → Refined" }
   ready_for_dev:          { column: "Ready for Dev",          owner: "dev",   action: "if an open PR linked to the issue exists → amend it (reuse branch); else implement on a type-named branch, open PR. If `rework` aux label present → read latest QC rejection first. If body lacks `## For DEV` + numbered AC → DoR defense: back to Inbox" }
   in_progress:            { column: "In Progress",            owner: "dev",   action: "active coding (claim held) — NOT re-spawnable; break out if paused/blocked" }
-  in_qc:                  { column: "In QC",                  owner: "qc",    action: "author tests + run tier; ✅ → Ready for Human Review, ❌ → rework label + Ready for Dev (fail ≤ 2 consecutive) else Refined (escalate)" }
+  in_qc:                  { column: "In QC",                  owner: "qc",    action: "author tests + run tier; ✅ → Ready for Human Review (or In Design + design-review aux when design.design_review and a ui:true surface is touched), ❌ → rework label + Ready for Dev (fail ≤ 2 consecutive) else Refined (escalate)" }
   refined:                { column: "Refined",                owner: "human", action: "BLOCKED — human supplies missing info/decision (via /review-refined, or drags the card back to Inbox after adding info)" }
   ready_for_human_review: { column: "Ready for Human Review", owner: "human", action: "human reviews / merges (QC ✅, merge-ready); to request changes, human leaves PR feedback and DRAGS the card back to Inbox (agent never does this)" }
   done:                   { column: "Done",                   owner: "human", action: "terminal" }
