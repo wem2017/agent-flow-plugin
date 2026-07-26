@@ -217,15 +217,36 @@ board của nó). Board là **required**.
   - *create*: gọi `projects_write` method=`create_project` (owner, owner_type, title) → tạo
     board **rỗng** (chỉ có title). Lưu project **number** vào `board.number`.
   - *link*: resolve board có sẵn theo number qua `projects_get` method=`get_project`.
-- **Status field (8 option) — bước thủ công một lần:** MCP KHÔNG tạo được single-select
-  field. Hướng dẫn user mở board trong GitHub UI → sửa/thêm **Status** field với đúng **8**
-  option khớp `board.columns` **một-đối-một**, đặt **In Design ngay sau Inbox** (thứ tự option =
-  thứ tự column con người nhìn thấy). `board.columns` chính là **state enum authoritative**; các
-  option name là **load-bearing wire value** được resolve by-name, nên đổi tên một option trong UI
-  là break routing. `In Design` là bắt buộc kể cả khi repo tắt design — Status write là fail-stop,
-  thiếu option thì ticket UI đầu tiên pass DoR sẽ dừng pipeline. Sau đó **validate** qua
-  `projects_list` method=`list_project_fields` — assert Status field có đủ 8 option đúng tên
-  (NEVER dùng `gh api graphql`).
+- **Status field (8 option) — init tự thêm option còn thiếu, CÓ XÁC NHẬN:** toolset `projects`
+  của MCP không có method nào ghi field, nên đây là **carve-out được sanction duy nhất** dùng
+  `gh api graphql` (recipe đầy đủ + rationale: reference §"Carve-out: ghi Status field"). Đích là
+  đúng **8** option khớp `board.columns` **một-đối-một**, `In Design` đặt **ngay sau `Inbox`**
+  (thứ tự option = thứ tự column con người nhìn thấy). `board.columns` là **state enum
+  authoritative**; option name là **load-bearing wire value** resolve by-name, nên đổi tên một
+  option trong UI là break routing.
+
+  1. **Đọc** Status field + TOÀN BỘ option hiện có kèm `id` + `color` + `description`.
+  2. **Diff** với `board.columns` → tính các option còn thiếu. Không thiếu gì → skip thẳng sang
+     bước validate, không ghi gì cả (idempotent).
+  3. **GUARD — abort nếu đọc không trọn vẹn.** `singleSelectOptions` là **full replacement**, và
+     `color`/`description` là NON_NULL: mọi option muốn giữ đều phải gửi lại kèm `id` + `color` +
+     `description` của chính nó. Nếu BẤT KỲ option nào đọc về thiếu một trong ba → **DỪNG**, không
+     ghi, rơi về đường thủ công (bước 6). Ghi đè thiếu `id` sẽ tạo option mới và **mọi item đang ở
+     column đó mất Status** — board là state authoritative, không có undo.
+  4. **Hiện diff và chờ user duyệt** — in danh sách option sau khi ghi, đánh dấu dòng được thêm.
+     Không tự ý ghi khi chưa có xác nhận tường minh.
+  5. **Ghi** `updateProjectV2Field` với full-set: mọi option cũ **kèm `id`/`color`/`description`
+     nguyên vẹn**, cộng option mới (không có `id`), xếp đúng thứ tự `board.columns`.
+  6. **Fallback thủ công** (guard fail, user từ chối, hoặc GraphQL lỗi): hướng dẫn user mở board
+     trong GitHub Projects UI và tự thêm option còn thiếu. Đây vẫn là đường hợp lệ — chưa bao giờ
+     bắt buộc phải tự động.
+  7. **Validate** qua `projects_list` method=`list_project_fields` (MCP, không phải GraphQL) —
+     assert Status field có đủ 8 option đúng tên. Đây là nguồn chân lý cho pass/fail của init.
+
+  > `In Design` chỉ **cần thiết** khi repo bật design (`design.enabled: true` + có surface
+  > `ui: true`) — repo tắt design thì PMO không bao giờ nhắm tới nó. Init vẫn tạo sẵn để bật
+  > design sau này không phải chạm board lần nữa; thiếu nó mà bật design thì ticket UI đầu tiên
+  > pass DoR sẽ fail-stop.
 - **Built-in workflows — thủ công-UI (không API nào config được):** hướng dẫn user mở Project
   settings → Workflows và bật:
   - **Item added to project** → Status: `Inbox`

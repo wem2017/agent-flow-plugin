@@ -12,7 +12,9 @@ không phải desync — không còn khái niệm "best-effort".
 ## How Projects v2 is driven
 
 Projects v2 được điều khiển **hoàn toàn qua `projects` toolset của `github` MCP server chính thức** — KHÔNG
-dùng `gh api graphql`, KHÔNG dùng `PVT_` GraphQL node id. Ba tool:
+dùng `gh api graphql`, KHÔNG dùng `PVT_` GraphQL node id. **Đúng một ngoại lệ**: ghi option của
+Status field lúc init (toolset không có method ghi field) — xem §"Carve-out: ghi Status field".
+Ngoài chỗ đó ra, luật này tuyệt đối; runtime (transition / queue / verify) 100% MCP. Ba tool:
 
 1. **`projects_get`** — reads đơn lẻ (methods `get_project` / `get_project_item` / `get_project_field`).
 2. **`projects_list`** — reads dạng list (methods `list_project_fields` / `list_project_items`).
@@ -28,9 +30,9 @@ node id.** Bất đối xứng quan trọng giữa read và write:
   `item_id` đến từ mỗi row của `list_project_items` (orchestrator pass nó xuống spawn prompt của
   sub-agent); fallback khi không có: một lượt `list_project_items` + match `content.number`.
 
-Một ngoại lệ thủ công duy nhất ở tầng write: MCP **không tạo/sửa được** single-select **Status**
-field và các option của nó — đó là bước UI một lần lúc init (xem [Tạo board](#create-a-board)).
-Runtime (transition / queue / verify) thì 100% MCP.
+Một ngoại lệ duy nhất ở tầng write: toolset **không có method nào ghi field**, nên option của
+single-select **Status** field được ghi qua `gh api graphql` **một lần lúc init**, có xác nhận của
+con người — xem §"Carve-out: ghi Status field". Runtime (transition / queue / verify) thì 100% MCP.
 
 `projects` toolset (và `labels`) là **opt-in**: `github` MCP server phải được chạy với chúng bật qua
 header `X-MCP-Toolsets` trong `.mcp.json` (mặc định **không** bật hai toolset này). Nếu không bật, các
@@ -78,18 +80,17 @@ projects_write method=create_project
 Lưu **number** trả về vào `board.number` và set `connections.github_project.enabled: true`. (MCP key
 board theo number — KHÔNG lưu node id.)
 
-2. **Status field 8 option — CARVE-OUT thủ công (MCP không tạo được).** Một project mới đi kèm default
-   `Status` field mang `Todo/In Progress/Done`. AgentFlow cần **tám** option đúng bằng `board.columns`
-   (Inbox, **In Design**, Ready for Dev, In Progress, In QC, Refined, Ready for Human Review, Done).
-   Hướng dẫn user mở board trong **GitHub Projects UI** và sửa field `Status`: thêm/đổi tên option cho
-   đủ đúng tám tên trên, khớp `board.columns` **một-đối-một**. **Đặt `In Design` ngay sau `Inbox`** —
-   thứ tự option chính là thứ tự column mà con người nhìn thấy. Các option name giờ là **load-bearing
-   wire value** của state machine — validate kỹ:
+2. **Status field 8 option — CARVE-OUT.** Một project mới đi kèm default `Status` field mang
+   `Todo/In Progress/Done`. AgentFlow cần **tám** option đúng bằng `board.columns` (Inbox,
+   **In Design**, Ready for Dev, In Progress, In QC, Refined, Ready for Human Review, Done), khớp
+   **một-đối-một**, **`In Design` ngay sau `Inbox`** — thứ tự option chính là thứ tự column mà con
+   người nhìn thấy. Option name là **load-bearing wire value** của state machine. Chạy recipe ở
+   §"Carve-out: ghi Status field" (tự động, có xác nhận; fallback thủ công qua UI), rồi validate:
 
-   > `In Design` là một state **có điều kiện** (chỉ ticket UI khi `design.enabled`). Nhưng vì Status
-   > là authoritative và một Status write fail là fail-stop, option này vẫn **bắt buộc phải tồn tại**
-   > trên mọi board — kể cả repo chưa bật design. Thiếu nó, PMO sẽ fail-stop ngay lần đầu một ticket
-   > UI pass DoR.
+   > `In Design` chỉ **cần thiết** khi repo bật design (`design.enabled: true` + có surface
+   > `ui: true`) — repo tắt design thì không agent nào nhắm tới nó, pipeline chạy y như chưa có
+   > DESIGNER. Init vẫn tạo sẵn để bật design sau này không phải chạm board lần nữa; thiếu nó mà
+   > bật design thì ticket UI đầu tiên pass DoR sẽ fail-stop.
 
 ```
 projects_list method=list_project_fields
@@ -99,7 +100,8 @@ projects_list method=list_project_fields
 ```
 
    Assert field `Status` (single-select) có đủ một option cho mỗi trong tám value của `board.columns`;
-   nếu thiếu, liệt kê các tên option còn thiếu và yêu cầu user thêm trong UI rồi validate lại.
+   nếu thiếu, liệt kê các tên option còn thiếu và chạy lại carve-out (hoặc yêu cầu user thêm trong UI).
+   **Validate luôn đi qua MCP, không bao giờ qua GraphQL** — nó là nguồn chân lý cho pass/fail của init.
 
 3. **Built-in workflows — thủ công-UI (không API nào config được, kể cả GraphQL chỉ đọc).** Hướng dẫn
    user mở Project settings → Workflows và bật:
@@ -112,6 +114,75 @@ projects_list method=list_project_fields
    (same-value); tuy vậy vì không verify được workflow đã bật hay chưa, **/task và PMO intake vẫn
    ghi Status="Inbox" explicit** — không bao giờ dựa vào workflow.
 
+## Carve-out: ghi Status field (`gh api graphql`, chỉ lúc init, có xác nhận)
+
+**Đây là chỗ DUY NHẤT trong AgentFlow được phép dùng `gh api graphql` và `PVT_`/`PVTSSF_` node id.**
+Lý do: toolset `projects` có `create_project` + item ops + reads, nhưng **không có method nào ghi
+field**. Không có carve-out này thì mỗi lần thêm/đổi một Status option đều là thao tác tay trong UI.
+
+**Chỉ chạy lúc `/agentflow-init`, không bao giờ ở runtime.** Không agent nào (PMO/DESIGNER/DEV/QC)
+lẫn orchestrator được gọi nó — chúng chỉ ghi Status của *item* qua `update_project_item` (resolve
+by-name, không đụng id).
+
+### Vì sao phải cẩn thận
+
+`singleSelectOptions` là **full replacement**, và trong `ProjectV2SingleSelectFieldOptionInput`:
+
+| Field | Kiểu | Ý nghĩa khi ghi |
+|---|---|---|
+| `id` | `String` (nullable) | **có** = giữ option cũ · **thiếu** = tạo option MỚI |
+| `name` | `String!` | bắt buộc |
+| `color` | `ProjectV2SingleSelectFieldOptionColor!` | bắt buộc — `GRAY`/`BLUE`/`GREEN`/`YELLOW`/`ORANGE`/`RED`/`PINK`/`PURPLE` |
+| `description` | `String!` | bắt buộc (chuỗi rỗng `""` là hợp lệ) |
+
+Nghĩa là: **mọi option muốn giữ đều phải gửi lại đủ cả bốn**. Bỏ sót `id` của một option → nó bị
+tạo lại với id mới → **mọi board item đang ở column đó mất Status**. Board là state authoritative
+và không có undo, nên guard bên dưới là bắt buộc, không phải tuỳ chọn.
+
+### Recipe
+
+1. **Đọc** field id + toàn bộ option (đổi `user` → `organization` khi `owner_type: org`):
+
+```bash
+gh api graphql -f query='
+query($owner:String!, $number:Int!) {
+  user(login:$owner) { projectV2(number:$number) {
+    id
+    field(name:"Status") { ... on ProjectV2SingleSelectField {
+      id
+      options { id name color description }
+    } }
+  } }
+}' -f owner=<owner> -F number=<board.number>
+```
+
+2. **Diff** `options[].name` với `board.columns`. Không thiếu gì → **dừng, không ghi** (idempotent).
+
+3. **GUARD.** Nếu bất kỳ option nào trả về thiếu `id`, `color`, hoặc `description` → **ABORT, không
+   ghi**, rơi về đường thủ công. Đọc không trọn vẹn mà vẫn ghi là mất state.
+
+4. **Hiện diff, chờ con người duyệt.** In danh sách sau khi ghi, đánh dấu dòng thêm mới. Không ghi
+   khi chưa có xác nhận tường minh.
+
+5. **Ghi** — full-set, option cũ giữ nguyên `id`/`color`/`description`, option mới **không có `id`**,
+   xếp đúng thứ tự `board.columns`:
+
+```bash
+gh api graphql -f query='
+mutation($fieldId:ID!, $opts:[ProjectV2SingleSelectFieldOptionInput!]!) {
+  updateProjectV2Field(input:{ fieldId:$fieldId, singleSelectOptions:$opts }) {
+    projectV2Field { ... on ProjectV2SingleSelectField { options { id name } } }
+  }
+}' -f fieldId=<PVTSSF_...> -F opts='<JSON array>'
+```
+
+6. **Validate qua MCP** (`list_project_fields`) — không bao giờ tin output của chính mutation.
+
+### Fallback thủ công (luôn hợp lệ)
+
+Guard fail, user từ chối, `gh` không có, hoặc GraphQL lỗi → hướng dẫn user thêm option trong
+**GitHub Projects UI**. Đường này chưa bao giờ bị bỏ; tự động chỉ là tiện, không phải điều kiện.
+
 ## Link an existing board
 
 Dùng bởi /agentflow-init khi user cung cấp board number. Validate, không mutate dữ liệu của user:
@@ -121,8 +192,15 @@ Dùng bởi /agentflow-init khi user cung cấp board number. Validate, không m
 2. Đọc `Status` field của nó qua `list_project_fields` (block ở [Tạo board](#create-a-board)) và xác
    nhận có option tồn tại cho mỗi trong tám value của `board.columns`.
 
-3. Nếu thiếu column nào, KHÔNG âm thầm ghi đè board — liệt kê các tên option còn thiếu và hướng dẫn
-   user thêm chúng trong GitHub Projects UI (MCP không tạo được single-select field).
+3. Nếu thiếu column nào, **KHÔNG âm thầm ghi đè board của user** — liệt kê các tên option còn thiếu,
+   rồi đề nghị chạy carve-out (§"Carve-out: ghi Status field") với ràng buộc chặt hơn so với board
+   do init tự tạo, vì đây là board có sẵn của user:
+   - **CHỈ THÊM.** Không bao giờ đổi tên, đổi màu, sắp xếp lại, hay xoá option đang có — kể cả khi
+     một option trông như "bản viết sai" của `board.columns` (vd `Todo` vs `Inbox`). Option lạ ngoài
+     tám cái AgentFlow cần thì cứ để yên; init chỉ assert **tám cái đó tồn tại**, không đòi độc quyền.
+   - Option thêm vào xếp cuối là chấp nhận được — thứ tự đẹp là việc user tự kéo trong UI. Đừng
+     sắp xếp lại danh sách của người ta chỉ để `In Design` nằm sau `Inbox`.
+   - User từ chối → đường thủ công qua GitHub Projects UI, y như cũ.
 
 4. Hướng dẫn bật built-in workflows như bước 3 của [Tạo board](#create-a-board).
 

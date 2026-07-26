@@ -170,7 +170,7 @@ Một agent load các role-prefixed skill **cho role của nó** mà **liên qua
 
 ## /agentflow-init
 
-`/agentflow-init` bootstrap một repo: nó detect các surface, ghi `.claude/agentflow.yaml` (overview + connections + env + surfaces + các `component/*` label được sinh ra + skill stubs), verify các required env var, và tạo các classification label `type/*`/`rework`/`design-review`/`component/*` (và board bắt buộc — MCP không tạo được single-select `Status` field, nên init hướng dẫn bước UI thủ công cho tám option, giờ là load-bearing wire value, rồi validate qua `list_project_fields`).
+`/agentflow-init` bootstrap một repo: nó detect các surface, ghi `.claude/agentflow.yaml` (overview + connections + env + surfaces + các `component/*` label được sinh ra + skill stubs), verify các required env var, và tạo các classification label `type/*`/`rework`/`design-review`/`component/*` (và board bắt buộc — toolset `projects` không có method ghi field, nên init thêm tám option của `Status` qua một carve-out `gh api graphql` có xác nhận, fallback thủ công qua UI, rồi validate qua `list_project_fields`; option name là load-bearing wire value).
 
 ## Board-driven mode (mode duy nhất — single repo + one board)
 
