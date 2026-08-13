@@ -12,7 +12,7 @@ Bạn đang chạy **spec pass tương tác**. Bạn ở trong main session, nê
 1. **Định vị repo.** `git rev-parse --show-toplevel`; `agentflow.yaml` phải tồn tại ở đó.
    - Không có → dừng: "Repo này chưa được setup. Chạy `/agentflow:init` trước."
    - Có → parse `agentflow` (version gate: `1.0`, khác → dừng và yêu cầu chạy lại `/agentflow:init`), `board.number`, `board.owner_type`, `surfaces`, `figma`. Owner/repo suy từ `git remote get-url origin`.
-2. **Auth check.** Một probe `get_me`. Fail vì bất kỳ lý do nào → dừng: *"GitHub MCP chưa authenticate. Token đọc từ `env.GITHUB_TOKEN` trong `~/.claude/settings.json` — đặt nó ở đó rồi thoát Claude Code và mở lại. Chạy `/agentflow:init` để được dẫn qua từng bước."* Cache `login`.
+2. **Auth check.** Một probe `get_me`. Fail vì bất kỳ lý do nào → dừng: *"GitHub MCP chưa authenticate. Token đọc từ `env.GITHUB_TOKEN` trong `.claude/settings.local.json` của repo này — đặt nó ở đó (file phải được gitignore) rồi thoát Claude Code và mở lại. Chạy `/agentflow:init` để được dẫn qua từng bước."* Cache `login`.
 
 ## Chọn mode theo `$ARGUMENTS`
 

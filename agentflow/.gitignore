@@ -1,8 +1,6 @@
 # AgentFlow secrets — không bao giờ commit token thật.
-# GITHUB_TOKEN nằm NGOÀI repo: block `env` của ~/.claude/settings.json (user-global).
-# Secret mà shell phải đọc (TELEGRAM_*, FIGMA_TOKEN) nằm ở block `env` trong
-# .claude/settings.local.json của repo được setup.
-# .claude/settings.json thì KHÔNG ignore — nó team-shared và chỉ chứa setting không bí mật.
+# MỌI secret (GITHUB_TOKEN, TELEGRAM_*, FIGMA_TOKEN) nằm ở block `env` trong
+# .claude/settings.local.json — nên dòng ignore dưới đây là load-bearing.
 .env
 .env.*
 .claude/settings.local.json

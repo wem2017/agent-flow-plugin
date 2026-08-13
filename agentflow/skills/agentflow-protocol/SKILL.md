@@ -22,11 +22,11 @@ Contract mà **DEV**, **QC**, và mọi command của AgentFlow phải tuân the
 | File | Commit? | Giữ gì |
 |---|---|---|
 | **`agentflow.yaml`** (root repo) | có | `agentflow` (version), `board.{number,owner_type}`, `surfaces` (tùy chọn), `figma`, `notify` |
-| **`.claude/settings.json`** (repo) | có | `permissions.allow` / `permissions.deny`, `enabledPlugins`, `extraKnownMarketplaces`, env **không bí mật** |
-| **`.claude/settings.local.json`** (repo) | **không** (gitignored) | Chỉ secret mà **shell** cần đọc: `TELEGRAM_*`, `FIGMA_TOKEN`. **Không** chứa `GITHUB_TOKEN` |
-| **`~/.claude/settings.json`** (user-global) | — (ngoài repo) | `env.GITHUB_TOKEN` — đường **duy nhất** tới header của GitHub MCP server |
+| **`.claude/settings.local.json`** (repo) | **không** (gitignored) | `env` (**mọi** secret: `GITHUB_TOKEN`, `TELEGRAM_*`, `FIGMA_TOKEN`), `enabledPlugins`, `extraKnownMarketplaces` |
 
-Quy tắc phân loại khi phân vân: **hành vi agent → yaml · công cụ/harness → settings.json của repo · secret cho MCP → env user-global · secret cho shell → settings.local.json của repo.** Một thông tin không bao giờ nằm ở hai chỗ.
+Quy tắc phân loại khi phân vân: **hành vi agent → yaml · công cụ/harness và mọi secret → settings.local.json.** Một thông tin không bao giờ nằm ở hai chỗ.
+
+`agentflow.yaml` đi theo repo; `.claude/settings.local.json` chỉ sống trên máy này.
 
 ### Suy ra, đừng đọc từ file
 
@@ -72,19 +72,20 @@ Có mặt ⇒ mỗi key là một phần build được: `path` (glob root) + `f
 
 Tập forbidden hiệu lực cho một thay đổi = **hợp** của global forbidden paths và `forbidden` của mọi surface bị chạm.
 
-### Secret — hai đích, vì hai cơ chế đọc khác nhau
+### Secret — MỘT đích duy nhất
 
 | Secret | Sống ở đâu | Ai đọc nó |
 |---|---|---|
-| **`GITHUB_TOKEN`** | block `env` của **`~/.claude/settings.json`** (user-global, ngoài repo) | `.mcp.json` qua `${GITHUB_TOKEN}`, lúc expand config |
-| **`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`**, **`FIGMA_TOKEN`** (chỉ REST fallback) | block `env` của **`.claude/settings.local.json`** của repo (gitignored) | `curl` trong Bash |
+| **`GITHUB_TOKEN`** | block `env` của **`.claude/settings.local.json`** (repo, gitignored) | `.mcp.json` qua `${GITHUB_TOKEN}`, lúc expand config |
+| **`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`**, **`FIGMA_TOKEN`** (chỉ REST fallback) | cùng file đó | `curl` trong Bash |
 
-**Vì sao không gộp cả hai vào file local của repo:** `.mcp.json` expand `${VAR}` ở một bước sớm, chỉ đọc môi trường thật của tiến trình / `~/.claude/settings.json` / `--settings`. Block `env` **project-scope** (`.claude/settings.json` và `.claude/settings.local.json`) tới được **subprocess** — nên `curl` thấy `TELEGRAM_*` — nhưng **không** tới được bước expand đó. Đặt `GITHUB_TOKEN` vào file local của repo thì server fail y như chưa đặt. (Verify trên Claude Code 2.1.228.)
+Một file phục vụ cả hai đích: `curl` đọc nó như subprocess, và `.mcp.json` expand `${VAR}` từ chính env đó.
 
-Ba hệ quả vận hành, cả ba load-bearing:
+Bốn hệ quả vận hành, cả bốn load-bearing:
 
 - **Đổi secret không có hiệu lực với session đang chạy** — MCP server connect lúc boot, settings nạp lúc boot. Đổi xong → **thoát Claude Code, mở lại, chạy lại**.
-- **`GITHUB_TOKEN` chưa đặt → server KHÔNG bị drop**, nó vẫn tồn tại và tool `mcp__*github*` vẫn có mặt; header gửi đi nguyên văn `Bearer ${GITHUB_TOKEN}` và mọi call fail **HTTP 400 `Authorization header is badly formatted`**. Token có nhưng sai/thiếu scope → **401**. Đừng suy "chưa cấu hình" từ việc thiếu tool; suy từ mã lỗi. Thông điệp STOP đầy đủ cho user: `commands/init.md` §1a.
+- **`GITHUB_TOKEN` chưa đặt → server KHÔNG bị drop**, nó vẫn tồn tại và tool `mcp__*github*` vẫn có mặt; header gửi đi nguyên văn `Bearer ${GITHUB_TOKEN}` và mọi call fail **HTTP 400 `Authorization header is badly formatted`**. Token có nhưng sai/thiếu scope → **401**. Đừng suy "chưa cấu hình" từ việc thiếu tool; suy từ mã lỗi. Thông điệp STOP đầy đủ cho user: `commands/init.md` §1b.
+- **`claude mcp list` KHÔNG chẩn đoán được ca này** — nó không nạp project settings nên luôn báo `Missing environment variables`. Chẩn đoán bằng probe `get_me` **trong session**.
 - **Token nằm trong env của session, nên Bash ĐỌC ĐƯỢC nó** — kể cả `gh` (nó tự nhận `GITHUB_TOKEN`). Đây **không** phải giấy phép dùng `gh`/`curl` thay MCP cho board write: đường đó vẫn cấm (§2). Và nó nâng mức bắt buộc của secret hygiene ngay dưới đây — một `echo` vô ý là token vào transcript.
 
 **Gate before use** — một external service chỉ dùng được khi toggle của nó bật VÀ auth của nó thật sự sống:
@@ -95,7 +96,7 @@ Ba hệ quả vận hành, cả ba load-bearing:
 | `figma` | `figma.enabled: true` + `figma` MCP server đã OAuth (không có token để test) | Degrade: build từ AC, note một dòng trong comment `[DEV]` |
 | `notify` | `notify.enabled: true` + `[ -n "${TELEGRAM_BOT_TOKEN:-}" ]` + `[ -n "${TELEGRAM_CHAT_ID:-}" ]` | Bỏ qua im lặng kèm note — **không bao giờ** block |
 
-**Secret hygiene.** Không bao giờ print/echo giá trị token — **kể cả `GITHUB_TOKEN`, dù Bash đọc được nó**; test presence bằng `[ -n "${VAR:-}" ]`. Không bao giờ đặt secret vào `agentflow.yaml` hay `.claude/settings.json` của repo (cả hai được commit) — phát hiện ở đó thì cảnh báo và bảo rotate. Khi phải ghi một giá trị secret vào file, dùng Read + Write, **không** Bash (tránh shell history). Tham chiếu bằng `${TÊN_KEY}` để shell tự expand lúc chạy.
+**Secret hygiene.** Không bao giờ print/echo giá trị token — **kể cả `GITHUB_TOKEN`, dù Bash đọc được nó**; test presence bằng `[ -n "${VAR:-}" ]`. Không bao giờ đặt secret vào `agentflow.yaml` (file này được commit) — phát hiện ở đó thì cảnh báo và bảo rotate. Khi phải ghi một giá trị secret vào file, dùng Read + Write, **không** Bash (tránh shell history). Tham chiếu bằng `${TÊN_KEY}` để shell tự expand lúc chạy.
 
 ---
 

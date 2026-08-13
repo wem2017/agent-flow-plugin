@@ -227,10 +227,10 @@ Claim là GitHub **assignee** (sống trên issue, không phụ thuộc board):
 - **Assignee phải được nhả mỗi khi orchestrator dừng**: tới `Done`, break out ở `Ready for Review` /
   `Inbox +blocked`, hoặc chạm safety cap giữa chừng. Ticket còn assignee mà không terminal nào chạy là
   **ticket mồ côi** — vô hình với queue cho tới khi `/agentflow:status --audit` phát hiện.
-- **Shared identity:** mọi terminal dùng chung `GITHUB_TOKEN` nên assignee de-dupe được nhưng không
-  phân biệt được terminal nào; tranh chấp CHỈ tồn tại ở bước claim. Biến sống ở settings user-global,
-  tức **một giá trị cho mỗi user profile** — không tách identity theo clone được. Muốn cô lập nghiêm
-  ngặt thì mỗi identity một máy / user profile. **Đừng thêm distributed lock.**
+- **Shared identity:** mọi terminal mở trên **cùng một clone** dùng chung `GITHUB_TOKEN` nên assignee
+  de-dupe được nhưng không phân biệt được terminal nào; tranh chấp CHỈ tồn tại ở bước claim. Biến sống
+  theo repo (`env` của `.claude/settings.local.json`), nên muốn tách identity thì **clone thêm một bản
+  và đặt token khác** — không cần máy/user profile riêng. **Đừng thêm distributed lock.**
 
 ## Scopes
 

@@ -7,7 +7,7 @@ AgentFlow **tech-stack-agnostic**. Cài **một lần**, chạy theo từng repo
 - **Con người ở trong vòng lặp, đúng chỗ nó có giá trị.** Intake và refine (viết AC, chọn QC tier, gate Definition of Ready) chạy **tương tác ngay trong session** — hỏi đáp trực tiếp với bạn. Không sub-agent nào tự viết spec rồi tự làm theo spec của chính nó.
 - **Board 6 cột, một bất biến.** `Inbox · Ready for Dev · In Progress · In QC · Ready for Review · Done`. **Cột do agent sở hữu không bao giờ giữ ticket ở trạng thái nghỉ** — agent không đi tiếp được thì ticket về `Inbox` + label `blocked`. Không có ticket nào kẹt vô hình.
 - **Config ~15 dòng.** `agentflow.yaml` ở root repo chỉ giữ thứ **không suy ra được**: board number, surfaces, hai toggle. Repo/branch/owner suy từ `git remote` mỗi run; tên column, label, MCP wiring, ngưỡng rework là **hằng số plugin**.
-- **Token GitHub không nằm trong repo.** Nó là biến `GITHUB_TOKEN` trong block `env` của `~/.claude/settings.json` — settings **user-global**, ngoài mọi repo, nên không file nào trong repo chứa nó và không có gì để lỡ tay commit. Secret mà *shell* phải đọc (`TELEGRAM_*` cho notify, `FIGMA_TOKEN`) thì ở `.claude/settings.local.json` của repo.
+- **Mọi secret một chỗ, theo từng repo.** `GITHUB_TOKEN` — cùng `TELEGRAM_*` và `FIGMA_TOKEN` — sống trong block `env` của **`.claude/settings.local.json`**, file mà `/agentflow:init` bắt buộc phải thấy đã gitignore *trước khi* nói tới token. Đổi lại rủi ro "secret nằm trong working tree": mỗi clone một token, nên mỗi repo chạy được dưới một GitHub identity riêng.
 
 Không có message bus. Agent giao tiếp hoàn toàn qua GitHub primitives: **`Status` field trên Projects v2 board** (state authoritative), **issue comment có prefix** (audit trail duy nhất của transition), và **một section `AGENTFLOW-STATE` trong issue body** (memory giữa các lần chạy). Label không mang state.
 
@@ -21,7 +21,7 @@ Không có message bus. Agent giao tiếp hoàn toàn qua GitHub primitives: **`
 | **local `git`** (qua `Bash`) | VCS trên working tree: branch, commit, push, checkout, rebase | remote + credential sẵn có của repo |
 | **Figma MCP server** *(tùy chọn)* (`https://mcp.figma.com/mcp`) | kéo frame spec/token khi làm UI | **OAuth** — `/mcp` → `figma` → Authenticate |
 
-1. **Một GitHub token, cấu hình một lần cho cả máy** — thêm vào block `env` của **`~/.claude/settings.json`**:
+1. **Một GitHub token cho mỗi repo** — thêm vào block `env` của **`.claude/settings.local.json`** trong repo đó:
 
    ```json
    {
@@ -29,9 +29,9 @@ Không có message bus. Agent giao tiếp hoàn toàn qua GitHub primitives: **`
    }
    ```
 
-   `.mcp.json` của plugin đọc nó qua `${GITHUB_TOKEN}`. File này nằm ngoài mọi repo nên không có gì để lỡ tay commit.
+   `.mcp.json` của plugin đọc nó qua `${GITHUB_TOKEN}`. **File này phải được gitignore** — `/agentflow:init` §1a tự thêm dòng đó vào `.gitignore` và **từ chối chạy tiếp** nếu vẫn chưa ignore được (vd file đang bị git track).
 
-   > **Phải là settings user-global — `.claude/settings.local.json` của repo KHÔNG dùng được cho biến này.** `.mcp.json` chỉ expand `${VAR}` từ môi trường thật của tiến trình, từ `~/.claude/settings.json`, hoặc từ `--settings`; block `env` project-scope tới được subprocess (nên `curl` thấy `TELEGRAM_*`) nhưng **không** tới được bước expand config. Đặt `GITHUB_TOKEN` ở file local của repo thì server fail y như chưa đặt.
+   > **Đừng chẩn đoán bằng `claude mcp list`** — nó không nạp project settings nên báo `Missing environment variables` kể cả khi token đã đặt đúng. Dùng `/agentflow:init`: nó probe `get_me` ngay trong session. Một `export GITHUB_TOKEN=…` còn sót trong shell sẽ **đè** giá trị của file.
    >
    > **Restart là bắt buộc khi đổi token.** MCP server connect lúc boot, nên đổi xong phải thoát Claude Code và mở lại.
 
@@ -41,25 +41,32 @@ Không có message bus. Agent giao tiếp hoàn toàn qua GitHub primitives: **`
 
 | Giá trị | Bắt buộc | Sống ở đâu | Dùng cho |
 |---|---|---|---|
-| `GITHUB_TOKEN` | **có** | `env` trong `~/.claude/settings.json` (user-global) | GitHub API + board |
-| `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | không | `env` trong `.claude/settings.local.json` (theo repo, gitignored) | `notify` — ping khi pipeline dừng chờ bạn |
+| `GITHUB_TOKEN` | **có** | `env` trong `.claude/settings.local.json` (theo repo, gitignored) | GitHub API + board |
+| `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | không | như trên | `notify` — ping khi pipeline dừng chờ bạn |
 | `FIGMA_TOKEN` | không | như trên | chỉ REST/Framelink fallback; official server dùng OAuth |
 
-Hai đích khác nhau vì **hai cơ chế đọc khác nhau**, không phải vì sở thích: header của MCP server được expand ở một bước chỉ thấy môi trường thật / settings user-global, còn `curl` chạy như subprocess nên đọc được cả `env` project-scope. Xem §Non-goals.
+Một file phục vụ cả hai đích: `curl` đọc nó như subprocess, `.mcp.json` expand `${VAR}` từ chính env đó. Xem §Non-goals.
 
 ---
 
 ## Cài đặt
 
+Plugin khai báo `defaultEnabled: false`, nên **cài xong nó nằm im — bạn phải tự bật**. Đây là chủ ý: AgentFlow cầm `GITHUB_TOKEN` và ghi lên board thật, nên nó không được tự chạy chỉ vì có mặt trong marketplace. Bước `enable` là chỗ bạn nói "đồng ý, repo này dùng AgentFlow".
+
 ```bash
 # đường dẫn TUYỆT ĐỐI hoặc ./path tới thư mục chứa .claude-plugin/marketplace.json
 # (dấu "." trần bị từ chối). Team dùng chung → dùng dạng owner/repo.
 claude plugin marketplace add /path/to/Plugins
-claude plugin install agentflow@agent-flow-plugins     # --scope user (mặc định) | project | local
-# rồi đặt GITHUB_TOKEN trong env của ~/.claude/settings.json (xem §Yêu cầu)
+
+# đứng TRONG repo muốn dùng:
+claude plugin install agentflow@agent-flow-plugins --scope local
+claude plugin enable  agentflow@agent-flow-plugins --scope local
+# rồi đặt GITHUB_TOKEN trong env của .claude/settings.local.json (xem §Yêu cầu)
 ```
 
-`--scope user` cài **một bản dùng chung cho mọi repo trên máy** — đúng tinh thần "cài một lần, chạy theo từng repo". Rồi **restart Claude Code**. Quy trình dev/release plugin: [`CONTRIBUTING.md`](CONTRIBUTING.md).
+**`--scope local` là mặc định khuyến nghị.** Nó ghi vào `.claude/settings.local.json` của chính repo — gitignored, theo từng repo, không lan sang teammate — tức **cùng một file đang giữ `GITHUB_TOKEN`**. Nhờ vậy "repo nào đã bật AgentFlow" và "repo nào có token" luôn khớp nhau ở đúng một chỗ, thay vì plugin bật toàn máy còn token thì chỉ vài repo có. `--scope user` cài chung cho mọi repo — chỉ chọn khi bạn thực sự muốn mọi project đều thấy plugin. Sau khi enable, **restart Claude Code**.
+
+Quy trình dev/release plugin: [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Bắt đầu nhanh
 
@@ -99,7 +106,7 @@ PR feedback: Ready for Review ─bạn comment inline trên PR + KÉO CARD──
 
 | Command | Nó làm gì |
 |---|---|
-| `/agentflow:init` | Bootstrap một lần **theo từng repo**: verify GitHub auth, detect surfaces, tạo label, tạo/link board (Status field 6 option — bước UI thủ công, init validate lại), ghi `agentflow.yaml` + `.claude/settings.json`, rồi chạy board-write smoke test. |
+| `/agentflow:init` | Bootstrap một lần **theo từng repo**: verify GitHub auth, detect surfaces, tạo label, tạo/link board (Status field 6 option — bước UI thủ công, init validate lại), ghi `agentflow.yaml` + `.claude/settings.local.json`, rồi chạy board-write smoke test. |
 | `/agentflow:task <mô tả>` | **Intake tương tác** — hỏi đáp để chốt AC, tạo issue, lên board. |
 | `/agentflow:task #<n>` | **Gỡ một ticket đang kẹt** (`Inbox +blocked`) hoặc re-spec sau PR feedback. Đây là đường chính thức đưa ticket trở lại pipeline. |
 | `/agentflow:start` | Vào board-driven team mode: claim ticket chưa assign ở `In QC` → `Ready for Dev` → `Inbox` (việc đã bắt đầu trước việc mới), tự chạy spec pass khi đủ dữ kiện, rồi chain DEV → QC. Poll liên tục opt-in qua skill `/loop`. |
@@ -134,7 +141,7 @@ figma:   { enabled: true, files: [{ name: "Design System", key: "AbC123" }] }
 notify:  { enabled: false, events: ["blocked", "ready_for_review"] }
 ```
 
-Mọi thứ khác đến từ ba nguồn còn lại: **suy từ git** (repo, owner, default branch), **hằng số plugin** (6 tên column, label, branch prefix, global forbidden paths `infra/**` + `.github/workflows/**` + `**/*.pem` + `**/.env`, ngưỡng rework `2`, ý nghĩa QC tier), và **auto-discovery** (project skill). Quy tắc khi phân vân: *hành vi agent → yaml · công cụ/harness → `.claude/settings.json` · secret cho MCP → `env` của `~/.claude/settings.json` · secret cho shell → `.claude/settings.local.json`.*
+Mọi thứ khác đến từ ba nguồn còn lại: **suy từ git** (repo, owner, default branch), **hằng số plugin** (6 tên column, label, branch prefix, global forbidden paths `infra/**` + `.github/workflows/**` + `**/*.pem` + `**/.env`, ngưỡng rework `2`, ý nghĩa QC tier), và **auto-discovery** (project skill). Quy tắc khi phân vân: *hành vi agent → yaml · công cụ/harness và mọi secret → `.claude/settings.local.json`.*
 
 **Surfaces** là tùy chọn — vắng mặt nghĩa là single-surface, DEV/QC gate toàn repo. Có mặt thì mỗi key sinh một label `component/<key>`; spec pass tag issue, DEV/QC chỉ build/lint/test những surface đó theo convention của chính repo (không có command nào trong config).
 
@@ -146,14 +153,13 @@ Mọi thứ khác đến từ ba nguồn còn lại: **suy từ git** (repo, own
 
 - **Mặc định synchronous; continuous là opt-in.** Break-out ở terminal *chính là* notification. Chạy `/agentflow:start` unattended qua skill `/loop`; bật `notify` (Telegram) để biết ngay khi ticket park, thay vì phát hiện muộn. Ping **một chiều tới người** — không agent nào đọc kênh đó, board vẫn là nơi phối hợp duy nhất.
 - **Không có agent nào gate DoR thay bạn.** Đây là đánh đổi trực tiếp của thiết kế: chất lượng spec phụ thuộc bạn có mặt lúc intake. Dưới `/loop`, ticket cần quyết định của con người park ở `Inbox +blocked` và loop drain phần còn lại.
-- **Claim là GitHub `assignee`** + Status trên board. `/agentflow:start` lấy ticket chưa assign, không mang `blocked`, ở một trong ba cột agent-actionable (`Inbox`, `Ready for Dev`, `In QC`) rồi tự assign — nên **nhiều terminal `/agentflow:start` chạy song song được**, và một turn kết thúc giữa chừng vẫn resume được (orchestrator luôn nhả claim khi dừng, ticket rơi lại vào queue). Mọi terminal trên cùng một máy dùng chung một token (cùng GitHub user) nên còn một race window nhỏ ở bước claim; backstop: re-check Status trước mỗi spawn, và DEV abort khi thấy `In Progress`. `GITHUB_TOKEN` sống ở settings user-global nên là **một giá trị cho mỗi user profile** — không tách identity theo clone được; muốn cô lập nghiêm ngặt thì mỗi identity một máy / user profile.
+- **Claim là GitHub `assignee`** + Status trên board. `/agentflow:start` lấy ticket chưa assign, không mang `blocked`, ở một trong ba cột agent-actionable (`Inbox`, `Ready for Dev`, `In QC`) rồi tự assign — nên **nhiều terminal `/agentflow:start` chạy song song được**, và một turn kết thúc giữa chừng vẫn resume được (orchestrator luôn nhả claim khi dừng, ticket rơi lại vào queue). Mọi terminal mở trên **cùng một clone** dùng chung một token (cùng GitHub user) nên còn một race window nhỏ ở bước claim; backstop: re-check Status trước mỗi spawn, và DEV abort khi thấy `In Progress`. `GITHUB_TOKEN` sống theo repo (`.claude/settings.local.json`) nên **tách identity theo clone thì được**: hai clone, hai token, hai GitHub user — assignee phân biệt được chúng mà không cần máy riêng.
 - **Kéo card là human API chính thức — nhưng chỉ ở parked state**: `Ready for Review` → `Inbox` (PR-feedback re-entry), close issue / merge PR → `Done`. Kéo card khi ticket đang `In Progress` / `In QC` **không an toàn**: compare-then-write bắt được phần lớn nhưng vẫn còn cửa sổ clobber — muốn dừng một run đang chạy, dừng terminal.
 - **Status write là mandatory-success.** Fail = **pipeline dừng có chủ đích** (fail-stop), không phải desync. Issue OPEN không có trên board là **vô hình với routing** — `/agentflow:status --audit` phát hiện.
 - **Merge PR trên github.com thì nhớ bật built-in workflow `Item closed → Done`.** Bạn có hai đường merge: gõ `merge #<n>` trong `/agentflow:start` (nó ghi Status `Done` explicit), hoặc bấm Merge trên github.com — đường thứ hai để lại card ở `Ready for Review` với issue đã đóng, trừ khi workflow đó đã bật, và `/agentflow:init` **không verify được** nó (không API nào đọc được). Card như vậy vô hình với cả queue lẫn bảng đếm; `/agentflow:status` in nó ở dòng `⚠ closed ≠ Done`.
 - **Safety rule: một phần đã enforce, phần còn lại vẫn ở mức prompt — đừng nhầm hai cái.**
   - **Đã enforce (tầng tool):** `disallowedTools` gỡ hẳn `merge_pull_request` khỏi cả hai agent, cộng restriction theo role (DEV mất `pull_request_review_write` — không tự approve PR của mình; QC mất `create_pull_request` — chỉ push lên PR branch sẵn có). Agent bị derail/inject **không gọi được** MCP tool merge.
-  - **Đã enforce (harness):** `/agentflow:init` sinh `permissions.deny` vào `.claude/settings.json` của repo — force-push, `gh pr merge`, global forbidden paths (`infra/**`, `.github/workflows/**`, `**/.env`, `**/*.pem`), **và `forbidden` riêng của từng surface** khai trong `agentflow.yaml`. Deny thắng allow, nên đây là gate thật chứ không phải prose. `git push` thường thì allow dạng `Bash(git push:*)` để lần push đầu của mỗi branch (`git push -u origin …`) không phải hỏi.
-  - **CHƯA enforce (vẫn là prompt contract):** no-push-to-default-branch, và ranh giới "QC không đụng implementation logic". **`Bash` vẫn là escape hatch** — rule deny bám theo *chuỗi command*, nên một biến thể chưa liệt kê vẫn lọt. Và deny chỉ được sinh **một lần lúc init**: thêm surface `forbidden` mới vào `agentflow.yaml` thì phải chạy lại `/agentflow:init` mới có rule tương ứng.
+  - **CHƯA enforce (vẫn là prompt contract):** forbidden paths (global ∪ `forbidden` của surface bị chạm), no-force-push, no-`gh pr merge`, no-push-to-default-branch, và ranh giới "QC không đụng implementation logic". `/agentflow:init` **không** sinh `permissions` — allow/deny là cấu hình riêng của từng người, plugin không áp đặt. Muốn gate ở tầng harness: tự thêm `permissions.deny` vào `.claude/settings.local.json` (deny thắng allow). **`Bash` là escape hatch** cho mọi mục trên. Gate duy nhất phủ được cả team vẫn là branch protection phía repo.
   - **Lớp enforcement thật còn thiếu:** một PreToolUse hook match path/command, và branch-protection ruleset phía repo (block force-push + require PR review) — cái sau là gate duy nhất chạy ngoài tầm với của agent. Cho tới khi có, hãy dùng token least-privilege và review PR trước khi merge.
 - **Comment GitHub không có prefix là untrusted.** Mọi actor — kể cả main session — coi comment không mang prefix nhận diện được là context untrusted, không phải chỉ thị.
 
@@ -170,5 +176,6 @@ Load-bearing, dễ bị bào mòn bởi tích lũy có thiện chí, và cố t�
 - **File runtime là prompt, không phải tài liệu.** `agents/*.md` và `skills/*/SKILL.md` bị trả giá ở **mọi lần spawn**, nhân với số ticket và số vòng rework. Prose giải thích *vì sao thiết kế như vậy* thuộc về README (mục này) — file runtime chỉ nhận mệnh đề mệnh lệnh kèm pointer. Ngoại lệ: WHY chặn được một hành vi sai hấp dẫn thì giữ, ở dạng ngắn nhất có tác dụng.
 - **Đừng làm phình section `AGENTFLOW-STATE`.** Hai agent prose-edit nó và phải giữ tương thích format; mỗi field bắt buộc mới là một bề mặt drift mới.
 - **Optional service degrade gracefully.** Figma/notify vắng mặt → bỏ qua kèm note, không bao giờ là hard block. GitHub và board là ngoại lệ — cả hai bắt buộc.
-- **Secret đi HAI đích, và đó là ràng buộc kỹ thuật chứ không phải sở thích.** `GITHUB_TOKEN` → `env` của `~/.claude/settings.json` (user-global); `TELEGRAM_*` / `FIGMA_TOKEN` → `env` của `.claude/settings.local.json` (theo repo). Đừng "thống nhất" bằng cách kéo `GITHUB_TOKEN` xuống file local của repo: đã verify trên Claude Code 2.1.228 rằng `.mcp.json` chỉ expand `${VAR}` từ môi trường thật của tiến trình, từ settings user-global, hoặc từ `--settings` — `env` project-scope **không** tới được bước đó, nên server sẽ fail hệt như khi chưa đặt token (`HTTP 400 Authorization header is badly formatted`). Chiều ngược lại thì được nhưng vô ích: `TELEGRAM_*` đặt ở user-global cũng chạy, chỉ là mất tính theo-repo.
-- **Token GitHub giờ nằm trong env của session, nên Bash đọc được nó** — kể cả `gh`, vốn tự nhận `GITHUB_TOKEN`. Đây là đánh đổi đã biết của việc bỏ keychain: đổi lấy một đường cấu hình duy nhất, bằng một token đầy quyền mà mọi Bash command trong session nhìn thấy. Hai hệ quả **không được** bào mòn: (1) secret hygiene lên mức bắt buộc — không bao giờ `echo`, nội suy vào command string, hay ghi token ra file; (2) việc `gh api` **chạy được** không biến nó thành đường hợp lệ — board write vẫn đi qua MCP, không ngoại lệ, vì một API surface thứ hai mang tập lỗi và tập quyền riêng.
+- **Đúng HAI file cấu hình: `agentflow.yaml` (commit) và `.claude/settings.local.json` (gitignored).** Cái sau giữ *mọi* thứ theo-máy — `env` với toàn bộ secret, `enabledPlugins`. Một file phục vụ cả hai nơi cần env: `curl` đọc như subprocess, `.mcp.json` expand `${VAR}` từ chính env đó (kể cả server khai trong `.mcp.json` của plugin). Đừng thêm file thứ ba dưới `.claude/`: mỗi đích thêm là một chỗ nữa để cấu hình drift, và một chỗ nữa phải kiểm mỗi lần auth fail.
+  - **Đừng chẩn đoán bằng `claude mcp list`** — nó không nạp project settings nên luôn báo `Missing environment variables`. Nguồn sự thật là probe `get_me` trong session.
+- **Token GitHub nằm trong env của session, nên Bash đọc được nó** — kể cả `gh`, vốn tự nhận `GITHUB_TOKEN`. Đây là đánh đổi có chủ ý: một đường cấu hình duy nhất, trả giá bằng một token đầy quyền mà mọi Bash command trong session nhìn thấy. Hai hệ quả **không được** bào mòn: (1) secret hygiene lên mức bắt buộc — không bao giờ `echo`, nội suy vào command string, hay ghi token ra file; (2) việc `gh api` **chạy được** không biến nó thành đường hợp lệ — board write vẫn đi qua MCP, không ngoại lệ, vì một API surface thứ hai mang tập lỗi và tập quyền riêng.

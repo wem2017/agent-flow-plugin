@@ -83,7 +83,7 @@ Map bài học tới **một** đích chính dưới `$SRC`:
 | **Auto-invoke sai lúc/sai chỗ** | `description:` frontmatter của file tương ứng (đó là cái điều khiển auto-invoke) |
 | Shape config sinh mới | `agentflow.yaml` ở plugin root — đổi key = protocol-change class §2. **Comment trong file đó chỉ giải thích từng key**; hướng dẫn sử dụng thuộc về `README.md`, không bao giờ thêm lại vào yaml (nó bị copy vào repo user và đóng băng ở đó) |
 | Setup board: tên/màu/description của 6 option Status, built-in workflow, board description | `commands/init.md` → Step 6 (bảng copy-paste) + `skills/agentflow-protocol/references/projects-v2-board.md` → §"Tạo board" |
-| Shape `.claude/settings.json` sinh cho repo (permission rule, marketplace, merge semantics) | `commands/init.md` → Step 8.2 (khối JSON verbatim + 2b–2e) |
+| Shape `.claude/settings.local.json` sinh cho repo (permission rule, marketplace, merge semantics) | `commands/init.md` → Step 8.2 (khối JSON verbatim + 2b–2f) |
 | MCP server, hoặc biến môi trường user phải cấu hình | `.mcp.json` (+ Step 1a/3 của `commands/init.md` — nơi nói biến đó phải đặt ở file settings nào) |
 | Capability restriction của một role (agent được/không được gọi tool nào) | `disallowedTools` trong frontmatter `agents/<role>.md` |
 | Break-out notification ra ngoài (`notify`) | `commands/start.md` → §Notifications |

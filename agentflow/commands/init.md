@@ -1,5 +1,5 @@
 ---
-description: Bootstrap AgentFlow trong repo hiện tại — verify GitHub auth (token đọc từ env GITHUB_TOKEN của settings user-global, không phải file trong repo), phát hiện surfaces, tạo label classification, tạo/link một Projects v2 board với Status field 6 option, rồi ghi agentflow.yaml ở root + .claude/settings.json và chạy board-write smoke test.
+description: Bootstrap AgentFlow trong repo hiện tại — verify GitHub auth (token đọc từ env GITHUB_TOKEN trong .claude/settings.local.json của repo, gitignored), phát hiện surfaces, tạo label classification, tạo/link một Projects v2 board với Status field 6 option, rồi ghi agentflow.yaml ở root + .claude/settings.local.json và chạy board-write smoke test.
 argument-hint: (không có args — chạy một setup wizard tương tác)
 ---
 
@@ -24,54 +24,81 @@ git rev-parse --show-toplevel          # REPO ROOT — mọi path bên dưới r
 
 Init có thể được gọi từ subdirectory. Mọi path (`agentflow.yaml`, `.claude/…`, `.gitignore`) là **relative tới repo root** — resolve một lần rồi dùng xuyên suốt.
 
-### 1a. Auth check
+### 1a. Secret file guard — CHẠY TRƯỚC KHI NÓI TỚI TOKEN
 
-`.mcp.json` của plugin đọc token qua `${GITHUB_TOKEN}`, và giá trị đó đến từ block `env` của
-**`~/.claude/settings.json`** (settings user-global) — không phải file nào trong repo. Chỉ **probe MCP**:
+Mọi secret của AgentFlow — `GITHUB_TOKEN` bắt buộc, `TELEGRAM_*` / `FIGMA_TOKEN` tùy chọn — sống
+trong block `env` của **`.claude/settings.local.json` của repo này**. File đó nằm trong working tree,
+nên **chưa chứng minh được nó bị git bỏ qua thì tuyệt đối chưa được hướng dẫn user ghi token vào**.
+Guard này chạy **trước** auth check, không phải sau:
+
+```bash
+if ! git check-ignore -q .claude/settings.local.json; then
+  [ -s .gitignore ] && [ -n "$(tail -c1 .gitignore)" ] && printf '\n' >> .gitignore   # .gitignore thiếu newline cuối → đừng nối vào dòng cuối
+  printf '%s\n' '.claude/settings.local.json' >> .gitignore
+fi
+git check-ignore -q .claude/settings.local.json && echo "gitignored ✓" || echo "WARNING: VẪN không được ignore"
+git ls-files --error-unmatch .claude/settings.local.json >/dev/null 2>&1 \
+  && echo "WARNING: file đang được git TRACK — chạy: git rm --cached .claude/settings.local.json" \
+  || echo "not tracked ✓"
+```
+
+Gate bằng `git check-ignore` chứ không `grep`, để repo đã ignore qua pattern rộng hơn (vd `.claude/`)
+không bị thêm dòng thừa. Cả hai WARNING cùng lúc = file đang được track (git không ignore file đã
+track) → `git rm --cached …` rồi chạy lại. Chỉ WARNING đầu = một rule negation (`!.claude/…`) cuối
+`.gitignore` đang ghi đè → in `tail -5 .gitignore`, sửa, chạy lại.
+
+**Chưa xanh cả hai dòng → STOP.** Không probe auth, không in hướng dẫn đặt token: bảo user sửa
+`.gitignore` rồi chạy lại `/agentflow:init`. Đây là bước duy nhất đứng giữa một classic PAT đầy quyền
+và một commit công khai.
+
+> Đây cũng là file init ghi `enabledPlugins` ở Step 8 — **một file duy nhất dưới
+> `.claude/` cho cả cấu hình lẫn secret**, và nó không bao giờ được commit.
+
+### 1b. Auth check
+
+`.mcp.json` của plugin đọc token qua `${GITHUB_TOKEN}`; giá trị đến từ block `env` của
+`.claude/settings.local.json`. Chỉ **probe MCP** — đừng test biến, biến có giá trị vẫn có thể sai scope:
 
 ```
 get_me      → trả về `login`
 ```
 
 - **Trả về `login`** → authenticated. Cache `login`, sang Step 2.
-- **Call fail** → token chưa đặt, sai, hết hạn, hoặc thiếu scope. `claude mcp list` phân biệt nhanh
-  hai ca (server **luôn tồn tại**, kể cả khi biến trống — nó chỉ fail lúc connect):
+- **Call fail** → token chưa đặt, sai, hết hạn, hoặc thiếu scope. Phân biệt bằng **mã lỗi của chính
+  call vừa fail** (server **luôn tồn tại**, kể cả khi biến trống — nó chỉ fail lúc connect):
 
-  | Dòng `plugin:agentflow:github` báo | Nghĩa là |
+  | Lỗi | Nghĩa là |
   |---|---|
   | `HTTP 400 … Authorization header is badly formatted` | `GITHUB_TOKEN` **chưa đặt** — header gửi đi nguyên văn `Bearer ${GITHUB_TOKEN}` |
   | `HTTP 401` / `unauthorized` | Biến có giá trị nhưng token sai, hết hạn, hoặc thiếu scope |
+
+> **ĐỪNG chẩn đoán bằng `claude mcp list`** — nó không nạp project settings, nên báo
+> `Missing environment variables: GITHUB_TOKEN` kể cả khi token đã đặt đúng. Chẩn đoán bằng
+> probe `get_me` trong session này.
 
 Fail → **STOP**. Đây là **thông điệp canonical**; `/agentflow:start` và `/agentflow:task` in bản rút gọn của chính nó, đừng ai soạn lại bản khác:
 
 ```
 GitHub MCP chưa authenticate được.
 
-Token của AgentFlow đọc từ biến môi trường GITHUB_TOKEN. Đặt nó trong block `env` của
-settings USER-GLOBAL — ~/.claude/settings.json:
+Token của AgentFlow đọc từ biến môi trường GITHUB_TOKEN, lấy từ block `env` của
+.claude/settings.local.json TRONG REPO NÀY (file đã được gitignore):
 
     {
       "env": { "GITHUB_TOKEN": "ghp_…" }
     }
 
-Cần CLASSIC PAT — https://github.com/settings/tokens/new
-    scopes: repo + project   (+ read:org nếu board thuộc org)
-
-Dùng CLASSIC PAT, không phải fine-grained: fine-grained PAT chưa được verify cho Projects v2
-user-owned board. Board-write smoke test ở Step 10 là nơi phát hiện token sai loại.
-
 Đặt xong → THOÁT Claude Code và mở lại (MCP server connect lúc boot) → chạy lại /agentflow:init.
 ```
 
-> **Phải là settings user-global, KHÔNG phải `.claude/settings.local.json` của repo.** Đã verify trên
-> Claude Code 2.1.228: `.mcp.json` chỉ expand `${VAR}` từ **môi trường thật của tiến trình**, từ
-> `~/.claude/settings.json`, hoặc từ `--settings` — block `env` của `.claude/settings.json` và
-> `.claude/settings.local.json` (cả hai đều project-scope) **không** tới được bước expand đó. Đặt
-> `GITHUB_TOKEN` vào file local của repo thì server vẫn fail y như chưa đặt. (Ngược lại, `TELEGRAM_*`
-> ở Step 3 **hoạt động** từ file local, vì `curl` đọc chúng như một subprocess — xem `agentflow-protocol` §1.)
+User đồng ý đưa giá trị ngay trong session này → ghi bằng **Read + Write**, không Bash (tránh secret
+vào shell history), giữ nguyên mọi key sẵn có của file. Rồi vẫn STOP: giá trị mới **không** có hiệu
+lực với session đang chạy.
 
-Sau khi STOP thì **không chạy tiếp bước nào**. `export GITHUB_TOKEN=…` trong shell trước khi mở
-Claude Code cũng có tác dụng, nhưng đừng khuyến nghị nó làm đường chính: nó mất khi đổi terminal.
+Sau khi STOP thì **không chạy tiếp bước nào**.
+
+> Một `export GITHUB_TOKEN=…` trong shell **đè** giá trị của file. Probe fail mà file trông đúng →
+> nghi biến shell trước.
 
 ## 2. Xác định project
 
@@ -88,37 +115,17 @@ Thứ **duy nhất** cần chốt ở đây và ghi vào config: **`board.owner_
 
 ## 3. Optional secrets (chỉ có/không — KHÔNG BAO GIỜ giá trị)
 
-GitHub auth đã xong ở Step 1 và **không** đụng tới file nào của repo. Ở đây chỉ còn optional — chúng sống trong block `env` của `.claude/settings.local.json` (gitignored), và **không cái nào được phép stop init**:
+`GITHUB_TOKEN` đã xong ở Step 1 và ở **cùng một file** với các key dưới đây — `env` của `.claude/settings.local.json`, đã được guard ở §1a. Ở đây chỉ còn optional, và **không cái nào được phép stop init**:
 
 ```bash
 [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && echo "TELEGRAM_BOT_TOKEN: set" || echo "TELEGRAM_BOT_TOKEN: absent"
 [ -n "${TELEGRAM_CHAT_ID:-}" ]   && echo "TELEGRAM_CHAT_ID: set"   || echo "TELEGRAM_CHAT_ID: absent"
 ```
 
-> **Vì sao TELEGRAM_\* nằm ở file local của REPO còn `GITHUB_TOKEN` thì không:** `curl` chạy như một **subprocess** của session, và block `env` của `.claude/settings.local.json` **có** tới được subprocess. Còn header của MCP server thì được expand ở một bước sớm hơn, chỉ đọc môi trường thật / settings user-global (Step 1a). Hai đích khác nhau vì hai cơ chế khác nhau, không phải vì sở thích.
-
 Thiếu → `notify` tự tắt lúc runtime, pipeline chạy bình thường. User muốn điền ngay:
 
-1. **Gitignore guard trước** (chạy trước mọi lần Write vào `.claude/settings.local.json`):
-
-   ```bash
-   if ! git check-ignore -q .claude/settings.local.json; then
-     [ -s .gitignore ] && [ -n "$(tail -c1 .gitignore)" ] && printf '\n' >> .gitignore   # .gitignore thiếu newline cuối → đừng nối vào dòng cuối
-     printf '%s\n' '.claude/settings.local.json' >> .gitignore
-   fi
-   git check-ignore -q .claude/settings.local.json && echo "gitignored ✓" || echo "WARNING: VẪN không được ignore"
-   git ls-files --error-unmatch .claude/settings.local.json >/dev/null 2>&1 \
-     && echo "WARNING: file đang được git TRACK — chạy: git rm --cached .claude/settings.local.json" \
-     || echo "not tracked ✓"
-   ```
-
-   Gate bằng `git check-ignore` chứ không `grep`, để repo đã ignore qua pattern rộng hơn (vd `.claude/`) không bị thêm dòng thừa. Cả hai WARNING cùng lúc = file đang được track (git không ignore file đã track) → `git rm --cached …` rồi chạy lại. Chỉ WARNING đầu = một rule negation (`!.claude/…`) cuối `.gitignore` đang ghi đè → in `tail -5 .gitignore`, sửa, chạy lại.
-
-2. Chưa xanh thì **chưa được Write**. Xanh rồi: thêm key vào `env` của `.claude/settings.local.json` bằng **Read + Write** (không Bash — tránh ghi secret vào shell history), giữ nguyên mọi key sẵn có.
-
-3. Nói rõ nó **chỉ có hiệu lực sau khi restart**; init cứ chạy tiếp lượt này với `notify` bật trong config nhưng tắt lúc runtime.
-
-> **`.claude/settings.json` KHÔNG được ignore** — nó là file team-shared, có commit (Step 8). Chỉ `.claude/settings.local.json` bị ignore.
+1. Guard ở §1a đã xanh (nếu chưa, init đã STOP ở đó). Thêm key vào `env` của `.claude/settings.local.json` bằng **Read + Write** (không Bash — tránh ghi secret vào shell history), giữ nguyên mọi key sẵn có, **kể cả `GITHUB_TOKEN`**.
+2. Nói rõ nó **chỉ có hiệu lực sau khi restart**; init cứ chạy tiếp lượt này với `notify` bật trong config nhưng tắt lúc runtime.
 
 Figma official MCP server dùng **OAuth**, không có token nào để kiểm ở đây.
 
@@ -205,8 +212,12 @@ for s in <surface keys>: label_write name="component/$s" color=5319E7 descriptio
 
 # aux signals — amber
 label_write name="rework"  color=FBCA04  description="AgentFlow: QC reject — DEV đọc QC rejection mới nhất trước"
-label_write name="blocked" color=D93F0B  description="AgentFlow: ticket ở Inbox đang chờ quyết định của con người — /agentflow:start bỏ qua, gỡ bằng /agentflow:task #<n>"
+label_write name="blocked" color=D93F0B  description="AgentFlow: Inbox chờ quyết định của người; /agentflow:start bỏ qua — gỡ: /agentflow:task #<n>"
 ```
+
+**Description cap 100 ký tự** — GitHub reject cứng, không truncate. Chuỗi `blocked` ở trên là 93, sát trần: đừng nới.
+
+**Label lạ = dấu vết một init cũ.** `list_label` xong, liệt kê label có description mở đầu `AgentFlow:` mà **không** thuộc bộ trên → báo ở Step 11 (repo từng init ở protocol version khác). **Không tự xoá**: issue cũ có thể còn gắn.
 
 ## 8. Ghi file
 
@@ -225,49 +236,11 @@ Hai file, hai mối quan tâm (skill `agentflow-protocol` §1):
 
    Giữ nguyên các comment đã curate. **Đừng bịa key template không có** — đặc biệt không thêm `project:`, `connections:`, `labels:`, hay `board.columns`: repo/owner/default-branch suy từ git, còn label và 6 tên column là hằng số plugin. Khai chúng trong yaml là tạo một bản sao sẽ stale.
 
-2. **`.claude/settings.json`** — **sinh ra, không copy.** Nội dung là hằng số cộng với ba thứ phải suy lúc chạy, nên không có file template nào nói đúng được cho mọi repo.
+2. **`.claude/settings.local.json`** — **sinh ra, không copy.** init chỉ ghi **hai** key, cả hai đều phải suy lúc chạy — không template nào nói đúng được cho mọi máy. Đây cũng chính là file giữ `env` (§1a) — nên **mọi thao tác ghi phải là merge**, xem 2c.
 
-   **2a. Hằng số — copy VERBATIM khối dưới đây**, đừng viết lại từ trí nhớ, đừng thêm bớt rule:
+   **init KHÔNG sinh `permissions`.** Allow/deny là cấu hình của riêng từng người, plugin không áp đặt. Hệ quả phải nói thẳng ở Step 11: forbidden paths / no-force-push / no-merge chỉ còn là prompt contract (README §Safety).
 
-   ```json
-   {
-     "permissions": {
-       "allow": [
-         "Bash(git status:*)",
-         "Bash(git diff:*)",
-         "Bash(git log:*)",
-         "Bash(git show:*)",
-         "Bash(git branch:*)",
-         "Bash(git remote get-url:*)",
-         "Bash(git rev-parse:*)",
-         "Bash(git fetch:*)",
-         "Bash(git switch:*)",
-         "Bash(git checkout:*)",
-         "Bash(git rebase:*)",
-         "Bash(git add:*)",
-         "Bash(git commit:*)",
-         "Bash(git push:*)"
-       ],
-       "deny": [
-         "Bash(git push --force:*)",
-         "Bash(git push -f:*)",
-         "Bash(gh pr merge:*)",
-         "Read(./**/.env)",
-         "Read(./**/*.pem)",
-         "Edit(./infra/**)",
-         "Edit(./.github/workflows/**)",
-         "Edit(./**/.env)",
-         "Edit(./**/*.pem)",
-         "Write(./infra/**)",
-         "Write(./.github/workflows/**)"
-       ]
-     }
-   }
-   ```
-
-   `allow` dùng `Bash(git push:*)` chứ **không** phải dạng bare `Bash(git push)` — lần push đầu của mỗi branch là `git push -u origin <branch>`, dạng bare không match và DEV sẽ dính prompt ở mọi ticket. Force-push bị chặn bằng `deny` (deny thắng allow), không phải bằng cách thu hẹp `allow`.
-
-   **2b. `enabledPlugins` — suy ra plugin id thật, đừng hardcode.** Fork hoặc marketplace đổi tên là id đổi theo:
+   **2a. `enabledPlugins` — suy ra plugin id thật, đừng hardcode.** Fork hoặc marketplace đổi tên là id đổi theo:
 
    ```bash
    jq -r '.plugins | keys[] | select(startswith("agentflow@"))' ~/.claude/plugins/installed_plugins.json
@@ -275,22 +248,24 @@ Hai file, hai mối quan tâm (skill `agentflow-protocol` §1):
 
    → `{ "enabledPlugins": { "<id vừa đọc>": true } }`. Không đọc được (plugin chạy từ `--agents` dir, file vắng) → dùng `agentflow@agent-flow-plugins` và nói rõ là đang đoán.
 
-   **2c. `extraKnownMarketplaces` — suy từ marketplace ĐANG đăng ký.** Đây là thứ làm teammate clone repo về là có sẵn nguồn plugin; thiếu nó thì `enabledPlugins` trỏ vào một marketplace máy họ chưa có và Claude Code bỏ qua entry đó (log `Skipping orphaned enabledPlugins entry`).
+   **2b. `extraKnownMarketplaces` — suy từ marketplace ĐANG đăng ký.** Thiếu nó thì `enabledPlugins` trỏ vào một marketplace chưa đăng ký và Claude Code bỏ qua entry đó (log `Skipping orphaned enabledPlugins entry`).
 
    ```bash
-   MKT="${ID#*@}"   # phần sau @ của plugin id ở 2b
+   MKT="${ID#*@}"   # phần sau @ của plugin id ở 2a
    jq --arg m "$MKT" '.[$m].source' ~/.claude/plugins/known_marketplaces.json
    ```
 
    - `source == "github"` → ghi nguyên vào `extraKnownMarketplaces.<MKT>.source`. Đây là ca đúng.
-   - `source == "directory"` (marketplace là thư mục local trên máy bạn) → **đường dẫn đó không tồn tại trên máy teammate.** Hỏi user repo GitHub của marketplace; có thì ghi dạng `{"source":"github","repo":"<owner>/<repo>"}`, không thì **bỏ hẳn key** và note ở Step 11 rằng repo này chưa share được cho người khác.
+   - `source == "directory"` (marketplace là thư mục local) → ghi nguyên value đó. Đường dẫn chỉ đúng trên máy này, nhưng file này cũng chỉ sống trên máy này nên không có mâu thuẫn.
    - Không đọc được → bỏ key, note ở Step 11. **Đừng bịa một `repo`.**
 
-   **2d. Forbidden paths của từng surface → deny rule.** Với mỗi glob trong `surfaces.<key>.forbidden` (Step 5), thêm `"Edit(./<glob>)"` và `"Write(./<glob>)"` vào `deny`. Global forbidden paths đã nằm trong khối 2a rồi — đừng lặp lại. Không có surface nào khai `forbidden` → không thêm gì.
+   **2c. Merge, không ghi đè — và `env` là phần dễ mất nhất.** File đã tồn tại → đọc nó, **giữ nguyên mọi key và mọi entry sẵn có**, chỉ **thêm** `extraKnownMarketplaces` nếu chưa có.
 
-   **2e. Merge, không ghi đè.** File đã tồn tại → đọc nó, **giữ nguyên mọi key và mọi entry sẵn có**, chỉ **thêm** entry còn thiếu vào `permissions.allow` / `permissions.deny` (so sánh theo chuỗi chính xác, không dedupe mờ), và thêm `enabledPlugins` / `extraKnownMarketplaces` nếu chưa có. **Không bao giờ xoá** một rule user tự thêm, kể cả khi nó mâu thuẫn với rule của AgentFlow — nêu mâu thuẫn ở Step 11 để user tự quyết.
+   **Ngoại lệ đúng một key: `enabledPlugins.<id>` phải ghi đè thành `true`.** Plugin khai `defaultEnabled: false`, nên `claude plugin install --scope local` đã ghi sẵn `"<id>": false` vào **chính file này**. Áp quy tắc "chỉ thêm nếu chưa có" lên key đó sẽ để plugin kẹt ở trạng thái tắt, và mọi `/agentflow:*` im lặng không load — triệu chứng rất khó đoán vì file cấu hình *nhìn thì có vẻ đủ*. init chạy được nghĩa là user đã đồng ý dùng plugin cho repo này: set `true`.
 
-   File này **được commit** — không bao giờ đặt secret vào đây.
+   Block `env` ở đây mang `GITHUB_TOKEN` (§1a): **đọc rồi ghi lại nguyên vẹn**, đừng bao giờ dựng một file mới rồi ghi đè. Mất nó là mất auth và user phải dán lại token. Ghi bằng **Read + Write**, không Bash. **Không bao giờ xoá hay sửa** key user tự thêm — kể cả `permissions` họ tự viết.
+
+   **2d. File này gitignored, nên nó là cấu hình CỦA MÁY NÀY.** Teammate clone repo về **không** thừa hưởng `enabledPlugins` — mỗi người tự chạy `/agentflow:init` một lần. Nêu điều này ở Step 11 nếu repo có nhiều người.
 
 **Không sinh file doc thứ ba, và không nhét doc vào `agentflow.yaml`.** Mọi bản sao của phần "dùng như thế nào" nằm trong repo user đều là **bản đóng băng**: plugin bump version thì nó stale, và không ai sửa nó. Entry point cho người mới clone repo là (1) README của plugin — update theo version, và (2) **description của chính board** (Step 6), nơi người PO thật sự nhìn hằng ngày. `agentflow.yaml` giữ đúng vai trò config: value + comment giải thích *từng key*, không hướng dẫn sử dụng.
 
@@ -304,7 +279,7 @@ Hai file, hai mối quan tâm (skill `agentflow-protocol` §1):
 
 ```bash
 python3 -c "import yaml; yaml.safe_load(open('agentflow.yaml'))" && echo "yaml: ok"
-python3 -c "import json; json.load(open('.claude/settings.json'))" && echo "settings.json: ok"
+python3 -c "import json; json.load(open('.claude/settings.local.json'))" && echo "settings.local.json: ok"
 ```
 
 - **Labels:** `list_label` → đủ 3 `type/*`, một `component/*` cho mỗi surface (nếu có), `rework`, `blocked`.
@@ -358,11 +333,15 @@ Board       : #<N> (<org|user>) — Status field 6 option, built-in workflows đ
 Surfaces    : <key>=<path>, …   |   single-surface (không khai báo — gate toàn repo)
 Labels      : <5 + N> created/updated (type/* ·3, component/* ·N, rework, blocked)
 Toggles     : figma <on (OAuth) | off>   notify <on (smoke ✓) | on (chưa có secret — tự tắt) | off>
-Auth        : GITHUB_TOKEN (env, ~/.claude/settings.json) ✓ — login <login>
-              TELEGRAM_* trong .claude/settings.local.json: <có | không>
-              <chỉ khi guard ở Step 3 còn WARNING: ⚠ .claude/settings.local.json chưa được gitignore / đang bị track>
+Auth        : GITHUB_TOKEN (env, .claude/settings.local.json — gitignored ✓) — login <login>
+              TELEGRAM_* cùng file: <có | không>
 Skills      : <stub đã scaffold, hoặc none>
-Files       : agentflow.yaml, .claude/settings.json, [.claude/skills/<role>-* …]
+Files       : agentflow.yaml (commit), .claude/settings.local.json (gitignored),
+              [.claude/skills/<role>-* …]
+              <repo nhiều người: mỗi teammate tự chạy /agentflow:init — enabledPlugins
+               nằm trong file gitignored, không đi theo repo>
+Permissions : init không sinh — forbidden paths / no-force-push / no-merge là prompt
+              contract. Muốn gate tầng harness thì tự thêm permissions.deny.
 
 Next: /agentflow:task <mô tả> để tạo việc đầu tiên, rồi /agentflow:start để vào team mode.
 ```

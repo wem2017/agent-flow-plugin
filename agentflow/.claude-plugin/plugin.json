@@ -9,6 +9,7 @@
   "homepage": "https://github.com/wem2017/agent-flow-plugin",
   "repository": "https://github.com/wem2017/agent-flow-plugin",
   "license": "MIT",
+  "defaultEnabled": true,
   "keywords": [
     "workflow",
     "agents",
