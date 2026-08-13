@@ -1,0 +1,46 @@
+# AgentFlow — config của MỘT project. `/agentflow:init` copy file này vào ROOT repo rồi điền value.
+# COMMIT ĐƯỢC: chỉ chứa thứ KHÔNG suy ra được, không bao giờ chứa secret.
+# Cách dùng / protocol / thêm key mới → README của plugin agentflow (`/agentflow:status` để xem pipeline).
+
+agentflow: "1.0"
+
+# ── BOARD (bắt buộc) ─────────────────────────────────────────────────────────
+# `Status` field của Projects v2 board LÀ state authoritative, và board là inbox
+# queue của /agentflow:start. Status field phải có đúng 6 option, đúng tên:
+#   Inbox · Ready for Dev · In Progress · In QC · Ready for Review · Done
+board:
+  number: null                 # ← BẮT BUỘC THAY: project number (phần /projects/<N> trong URL)
+  owner_type: "user"           # org | user — board thuộc org hay user (owner suy từ git remote)
+
+# ── SURFACES (tùy chọn — mặc định là KHÔNG khai báo) ─────────────────────────
+# Repo single-surface thì để nguyên như vậy: DEV/QC gate toàn repo, issue không
+# cần label component/*, và không có block config nào để trôi.
+#
+# Repo có nhiều phần build được riêng thì bỏ comment và khai báo từng cái. Mỗi
+# key sinh một label `component/<key>`; DEV/QC chỉ build/lint/test surface mà
+# issue chạm tới, theo convention của chính repo (không khai báo command ở đây).
+# `forbidden` là các glob không ai được động — hợp với global forbidden paths.
+#
+# surfaces:
+#   api:
+#     path: "api/"
+#     forbidden: []
+#   mobile:
+#     path: "app/"
+#     forbidden: ["android/key.properties", "ios/Runner/GoogleService-Info.plist"]
+
+# ── FIGMA (tùy chọn) ─────────────────────────────────────────────────────────
+# DEV pull frame spec/token khi làm UI. Server chính thức dùng OAuth — không có
+# token nào để đặt: /mcp → figma → Authenticate.  (skill: figma-design)
+figma:
+  enabled: false
+  files: []                    # [{ name: "Design System", key: "AbC123xyz" }]
+
+# ── NOTIFY (tùy chọn) ────────────────────────────────────────────────────────
+# Ping MỘT CHIỀU tới bạn khi pipeline dừng lại chờ người. Không phải message bus:
+# không agent nào đọc kênh này. Cần TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID trong
+# block `env` của .claude/settings.local.json (gitignored). Gửi fail không bao
+# giờ dừng pipeline.
+notify:
+  enabled: false
+  events: ["blocked", "ready_for_review"]

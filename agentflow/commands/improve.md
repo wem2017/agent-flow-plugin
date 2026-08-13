@@ -1,5 +1,5 @@
 ---
-description: Capture một bài học từ lần dùng AgentFlow thực tế (điều agent nên làm khác, board write fail, misroute, convention bị hiểu sai, tối ưu prompt) và fold nó vào đúng file tri thức trong plugin SOURCE — minimal edit có duyệt diff, bump version + CHANGELOG, chạy release loop để version sau hoạt động chính xác hơn. Không truyền bài học thì tự mine session hiện tại tìm friction point.
+description: Capture một bài học từ lần dùng AgentFlow thực tế (điều agent nên làm khác, board write fail, misroute, convention bị hiểu sai, tối ưu prompt) và fold nó vào đúng file tri thức trong plugin SOURCE — minimal edit có duyệt diff, bump version, chạy release loop để version sau hoạt động chính xác hơn. Không truyền bài học thì tự mine session hiện tại tìm friction point.
 argument-hint: "[bài học / điều agent nên làm khác lần sau — trống để tự mine session] [--no-release | --release]"
 ---
 
@@ -18,7 +18,7 @@ test -f "$SRC/.claude-plugin/plugin.json" || SRC=""
 
 - `SRC` rỗng (marketplace là `github` source — máy teammate, hoặc path chết) → DỪNG, không bao giờ
   sửa cache. Hướng dẫn: máy không giữ source thì gửi bài học qua issue/PR lên repo marketplace cho
-  maintainer chạy `/improve`; path chết thì `claude plugin marketplace remove/add` lại đúng chỗ.
+  maintainer chạy `/agentflow:improve`; path chết thì `claude plugin marketplace remove/add` lại đúng chỗ.
 - **Drift check**: so version source `SRC_V=$(jq -r '.version' "$SRC/.claude-plugin/plugin.json")`
   với bản đang cài `INST=$(jq -r '.plugins["agentflow@agent-flow-plugins"] // [] | map(select(.scope=="user")) | .[0].version // "none"' ~/.claude/plugins/installed_plugins.json)`.
   Lệch → warn một dòng: release lần này ship kèm toàn bộ backlog từ `<INST>` tới `<SRC_V>` — không
@@ -49,18 +49,22 @@ chọn/sửa/bỏ. Không thấy gì → hỏi thẳng: "Bài học lần này l
 ## 2. Phân tầng — plugin hay project? (+ STOP protocol-change)
 
 **Project-level** — convention/quyết định của riêng MỘT repo đang dùng agentflow, không generalize
-cho mọi project: đích là repo ĐÓ, không phải plugin — config value trong `.claude/agentflow.yaml`,
-hoặc một project skill role-prefixed `.claude/skills/<dev|qc|pmo>-*` (tạo mới thì đăng ký vào
-`skills:` registry — skill: `setup-agentflow`). Vẫn confirm-first show diff, nhưng KHÔNG bump plugin
-version, KHÔNG release loop. Xong dừng ở đây.
+cho mọi project: đích là repo ĐÓ, không phải plugin — value trong `agentflow.yaml` ở root repo đó,
+hoặc một project skill role-prefixed `.claude/skills/<dev|qc>-*` (agent auto-discover, không có
+registry nào phải đăng ký). Vẫn confirm-first show diff, nhưng KHÔNG bump plugin version, KHÔNG
+release loop. Xong dừng ở đây.
 
 **STOP — protocol-change class.** Bài học đụng (a) FORMAT/schema của `agentflow.yaml` (thêm/đổi/bỏ
 key mà agent đọc), (b) semantics Status column / state machine transition, hoặc (c) wire value (tên
 Status option, comment prefix, format AGENTFLOW-STATE) → KHÔNG phải patch thường: cần bump protocol
-constant trong `skills/setup-agentflow/SKILL.md` §"Version gate" + dòng `agentflow_version` trong
-`templates/agentflow.yaml.template` + migration trong `commands/agentflow-init.md`, và mọi repo hiện
-có sẽ lệch protocol cho tới khi re-init. DỪNG, liệt kê chính xác các chỗ phải đổi, chỉ tiếp tục khi
-user xác nhận làm nó như một thay đổi có chủ đích (bump **minor/major**, không phải patch).
+constant trong `skills/agentflow-protocol/SKILL.md` §1 ("Version gate") + dòng `agentflow:` trong
+`agentflow.yaml` ở plugin root + phần detect config cũ trong `commands/init.md`, và mọi
+repo hiện có sẽ lệch protocol cho tới khi re-init. DỪNG, liệt kê chính xác các chỗ phải đổi, chỉ tiếp
+tục khi user xác nhận làm nó như một thay đổi có chủ đích (bump **minor/major**, không phải patch).
+
+**Cân nhắc thêm trước khi thêm bất cứ thứ gì vào `agentflow.yaml`:** file đó cố tình chỉ giữ thứ
+KHÔNG suy ra được. Một key mới phải trả lời được "vì sao không suy từ git / không làm hằng số plugin
+/ không auto-discover?" — không trả lời được thì nó thuộc về một trong ba chỗ đó, không phải config.
 
 ## 3. Routing table (plugin-level)
 
@@ -68,23 +72,25 @@ Map bài học tới **một** đích chính dưới `$SRC`:
 
 | Bài học nói về… | File đích |
 |---|---|
-| Intake/refine/DoR gate, cách viết `## For DEV` / `## For QC` | `agents/pmo.md` |
+| Intake/refine/DoR gate, cách viết AC, `## For DEV` / `## For QC`, fold PR feedback | `commands/task.md` → §Spec pass |
 | Cách implement, branch/PR behavior, blocked/resume | `agents/dev.md` (flow git thuần → `skills/git-flow-working/SKILL.md`) |
 | Review đối chiếu AC, author test, QC tier, rework/escalate | `agents/qc.md` |
-| Wire protocol: comment prefix, DoR/DoD, AGENTFLOW-STATE, trust rules | `skills/project-board-protocol/SKILL.md` |
-| Board mechanics: shape call `projects_*`, Status write, paginate, scopes | `skills/project-board-protocol/reference/projects-v2-board.md` |
-| Đọc config, read-before-use gate, connections/env | `skills/setup-agentflow/SKILL.md` |
+| Config (3 file), hằng số plugin, wire protocol: comment prefix, DoR/DoD, AGENTFLOW-STATE, read/write order, rework loop, trust rules — **và shape của `update_project_item` / `get_project_item`** (runtime path của MỌI agent) | `skills/agentflow-protocol/SKILL.md` |
+| Phần **chỉ orchestrator/init chạm**: queue + paginate + `field_names`, `status_map`, Missing-Status, tạo/link board, lane của con người & claim, scopes | `skills/agentflow-protocol/references/projects-v2-board.md` |
+| **Ranh giới giữa hai file trên là AUDIENCE, không phải chủ đề.** DEV/QC load `SKILL.md` ở mọi spawn và **không** load reference — đẩy một thứ họ cần ra reference là bắt họ load cả hai (mất hết lợi ích của việc tách file). Ngược lại, kéo queue/board-setup vào `SKILL.md` là bắt mọi spawn trả tiền cho thứ chỉ orchestrator dùng. | (quy tắc routing, không phải file) |
 | Figma → code mapping | `skills/figma-design/SKILL.md` |
-| Behavior của một command entry (`/task`, `/start`, …) | `commands/<lệnh>.md` (kể cả chính `improve.md`) |
+| Behavior của một command entry (`/agentflow:task`, `/agentflow:start`, …) | `commands/<lệnh>.md` (kể cả chính `improve.md`) |
 | **Auto-invoke sai lúc/sai chỗ** | `description:` frontmatter của file tương ứng (đó là cái điều khiển auto-invoke) |
-| Shape config/README sinh mới | `templates/*` (đổi key yaml = protocol-change class §2) |
-| Hook / MCP server | `hooks/hooks.json` / `.mcp.json` |
+| Shape config sinh mới | `agentflow.yaml` ở plugin root — đổi key = protocol-change class §2. **Comment trong file đó chỉ giải thích từng key**; hướng dẫn sử dụng thuộc về `README.md`, không bao giờ thêm lại vào yaml (nó bị copy vào repo user và đóng băng ở đó) |
+| Setup board: tên/màu/description của 6 option Status, built-in workflow, board description | `commands/init.md` → Step 6 (bảng copy-paste) + `skills/agentflow-protocol/references/projects-v2-board.md` → §"Tạo board" |
+| Shape `.claude/settings.json` sinh cho repo (permission rule, marketplace, merge semantics) | `commands/init.md` → Step 8.2 (khối JSON verbatim + 2b–2e) |
+| MCP server, hoặc biến môi trường user phải cấu hình | `.mcp.json` (+ Step 1a/3 của `commands/init.md` — nơi nói biến đó phải đặt ở file settings nào) |
 | Capability restriction của một role (agent được/không được gọi tool nào) | `disallowedTools` trong frontmatter `agents/<role>.md` |
-| Break-out notification ra ngoài (connection `notify`) | `commands/start.md` → §Notifications |
+| Break-out notification ra ngoài (`notify`) | `commands/start.md` → §Notifications |
 
 Đụng nhiều file → chọn MỘT primary home (nơi agent sẽ đọc nó đúng lúc cần), file khác tối đa một
-dòng link. Thật sự cần 2 edit độc lập → show cả 2 diff, duyệt một lượt, một bump + một mục CHANGELOG
-chung. Không chắc → nêu 1–2 ứng viên cho user chọn, đừng đoán bừa.
+dòng link. Thật sự cần 2 edit độc lập → show cả 2 diff, duyệt một lượt, **một** bump chung. Không
+chắc → nêu 1–2 ứng viên cho user chọn, đừng đoán bừa.
 
 ## 4. Soạn minimal edit, đúng style
 
@@ -92,6 +98,14 @@ chung. Không chắc → nêu 1–2 ứng viên cho user chọn, đừng đoán 
   sửa một câu — KHÔNG viết lại section, KHÔNG đổi cấu trúc heading.
 - Giữ style file đích: tiếng Việt + thuật ngữ Anh, WHY trong ngoặc cho chỗ không hiển nhiên,
   cross-ref dạng (skill: `x` → §"section"). Đã có ý tương tự → chỉ làm rõ hơn, không lặp.
+- **Ngân sách context — mỗi dòng thêm vào một file runtime bị trả giá ở MỌI lần spawn.** `agents/*.md`
+  và `skills/*/SKILL.md` là prompt, không phải tài liệu. Trước khi thêm, hỏi: *dòng này có làm agent
+  hành động khác đi không?* Nếu nó chỉ giải thích **vì sao thiết kế như vậy** → đích là **`README.md`
+  §Non-goals** (người đọc, không bao giờ vào prompt), và file runtime chỉ nhận một mệnh đề mệnh lệnh
+  ("đừng thay bằng `gh` CLI") kèm pointer. Ngoại lệ duy nhất: WHY **chặn được một hành vi sai hấp
+  dẫn** thì giữ, ở dạng ngắn nhất có tác dụng.
+- **Một fact = một canonical home + tối đa một dòng trỏ về.** Trước khi thêm, `grep` xem nó đã ở đâu
+  chưa; đã có thì sửa bản gốc, đừng viết bản thứ hai.
 - Edit đổi behavior user-facing của một command → cập nhật luôn hàng tương ứng trong bảng Commands
   của `README.md` (cùng diff).
 
@@ -109,10 +123,7 @@ version mới) — một lần duyệt phủ cả edit lẫn bump. Chờ duyệt
    tmp=$(mktemp); jq --arg l "$LEVEL" '.version |= (split(".") | (if $l=="minor" then .[1]=((.[1]|tonumber+1)|tostring) | .[2]="0" else .[2]=((.[2]|tonumber+1)|tostring) end) | join("."))' "$PJ" > "$tmp" && mv "$tmp" "$PJ"
    NEW=$(jq -r '.version' "$PJ")
    ```
-3. **Ghi `$SRC/CHANGELOG.md`** — prepend một mục `## [<NEW>] - <date +%F>` ngay **trên** entry
-   `## [...]` mới nhất (giữ nguyên dòng mô tả dưới header `# Changelog`), với bullet tóm tắt bài
-   học + `files:` đã đổi (nhiều bài học = nhiều bullet một mục).
-4. **`claude plugin validate "$SRC"`** — chạy NGAY TẠI ĐÂY, kể cả khi `--no-release` (read-only,
+3. **`claude plugin validate "$SRC"`** — chạy NGAY TẠI ĐÂY, kể cả khi `--no-release` (read-only,
    rẻ; fail thì user biết đúng lượt nào gây ra thay vì tới lần release gộp mới vỡ giữa nhiều bài
    học tích luỹ). Fail → giữ nguyên edits, in lỗi, gợi `git diff` trong repo source để soi.
 
@@ -120,7 +131,7 @@ version mới) — một lần duyệt phủ cả edit lẫn bump. Chờ duyệt
 
 Cache khoá theo version — không chạy loop này thì bản sửa **không bao giờ** có hiệu lực
 (CONTRIBUTING.md). Có flag `--no-release` → dừng sau §5 (validate đã chạy ở đó); drift check lần
-sau sẽ nhắc release gộp — xả bằng `/improve --release`.
+sau sẽ nhắc release gộp — xả bằng `/agentflow:improve --release`.
 
 1. **Dirty-tree check** — directory source snapshot NGUYÊN working tree, nên mọi edit chưa commit
    trong `$SRC` (kể cả WIP không liên quan bài học) sẽ ship cùng: chạy
@@ -135,7 +146,8 @@ sau sẽ nhắc release gộp — xả bằng `/improve --release`.
    `marketplace update`; kẹt nữa → mẹo `uninstall` + `install` (CONTRIBUTING.md).
 
 In: version cũ → mới, file đã đổi, một dòng tóm tắt. Nhắc **restart Claude Code** để load (session
-này vẫn chạy snapshot cũ). Protocol-change → nhắc thêm mỗi repo đang dùng chạy `/agentflow-init` để
+này vẫn chạy snapshot cũ). Protocol-change → nhắc thêm mỗi repo đang dùng chạy `/agentflow:init` để
 migrate. Cuối cùng hỏi (không tự làm): commit repo plugin với message `improve: <tóm tắt> (v<NEW>)`?
 (WHY message có nghĩa thay vì "update": `installed_plugins.json` ghi `gitCommitSha` lúc install —
-commit đúng nhịp release thì sha ↔ version ↔ CHANGELOG trace được nhau.) Không bao giờ tự push.
+commit đúng nhịp release thì sha ↔ version trace được nhau, và git log là nơi duy nhất giữ lịch sử
+thay đổi.) Không bao giờ tự push.

@@ -1,11 +1,13 @@
 {
   "name": "agentflow",
-  "version": "0.7.0",
-  "description": "Dev workflow tech-stack-agnostic cho một GitHub repo: một team agent PMO/DEV/QC phối hợp qua GitHub issue + Status field của một GitHub Projects v2 board bắt buộc (state authoritative; label chỉ mang classification type/* + component/*), với nhiều terminal /start chạy song song claim việc qua issue assignee. Human merge gate được enforce ở tầng tool — không sub-agent nào gọi được merge_pull_request. Ship sẵn 4 core skill (setup-agentflow, project-board-protocol, git-flow-working, figma-design) và cho phép mỗi project thêm skill có prefix theo role (dev-*, qc-*, pmo-*). Connection được đặc tả đầy đủ (token/OAuth + MCP server) cho GitHub, GitHub Projects, Figma, cộng notification Telegram tùy chọn khi pipeline break-out; quản lý secret .env an toàn, và một config single-source-of-truth mô tả các project surface động (kết hợp tùy ý backend/frontend/mobile/…).",
+  "version": "1.0.0",
+  "description": "Dev workflow tech-stack-agnostic cho một GitHub repo: bạn là Product Owner, agent DEV + QC phối hợp qua Status field của một GitHub Projects v2 board. Con người giữ quyền merge.",
   "author": {
     "name": "Wem",
     "email": "huynh.developer@gmail.com"
   },
+  "homepage": "https://github.com/wem2017/agent-flow-plugin",
+  "repository": "https://github.com/wem2017/agent-flow-plugin",
   "license": "MIT",
   "keywords": [
     "workflow",

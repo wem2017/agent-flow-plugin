@@ -1,168 +1,102 @@
 ---
-description: Hiển thị tổng quan pipeline AgentFlow của repo này — số board item theo từng Status column. Kèm `--audit` để chạy membership check (open issue không có trên board), reconcile check (body Current state lệch Status) và visibility/orphan check (ticket /start không thấy — kể cả assigned mồ côi sau crash). Kèm `--metrics` để tính flow metrics (throughput, cycle time, rework rate, escalation rate, DoR bounce, aging/WIP) suy ra từ các transition comment + Status trên board.
+description: Tổng quan pipeline AgentFlow của repo này — số board item theo từng Status column, kể cả ticket đã close mà Status còn kẹt ngoài Done. `--audit` chạy membership hai chiều + reconcile + orphan check (ticket /agentflow:start không nhặt lại được). `--metrics` tính flow metrics (throughput, cycle time, first-pass yield, rework/escalation rate, WIP, aging) suy ra từ transition comment + Status trên board.
 argument-hint: "[--audit] [--metrics] [--since <N>d]"
 ---
 
-In ra một bản tóm tắt pipeline ngắn gọn cho repo này.
+In một bản tóm tắt pipeline gọn cho repo này.
 
-1. Đọc `.claude/agentflow.yaml` để lấy `project.name`, `project.summary`, `project.repo`, `connections.github_project` (`owner`, `owner_type`) và `board.number` / `board.columns`. In dòng đầu output: `<project.name> — <project.summary>` (yaml đã có trong tay — không cần call nào thêm).
-2. Đếm qua **một** lượt `projects_list` method=`list_project_items`, paginate toàn board (`per_page` ≤50, `after` để paginate, LUÔN truyền **`field_names: ["Status"]`** — caveat: reference §"List actionable board items"):
-
-   - Params: `owner`/`owner_type` (từ `connections.github_project`), `project_number` (= `board.number`).
-   - Group theo tên option Status, map về `board.columns.<key>`. Sáu state đầu chỉ đếm item có issue `state == open`; **Done đếm riêng**: mọi item Status "Done" bất kể issue open/closed (ticket Done thường đã close).
-   - Item có Status **trống** → đếm vào dòng `(Status trống)` riêng — phân loại nó bằng `--audit` (Missing-Status rule — reference §"Missing Status & membership").
-3. In ra:
+1. Đọc `agentflow.yaml` ở repo root (`board.number`, `board.owner_type`); owner/repo suy từ `git remote get-url origin`. Version gate `agentflow: "1.0"`.
+2. Đếm qua **một** lượt `projects_list` method=`list_project_items`, paginate toàn board (`per_page` ≤ 50, `after` cursor, **LUÔN truyền `field_names: ["Status"]`** — caveat: reference §"List board items"):
+   - Group theo tên option Status (6 hằng số plugin).
+   - Năm state đầu chỉ đếm item có issue `state == open`; **`Done` đếm riêng**: mọi item Status `Done` bất kể issue open/closed.
+   - Trong `Inbox`, tách riêng số ticket mang aux `blocked` — **`/agentflow:start` không tự đụng chúng**, nên con số này là hàng đợi đang chờ chính bạn.
+   - Item Status **trống** → đếm vào dòng riêng; phân loại bằng `--audit`.
+   - **Item có issue `state == closed` mà Status ∉ {`Done`}** → đếm vào **dòng riêng, luôn liệt kê issue number**. Không có dòng này thì chúng rơi khỏi mọi con số (năm state đầu lọc `open`) và biến mất — reference §"Missing Status & membership" ca 4. Thường là: bạn đã merge PR trên github.com nhưng built-in workflow *"Item closed → Done"* chưa bật.
+3. In:
 
    ```
-   <project.name> — <project.summary>
-   PROJECT: <repo>
+   PROJECT: <owner/repo>   board #<N>
 
-   Inbox                   <n>
-   Ready for Dev           <n>
-   In Progress             <n>
-   In QC                   <n>
-   Refined (needs human)   <n>
-   Ready for Human Review  <n>
-   Done                    <n>
-   (Status trống)          <n>      # chỉ in khi > 0
+   Inbox                <n>   (trong đó blocked: <b> — chờ bạn, chạy /agentflow:task #<n>)
+   Ready for Dev        <n>
+   In Progress          <n>
+   In QC                <n>
+   Ready for Review     <n>
+   Done                 <n>
+   (Status trống)       <n>                    # chỉ in khi > 0
+   ⚠ closed ≠ Done      <n>  #<a>, #<b>        # chỉ in khi > 0 — kéo card sang Done
    ```
 
-Chỉ đếm số lượng — không liệt kê từng card.
+Chỉ đếm số lượng — không liệt kê từng card (trừ dòng `blocked` và dòng `closed ≠ Done`: liệt kê issue number để bạn xử lý được ngay).
 
 ---
 
-## `--audit` — membership + reconcile + visibility check
+## `--audit` — membership + reconcile + orphan check
 
-**`Status` field trên board LÀ state authoritative** — không có bản copy thứ hai của state, nên
-không có gì để "đối chiếu drift". Nhưng còn ba lớp bất thường mà routing không tự thấy: (1) issue
-OPEN nhưng **không có trên board** → vô hình với routing (orchestrator chỉ đọc board để lấy queue);
-(2) `Current state` trong AGENTFLOW-STATE body **lệch Status** (một transition hoàn thành nửa chừng,
-hoặc con người vừa kéo card); (3) ticket unassigned đứng ở một state agent-owned ngoài Inbox mà
-`/start` không scan tới (khả năng human kéo tắt), hoặc ticket **assigned mồ côi sau crash** — kể cả
-ở Inbox / Refined / Ready for Human Review, vì `/start` chỉ pick ticket Inbox **unassigned**.
-`--audit` phát hiện và liệt kê tất cả — chỉ đọc, không sửa gì.
+`Status` trên board **LÀ** state authoritative, nên không có gì để "đối chiếu drift". Nhưng còn ba lớp bất thường mà routing không tự thấy. `--audit` **chỉ đọc**, không sửa gì.
 
-1. **Board:** một `projects_list` method=`list_project_items` như trên (paginate, `field_names:
-   ["Status"]`), giữ lại cho mỗi item: issue number, issue state, assignees (từ `content` của item),
-   tên option Status. Một card **draft** (không có issue number/content) nằm ngoài state machine —
-   liệt kê để human convert thành issue qua `/task`.
-2. **Membership check:** `list_issues` với `owner`/`repo` (parse từ `project.repo` dạng
-   `owner/repo`), `state: "open"` — KHÔNG filter label nào. Đối chiếu issue number với board items:
-   issue open nào không có trên board → liệt kê.
-3. **Reconcile check:** với mỗi board item có issue open, `issue_read` method=`get` lấy body, parse
-   `Current state` trong block `<!-- AGENTFLOW-STATE v2 -->` (1+K call — chấp nhận được cho một lệnh
-   chẩn đoán chạy tay). So với Status:
-   - **Lệch** → liệt kê. Không cần sửa tay: agent pickup tiếp theo tự reconcile — **Status thắng**,
-     viết lại `Current state` cho khớp Status (xem `project-board-protocol/SKILL.md` §"State section:
-     upsert & reconcile").
-   - Status **trống** → áp Missing-Status rule (reference §"Missing Status & membership"): case intake
-     → coi như "Inbox" (bình thường, không phải lỗi); case ANOMALY → liệt kê — KHÔNG default về Inbox,
-     human re-set đúng column trên board.
-4. **Visibility / orphan check** (từ data step 1, không cần call thêm): xét mỗi board item có issue
-   open theo cặp (assignee, Status). Các case "nghi orphan/crash" bên dưới chỉ áp khi không có
-   terminal `/start` nào đang chạy (audit không tự kiểm được — human tự đối chiếu các terminal của
-   mình):
-   - **Unassigned + Status ∈ {Ready for Dev, In Progress, In QC}** — các state agent-owned mà
-     `/start` không scan (orchestrator chỉ scan Inbox) → **vô hình với `/start`** (khả năng human
-     kéo tắt hoặc state lệch) — liệt kê; hướng dẫn: kéo card về Inbox để re-enter pipeline (PMO gate
-     DoR rồi tự chuyển).
-   - **Assigned + Status ∈ {Ready for Dev, In Progress, In QC}** → **ticket đang dở, KHÔNG tự resume
-     được** — liệt kê. Lưu ý: đây **không chỉ** là dấu hiệu crash. Case này sinh ra ở cả các đường
-     **bình thường**: `/start` chạm safety cap 8-call, user turn kết thúc giữa pipeline, hoặc DEV
-     `[DEV] Blocked` (giữ Status "In Progress" có chủ đích). Ở mọi case, `/start` sẽ **không bao giờ**
-     nhặt lại nó vì loop chỉ scan `Inbox + unassigned`. Hướng dẫn phục hồi (giống nhau cho cả bốn
-     nguyên nhân): **unassign + kéo card về Inbox** — PMO re-triage resume từ AGENTFLOW-STATE + open
-     PR sẵn có (re-entry lane chuẩn), DEV sẽ amend chứ không build lại. Trước khi phục hồi, xác nhận
-     không có terminal `/start` nào đang thật sự chạy ticket đó.
-   - **Assigned + Status "Inbox"** → **nghi crash ngay sau claim** — `/start` filter unassigned nên
-     bỏ qua ticket này vĩnh viễn — liệt kê; fix: **unassign là đủ** (card đã ở Inbox, không cần kéo),
-     ticket re-enter unassigned-inbox queue.
-   - **Assigned + Status ∈ {Refined, Ready for Human Review}** → **nghi crash trước bước unassign
-     lúc break-out** (orchestrator unassign ở hai state này khi break out) — liệt kê; fix:
-     **unassign trước**, rồi kéo card về Inbox nếu muốn resume.
-5. In:
+1. **Board pass:** một `projects_list` như trên; giữ cho mỗi item: issue number, issue state, assignees, tên option Status, aux label. Card **draft** (không có issue content) nằm ngoài state machine — liệt kê để người convert qua `/agentflow:task`.
+2. **Membership check** — hai chiều, cả hai đều là "ticket vô hình":
+   - `list_issues` (`state: "open"`, không filter label) → issue open nào **không có trên board** → liệt kê. Nó vô hình với routing.
+   - Từ data bước 1 (không cần call thêm): item nào có issue `state == closed` mà Status ∉ {`Done`} → liệt kê. Đây là lane thoát bị bỏ lỡ — bạn merge PR trên github.com và built-in workflow *"Item closed → Done"* chưa bật. Fix: **kéo card sang `Done`**, rồi bật workflow đó (Project settings → Workflows) để lần sau không lặp lại.
+3. **Reconcile check:** với mỗi board item có issue open, `issue_read` method=`get` lấy body, parse `Current state` trong block `<!-- AGENTFLOW-STATE -->` (1+K call — chấp nhận cho một lệnh chẩn đoán chạy tay). So với Status:
+   - Lệch → liệt kê. **Không cần sửa tay**: pickup kế tiếp tự reconcile — Status thắng.
+   - Status **trống** → Missing-Status rule (reference): case intake → coi như `Inbox` (bình thường); case ANOMALY → liệt kê, người re-set column.
+4. **Orphan check** (từ data bước 1, không cần call thêm). `/agentflow:start` claim mọi ticket **unassigned + không `blocked` + Status ∈ {`Inbox`, `Ready for Dev`, `In QC`}**, và nhả claim mỗi khi nó dừng — nên chỉ còn hai lớp bất thường, cả hai đều là **assignee bị bỏ quên**. Các case dưới chỉ đúng khi không có terminal `/agentflow:start` nào đang thật sự chạy ticket đó (audit không tự kiểm được; bạn tự đối chiếu terminal của mình):
+   - **Assigned + Status bất kỳ** → một terminal đã claim rồi chết trước khi nhả (crash, đóng terminal, mất mạng giữa chừng). Ticket vô hình với queue vì filter loại item có assignee. Fix: **unassign là đủ** — `/agentflow:start` sẽ tự nhặt lại đúng cột nó đang đứng (`Ready for Dev` / `In QC` chạy tiếp; `Inbox` chạy spec pass). Không cần kéo card.
+   - **Unassigned + Status `In Progress`** → cột duy nhất không nằm trong queue (in-flight guard). Một DEV run đã chết giữa chừng. Fix: **kéo card về `Ready for Dev`** — DEV sẽ tái dùng branch/PR sẵn có và chạy tiếp, không build lại.
+   - Ngoài hai case trên, một ticket unassigned ở `Inbox` / `Ready for Dev` / `In QC` là **bình thường** — nó đang nằm trong queue chờ `/agentflow:start`. Đừng báo động.
+5. In `✓ mọi open issue đều có trên board, không issue closed nào kẹt ngoài Done, body khớp Status, không có ticket mồ côi` nếu sạch; ngược lại mỗi bất thường một dòng, ví dụ:
 
    ```
-   PROJECT: <repo>
-
-   ✓ mọi open issue đều có trên board, body khớp Status
+   ⚠ #57  open issue không có trên board — vô hình với /agentflow:start: add card (hoặc /agentflow:task #57)
+   ⚠ #53  issue CLOSED nhưng Status "Ready for Review" — kéo card sang Done; bật workflow "Item closed → Done"
+   ⚠ #42  body Current state "In QC" ≠ Status "Inbox" (pickup kế tiếp tự reconcile — Status thắng)
+   ⚠ #48  assigned, Status "In QC" — claim mồ côi: nếu không terminal nào đang chạy → unassign, /agentflow:start tự nhặt lại
+   ⚠ #61  unassigned, Status "In Progress" — DEV run đã chết giữa chừng: kéo card về "Ready for Dev"
    ```
-
-   Có bất thường thì liệt kê từng dòng: `⚠ #57  open issue không có trên board — vô hình với /start: add card (hoặc /task với issue sẵn có) để đưa vào state machine`,
-   `⚠ #42  body Current state "In QC" ≠ Status "Inbox" (agent pickup sẽ tự reconcile — Status wins)`,
-   `⚠ #61  Status trống, body Current state "In QC" — ANOMALY: human re-set column`,
-   `⚠ #33  unassigned, Status "Ready for Dev" — vô hình với /start (khả năng human kéo tắt hoặc state lệch): kéo card về Inbox để re-enter pipeline`,
-   `⚠ #48  assigned, Status "In Progress" — ticket đang dở (cap/turn-end/blocked/crash), /start không tự nhặt lại: nếu không có terminal nào đang chạy → unassign + kéo card về Inbox`,
-   `⚠ #29  assigned, Status "Inbox" — nghi crash sau claim: /start chỉ pick Inbox unassigned — unassign là đủ (không cần kéo card)`,
-   `⚠ #52  assigned, Status "Refined" — nghi crash trước unassign lúc break-out: unassign trước, rồi kéo về Inbox nếu muốn resume`.
 
 ---
 
-## `--metrics` — flow metrics (throughput, cycle time, rework, escalation, aging)
+## `--metrics` — flow metrics
 
-**Nguồn dữ liệu, và vì sao là nó.** Projects v2 **không có history API** — Status change không tạo
-timeline event — nên không thể đọc ngược "ticket nằm ở column nào lúc nào" từ board. Nhưng protocol
-đã bắt **mọi transition phải kèm một comment có prefix** (skill: `project-board-protocol` — "transition
-không có comment là transition mất audit trail"), và GitHub gắn `created_at` chính xác tới giây cho
-từng comment. Vậy **các transition comment CHÍNH LÀ event log của pipeline**, và Status sống trên board
-cho biết hiện tại ticket đang ở đâu.
+**Nguồn dữ liệu, và vì sao là nó.** Projects v2 **không có history API** — Status change không tạo timeline event — nên không đọc ngược được "ticket ở column nào lúc nào". Nhưng protocol bắt **mọi transition phải kèm một comment có prefix**, và GitHub gắn `created_at` chính xác tới giây cho từng comment. Vậy **transition comment CHÍNH LÀ event log của pipeline**, còn Status sống trên board cho biết hiện tại ticket ở đâu.
 
-> Dùng comment, **không** dùng `Event log` trong `AGENTFLOW-STATE`: event log chỉ có độ phân giải theo
-> ngày, do agent tự soạn bằng prose nên format có thể trôi, và bị prune. Comment thì immutable,
-> timestamped, và prefix là discriminator đã chuẩn hoá.
+> Dùng comment, **không** dùng `Event log` trong AGENTFLOW-STATE: event log chỉ có độ phân giải theo ngày, do agent soạn bằng prose nên format có thể trôi, và bị prune.
 
-**Giới hạn phải nói thẳng khi in kết quả** (đừng hứa con số chính xác hơn thực tế):
-- Độ phân giải chỉ tới mức **có comment** — nếu một agent bỏ sót comment, đoạn đó vô hình.
-- Ticket tạo **trước** khi bật metrics vẫn tính được, vì comment là lịch sử có sẵn — nhưng ticket đã
-  bị xoá comment thì mất.
-- Đây là **reconstruction best-effort**, không phải per-status timing chính xác.
+**Giới hạn phải nói thẳng khi in kết quả:** độ phân giải chỉ tới mức **có comment** (agent bỏ sót comment → đoạn đó vô hình); ticket bị xoá comment thì mất; đây là **reconstruction best-effort**, không phải per-status timing chính xác.
 
-### Quy trình
+1. **Window** — mặc định `--since 30d`; parse `--since <N>d` nếu có.
+2. **Board pass** — một lượt `list_project_items` như trên.
+3. **Chọn tập ticket đọc comment** (bước tốn call nhất): chỉ ticket có Status ≠ `Done`, cộng item `Done` mà issue `closed_at` nằm trong window. In rõ `N ticket scanned`. Tập > ~60 → cảnh báo một dòng về số call rồi hỏi có tiếp không.
+4. **Comment pass** — `issue_read` method=`get_comments` cho từng ticket; lấy `created_at` + prefix (bỏ comment không prefix — untrusted, và không phải transition):
 
-1. **Window.** Mặc định `--since 30d`. Parse `--since <N>d` nếu user truyền.
-2. **Board pass** — một lượt `projects_list` method=`list_project_items` như phần đầu (paginate,
-   `field_names: ["Status"]`). Giữ cho mỗi item: issue number, state, Status hiện tại, assignees.
-3. **Chọn tập ticket cần đọc comment (giới hạn chi phí — đây là bước tốn call nhất).** CHỈ đọc
-   comment của ticket **liên quan tới window**: mọi item có Status ≠ `Done`, cộng các item `Done`
-   mà issue `closed_at` nằm trong window. Bỏ qua phần còn lại. In rõ `N ticket scanned` để user biết
-   phạm vi. Nếu tập này > ~60 ticket, cảnh báo một dòng về số call rồi hỏi có tiếp không.
-4. **Comment pass** — với mỗi ticket đã chọn: `issue_read` method=`get_comments`. Với mỗi comment lấy
-   `created_at` + prefix. Phân loại theo prefix (bỏ qua comment không prefix — untrusted, và không
-   phải transition):
-
-   | Prefix quan sát được | Ý nghĩa mốc thời gian |
+   | Prefix | Mốc |
    |---|---|
-   | `[PMO]` **đầu tiên** | ticket bắt đầu được refine — mốc `t_start` |
+   | `[SPEC]` **đầu tiên** | ticket bắt đầu được spec — `t_start` |
    | `[DEV] Picked up` / `[DEV] Opened PR` | DEV bắt đầu / handoff sang QC |
    | `[QC] ❌` | một lần rework (đếm) |
-   | `[QC] ❌ infra:` | **KHÔNG** tính là rework (lỗi môi trường — qc.md step 4) |
-   | `[QC] ✅` | pass — mốc `t_qc_pass` |
-   | `[SYSTEM] auto-escalated` | một lần escalation lên human (đếm) |
-   | `[SYSTEM] merged PR` | mốc `t_done` |
-   | `[DEV→PMO ?]` / `[QC→PMO ?]` | một lần clarification bounce (đếm) |
+   | `[QC] ❌ infra:` | **KHÔNG** tính là rework (lỗi môi trường) |
+   | `[QC] ✅` | pass — `t_qc_pass` |
+   | `[SYSTEM] auto-escalated` | một lần escalation (đếm) |
+   | `[SYSTEM] merged PR` | `t_done` |
+   | `[DEV] ?` / `[QC] ?` | một lần clarification bounce (đếm) |
 
 5. **Tính** (mỗi metric nêu rõ mẫu số):
-
    - **Throughput** — số ticket có `[SYSTEM] merged PR` (fallback: issue `closed_at`) trong window.
-   - **Cycle time** — `t_done − t_start` cho từng ticket Done trong window; in **median** và **p90**
-     (median chống outlier tốt hơn mean cho mẫu nhỏ). Ticket không đủ hai mốc thì loại và ghi rõ số bị loại.
+   - **Cycle time** — `t_done − t_start`; in **median** và **p90** (median chống outlier tốt hơn mean cho mẫu nhỏ). Ticket không đủ hai mốc thì loại và ghi rõ số bị loại.
    - **Time-to-first-PR** — `[DEV] Opened PR` đầu tiên `− t_start`, median.
-   - **Rework rate** — tổng `[QC] ❌` (không tính `infra:`) ÷ số ticket đã đi qua QC; kèm
-     **first-pass yield** = % ticket đạt `[QC] ✅` mà **không** có `[QC] ❌` nào trước đó. Đây là
-     chỉ số chất lượng quan trọng nhất — nó đo DEV có làm đúng ngay từ đầu không.
+   - **First-pass yield** — % ticket đạt `[QC] ✅` mà **không** có `[QC] ❌` nào trước đó. Đây là chỉ số chất lượng quan trọng nhất: nó đo DEV có làm đúng ngay từ đầu không.
+   - **Rework rate** — tổng `[QC] ❌` (loại `infra:`) ÷ số ticket đã qua QC.
    - **Escalation rate** — % ticket có ≥1 `[SYSTEM] auto-escalated`.
-   - **DoR bounce rate** — % ticket từng rơi vào `Refined` (suy từ `[PMO]` mang câu hỏi đánh số,
-     `[DEV→PMO ?]`, `[QC→PMO ?]`, hoặc `[SYSTEM] auto-escalated`). Cao = spec vào pipeline còn mỏng.
+   - **Blocked rate** — % ticket từng phải quay về người (suy từ `[DEV] ?`, `[QC] ?`, `[SYSTEM] auto-escalated`). Cao = spec vào pipeline còn mỏng.
    - **WIP hiện tại** — đếm live theo column cho `Ready for Dev` / `In Progress` / `In QC`.
-   - **Aging** — với ticket đang **park** (`Refined`, `Ready for Human Review`), tính `now − created_at`
-     của comment mới nhất. **Liệt kê từng cái quá 3 ngày** — đây là phần hành động được nhất của
-     cả lệnh: nó chỉ đúng ticket đang chặn dòng chảy.
+   - **Aging** — với ticket đang **park** (`Inbox +blocked`, `Ready for Review`), tính `now − created_at` của comment mới nhất. **Liệt kê từng cái quá 3 ngày** — đây là phần hành động được nhất của cả lệnh: nó chỉ đúng ticket đang chặn dòng chảy.
 
 6. **In:**
 
    ```
-   <project.name> — <project.summary>
-   PROJECT: <repo>   window: last <N>d   scanned: <K> tickets
+   PROJECT: <owner/repo>   window: last <N>d   scanned: <K> tickets
 
    FLOW
      Throughput (merged)        <n>
@@ -173,19 +107,17 @@ cho biết hiện tại ticket đang ở đâu.
      First-pass yield           <n>%   (<a>/<b> ticket qua QC không lần ❌ nào)
      Rework rate                <x.x> ❌/ticket        (infra failures không tính)
      Escalation rate            <n>%   (<a>/<b>)
-     DoR bounce rate            <n>%   (<a>/<b>)
+     Blocked rate               <n>%   (<a>/<b>)
 
    WIP  (live)
      Ready for Dev <n> · In Progress <n> · In QC <n>
 
    AGING  (đang chờ người > 3d)
-     #42  Ready for Human Review  6d   PR #57 chờ merge
-     #38  Refined                 4d   chờ trả lời [PMO] về scope export
+     #42  Ready for Review  6d   PR #57 chờ merge
+     #38  Inbox +blocked    4d   chờ bạn trả lời [DEV] ? về scope export
 
    Nguồn: transition comment (timestamp GitHub) + Status trên board. Projects v2 không có history
    API, nên đây là reconstruction best-effort — độ phân giải tới mức có comment.
    ```
 
-Không có ticket nào đủ dữ liệu → in `chưa đủ dữ liệu trong window — thử /status --metrics --since 90d`.
-`--metrics` **chỉ đọc**, không sửa gì; có thể kết hợp với `--audit` (chạy lần lượt, dùng chung lượt
-board pass ở bước 2).
+Không ticket nào đủ dữ liệu → in `chưa đủ dữ liệu trong window — thử /agentflow:status --metrics --since 90d`. `--metrics` **chỉ đọc**; kết hợp được với `--audit` (chạy lần lượt, dùng chung board pass).
