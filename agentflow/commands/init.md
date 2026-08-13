@@ -111,7 +111,15 @@ git rev-parse --abbrev-ref origin/HEAD  # default branch (origin/main → main)
 
 Không resolve được default branch (chưa có `origin/HEAD`) → hỏi user; đó là vấn đề của repo, không phải của config.
 
-Thứ **duy nhất** cần chốt ở đây và ghi vào config: **`board.owner_type`** (`org` | `user`). Lấy own login qua `get_me`; `OWNER == login` → `user`, ngược lại **hỏi user xác nhận** (MCP không có tool suy trực tiếp owner_type).
+**Remote chỉ là seed — resolve canonical rồi mới dùng OWNER cho bất cứ việc gì.** Repo đã transfer/rename thì remote giữ owner cũ và GitHub redirect ngầm: mọi call vẫn trả `200` nên sai lệch **không tự lộ ra**, nó lộ ở Step 6 khi board tạo xong không link được vào repo.
+
+```bash
+gh api "repos/$OWNER/$REPO" --jq '.full_name, .owner.type'   # canonical, đã theo redirect
+```
+
+- Khác remote → dùng **canonical**, và báo user một dòng (`remote trỏ <cũ>, canonical là <mới>`).
+- `.owner.type` cho luôn **`board.owner_type`** — thứ duy nhất chốt ở đây và ghi vào config: `Organization` → `org`, `User` → `user`.
+- `gh` vắng/chưa auth → fallback `OWNER == get_me().login` → `user`, ngược lại **hỏi user xác nhận**; kèm cảnh báo rằng phép so này KHÔNG phát hiện được ca repo đã transfer (login vẫn khớp owner cũ trong remote).
 
 ## 3. Optional secrets (chỉ có/không — KHÔNG BAO GIỜ giá trị)
 
@@ -167,7 +175,7 @@ Chi tiết cơ chế: skill **`agentflow-protocol`** → `references/projects-v2
 - Hỏi: **tạo board mới** hay **link board có sẵn theo number** (không được skip).
   - *create*: `projects_write` method=`create_project` (owner, owner_type, title) → board **rỗng**. Lưu **number**.
   - *link*: resolve theo number qua `projects_get` method=`get_project`.
-- **Status field 6 option — bước UI thủ công một lần** (`projects_write` không có method tạo/sửa field; xem reference §"Tạo board" cho lý do đầy đủ). Đây là **bước dễ sai nhất của cả init** — tên option là wire value resolve by-name, sai một ký tự là hard-error ở ticket thật đầu tiên. Nên **đừng chỉ liệt kê tên**: in nguyên bảng dưới cho user dán vào GitHub UI (Board → `⋯` → Settings → field `Status`), đúng thứ tự, mỗi option kèm **Description** — nó là chỗ duy nhất semantics của cột hiện ra cho người đang đứng trước board:
+- **Status field 6 option.** Đây là **bước dễ sai nhất của cả init** — tên option là wire value resolve by-name, sai một ký tự là hard-error ở ticket thật đầu tiên. Bảng dưới là **canonical** (tên · color · description); dùng đúng nó cho cả đường tự động lẫn đường thủ công. Description không load-bearing với agent nhưng là chỗ duy nhất semantics của cột hiện ra cho người đang đứng trước board:
 
   | # | Option name (chính xác) | Color | Description (dán vào ô Description của option) |
   |---|---|---|---|
@@ -178,15 +186,55 @@ Chi tiết cơ chế: skill **`agentflow-protocol`** → `references/projects-v2
   | 5 | `Ready for Review` | Purple | **Việc của bạn**: review + merge PR. Muốn sửa → comment inline trên PR rồi kéo card về Inbox. |
   | 6 | `Done` | Green | Terminal. |
 
-  Rồi **validate** qua `projects_list` method=`list_project_fields`: assert đủ 6 option đúng tên. Thiếu → liệt kê tên còn thiếu, yêu cầu thêm, validate lại. **Thừa option** (vd `Todo` mặc định của board mới) → bảo user **kéo hết card ra khỏi option đó trước** rồi xoá nó; card nằm ở một option ngoài 6 tên trên là card ngoài state machine.
+  **Đường tự động — mặc định khi có `gh`.** `projects_write` không expose method sửa field, nên đây là **carve-out `gh api graphql` chỉ-ở-init**, cần **hỏi user một câu trước khi chạy** (reference §"Projects v2 được điều khiển thế nào" giải thích vì sao carve-out này hợp lệ còn runtime thì không). Một call set cả 6 option, đúng thứ tự, kèm description:
 
-  Description **không** load-bearing với agent (agent resolve by-name, không đọc description) — thiếu nó không fail validate. Nhưng đừng bỏ qua: nó là thứ giữ cho người thứ hai trong team không kéo card vào cột agent đang giữ.
-- **Board description — đặt luôn ở cùng lượt UI này.** Board là nơi người PO nhìn hằng ngày, nên đây là entry point đúng cho người mới vào repo (Step 8 giải thích vì sao **không** nhét nội dung này vào `agentflow.yaml`). Board → `⋯` → Settings → *Short description*:
+  ```bash
+  gh api graphql -f query='mutation($f:ID!){ updateProjectV2Field(input:{fieldId:$f,
+    singleSelectOptions:[
+      {name:"Inbox",            color:GRAY,   description:"…"}
+      {name:"Ready for Dev",    color:BLUE,   description:"…"}
+      {name:"In Progress",      color:YELLOW, description:"…"}
+      {name:"In QC",            color:ORANGE, description:"…"}
+      {name:"Ready for Review", color:PURPLE, description:"…"}
+      {name:"Done",             color:GREEN,  description:"…"}
+    ]}){ projectV2Field{ ... on ProjectV2SingleSelectField { options{ name } } } } }' -f f="$STATUS_FIELD_ID"
+  ```
+
+  `$STATUS_FIELD_ID` (`PVTSSF_…`) đọc qua `{user|organization}(login:){ projectV2(number:){ field(name:"Status"){ ... on ProjectV2SingleSelectField { id } } } }` — theo `board.owner_type`.
+
+  **`singleSelectOptions` THAY THẾ cả tập option**: option nào không được truyền kèm `id` sẵn có sẽ bị **xoá cùng mọi value đang trỏ vào nó**. Board vừa tạo (rỗng) → an toàn. **Board link-có-sẵn đang có card → KHÔNG chạy mutation này**, đi đường thủ công (quy tắc "không âm thầm ghi đè" ở reference §"Link board có sẵn").
+
+  **Đường thủ công** — fallback khi thiếu `gh`, user từ chối, hoặc board đã có card: in bảng trên cho user dán vào GitHub UI (Board → `⋯` → Settings → field `Status`), đúng thứ tự. Board mới đi kèm `Todo`/`In Progress`/`Done`: **rename `Todo` → `Inbox`** rồi thêm 4 cái còn thiếu — rename giữ nguyên card, xoá thì mất, và nó cũng dọn luôn option thừa (card nằm ngoài 6 tên trên là card ngoài state machine).
+
+  Cả hai đường đều **validate** qua `projects_list` method=`list_project_fields`: assert đủ 6 option đúng tên. Thiếu → liệt kê tên còn thiếu, yêu cầu thêm, validate lại.
+- **Link board vào repo — ngay sau khi tạo.** Không link thì board không xuất hiện ở `https://github.com/<owner>/<repo>/projects`, và người trong team không có đường tự nhiên nào tới nó.
+
+  ```bash
+  gh api graphql -f query='mutation($p:ID!,$r:ID!){ linkProjectV2ToRepository(input:{projectId:$p,
+    repositoryId:$r}){ repository{ nameWithOwner } } }' \
+    -f p="$PROJECT_NODE_ID" -f r="$(gh api "repos/$OWNER/$REPO" --jq .node_id)"
+  ```
+
+  Fail `Only projects owned by the same owner as the repository can be linked` → **board đang thuộc sai owner**, gần như luôn là hệ quả của Step 2 lấy OWNER từ remote stale. Không sửa tại chỗ được: tạo lại board dưới owner canonical rồi link lại.
+- **Board description** — cùng lượt, không cần UI. Board là nơi người PO nhìn hằng ngày, nên đây là entry point đúng cho người mới vào repo (Step 8 giải thích vì sao **không** nhét nội dung này vào `agentflow.yaml`):
+
+  ```bash
+  gh api graphql -f query='mutation($p:ID!,$d:String!){ updateProjectV2(input:{projectId:$p,
+    shortDescription:$d}){ projectV2{ shortDescription } } }' -f p="$PROJECT_NODE_ID" -f d="$DESC"
+  ```
 
   ```
   AgentFlow · <OWNER/REPO> — bạn là Product Owner. Việc mới: /agentflow:task <mô tả> · chạy pipeline: /agentflow:start · xem trạng thái: /agentflow:status. Bạn làm tay đúng 2 việc: chốt AC ở Inbox, và review/merge PR ở Ready for Review.
   ```
-- **Built-in workflows — thủ công-UI** (không API nào config được). Project settings → Workflows:
+- **View: đổi view mặc định thành `Pipeline` / BOARD_LAYOUT.** Project mới mở ra ở TABLE_LAYOUT — sai hình dạng cho một state machine 6 cột.
+
+  ```bash
+  gh api graphql -f query='mutation($v:ID!){ updateProjectV2View(input:{viewId:$v, name:"Pipeline",
+    layout:BOARD_LAYOUT}){ projectV2View{ name layout } } }' -f v="$VIEW_ID"
+  ```
+
+  `$VIEW_ID` = view đầu tiên (`views(first:1)`). API **không** expose group-by; BOARD_LAYOUT tự group theo `Status` trong UI, đúng thứ AgentFlow cần. Đừng thêm view thứ hai, và **đừng** dùng project template (`copyProjectV2` / `markProjectV2AsTemplate`): template phải được nuôi song song với 6 hằng số này — một bản sao nữa để drift.
+- **Built-in workflows — bước thủ công-UI DUY NHẤT còn lại** (GraphQL chỉ có `deleteProjectV2Workflow`, không có create/update). Project settings → Workflows:
   - **Item added to project** → Status: `Inbox`
   - **Item reopened** → Status: `Inbox`
   - **Item closed** → Status: `Done`

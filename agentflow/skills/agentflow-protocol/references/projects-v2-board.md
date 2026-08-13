@@ -15,7 +15,7 @@ Status write fail là **pipeline dừng có chủ đích** (fail-stop).
 ## Projects v2 được điều khiển thế nào
 
 Hoàn toàn qua **`projects` toolset của `github` MCP server chính thức** — KHÔNG `gh api graphql`,
-KHÔNG `PVT_` node id. Ba tool:
+KHÔNG `PVT_` node id (ngoại lệ duy nhất: setup board ở init, xem carve-out cuối mục này). Ba tool:
 
 1. **`projects_get`** — read đơn lẻ (`get_project` / `get_project_item` / `get_project_field`)
 2. **`projects_list`** — read dạng list (`list_project_fields` / `list_project_items`)
@@ -31,17 +31,21 @@ trọng giữa read và write:
   `item_id` đến từ mỗi row của `list_project_items` (orchestrator pass xuống spawn prompt của
   sub-agent); fallback khi không có: một lượt `list_project_items` + match `content.number`.
 
-Một carve-out thủ công duy nhất: **tạo/sửa single-select `Status` field và các option của nó** — bước
-UI một lần lúc init. Runtime (transition / queue / verify) thì 100% MCP.
+Một carve-out duy nhất, **chỉ ở `/agentflow:init`**: setup board — `Status` field và các option của
+nó, link board↔repo, short description, view layout. Runtime (transition / queue / verify) thì 100%
+MCP. Xem `commands/init.md` Step 6 cho mutation cụ thể.
 
-> **Lý do chính xác, để không ai "sửa" nó sai đường.** GraphQL API *có* làm được
-> (`createProjectV2Field` / `updateProjectV2Field` nhận `singleSelectOptions: [{name, color,
-> description}]`), nhưng `projects_write` không expose method tương ứng. `gh api graphql` **về mặt kỹ
-> thuật chạy được** — `GITHUB_TOKEN` nằm trong env của session nên `gh` tự nhận đúng identity đó — và
-> chính vì vậy carve-out này phải được giữ **bằng chủ ý, không phải vì bất khả thi**: mở đường CLI cho
-> một bước là mở một API surface thứ hai chạy song song với MCP, với tập lỗi và tập quyền riêng. Muốn
-> tự động hoá bước này thì làm nó **chỉ ở init**, có consent tường minh; đó là một design change, không
-> phải một cải tiến lặng lẽ. Runtime (transition / queue / verify) thì **không có ngoại lệ nào**.
+> **Ranh giới chính xác, để không ai nới nó ra.** `projects_write` không expose method sửa field,
+> link repo, hay đổi view — GraphQL thì có. Carve-out được mở **có chủ ý** (v1.1.0) vì bước UI thủ
+> công là bước dễ sai nhất của init: tên option là wire value resolve by-name, sai một ký tự là
+> hard-error ở ticket thật đầu tiên và user không có cách phát hiện trước đó. Cái giá đã chấp nhận:
+> một API surface thứ hai, với tập lỗi và tập quyền riêng. Cái **không** được đánh đổi thêm:
+>
+> - carve-out chỉ sống trong `commands/init.md` — **setup**, one-shot, có consent tường minh của user.
+> - **board item write** (`update_project_item`) **không có ngoại lệ nào**, ở init lẫn runtime.
+> - `gh` vắng → fallback đường UI thủ công, không bao giờ fail init.
+>
+> Thấy `gh api graphql` ở `agents/*.md` hoặc trong `SKILL.md` này là bug, không phải tiền lệ.
 
 `projects` và `labels` là toolset **opt-in**: `github` MCP server phải chạy với header
 `X-MCP-Toolsets: context,issues,pull_requests,users,labels,projects` trong `.mcp.json` (mặc định
@@ -61,25 +65,30 @@ Không resolve được → dừng và báo user. Không board là không có st
 
 ## Tạo board (dùng bởi /agentflow:init)
 
+0. **Resolve canonical OWNER trước.** `git remote` là seed, không phải sự thật: repo đã transfer thì
+   remote giữ owner cũ và GitHub redirect ngầm (call vẫn `200`). Board tạo dưới owner sai thì bước 3
+   **không link được** và không sửa tại chỗ được — phải tạo lại. Chi tiết: `commands/init.md` Step 2.
+
 1. **Tạo project rỗng (chỉ title) qua MCP:**
 
 ```
 projects_write method=create_project
-  owner: <OWNER>   owner_type: <org|user>   title: <tên repo>
+  owner: <OWNER canonical>   owner_type: <org|user>   title: <tên repo>
 ```
 
 Lưu **number** trả về vào `board.number`.
 
-2. **Status field 6 option — CARVE-OUT thủ công.** Project mới đi kèm `Status` mặc định
-   `Todo / In Progress / Done`. AgentFlow cần **đúng sáu** option, đúng tên, đúng thứ tự:
+2. **Status field 6 option.** Project mới đi kèm `Status` mặc định `Todo / In Progress / Done`.
+   AgentFlow cần **đúng sáu** option, đúng tên, đúng thứ tự:
 
    `Inbox` · `Ready for Dev` · `In Progress` · `In QC` · `Ready for Review` · `Done`
 
-   Hướng dẫn user mở board trong GitHub Projects UI → sửa field `Status` cho khớp. Các tên này là
-   **wire value load-bearing** (resolve by-name). **Bảng copy-paste canonical (tên + color +
-   description mỗi option) nằm ở `commands/init.md` Step 6** — dùng đúng bảng đó, đừng soạn lại; agent
-   không đọc description, nhưng người trong team thì có, và đó là thứ giữ họ khỏi kéo card vào cột
-   agent đang giữ. Rồi validate:
+   Các tên này là **wire value load-bearing** (resolve by-name). **Bảng copy-paste canonical (tên +
+   color + description mỗi option) nằm ở `commands/init.md` Step 6** — dùng đúng bảng đó, đừng soạn
+   lại; agent không đọc description, nhưng người trong team thì có, và đó là thứ giữ họ khỏi kéo card
+   vào cột agent đang giữ. Board rỗng → set cả 6 bằng một `updateProjectV2Field` (Step 6, carve-out
+   init); board đã có card → đường UI thủ công, vì `singleSelectOptions` thay thế cả tập option và
+   xoá value trỏ vào option bị bỏ. Rồi validate:
 
 ```
 projects_list method=list_project_fields
@@ -87,10 +96,16 @@ projects_list method=list_project_fields
 ```
 
    Assert `Status` (single-select) có đủ 6 option đúng tên; thiếu → liệt kê tên còn thiếu, yêu cầu
-   user thêm trong UI, validate lại. **Thừa option** (vd `Todo` sót lại) → bảo user xoá, nếu không
-   card có thể rơi vào một state ngoài state machine.
+   user thêm trong UI, validate lại. **Thừa option** (vd `Todo` sót lại) → **rename nó thành tên còn
+   thiếu** thay vì xoá (rename giữ card, xoá mất card); card nằm ở option ngoài 6 tên trên là card
+   ngoài state machine.
 
-3. **Built-in workflows — thủ công-UI (không API nào config được).** Project settings → Workflows:
+3. **Link board vào repo, đặt description, đổi view sang BOARD_LAYOUT** — cùng carve-out init, xem
+   `commands/init.md` Step 6. Không link ⇒ board không hiện ở `github.com/<owner>/<repo>/projects`;
+   link fail vì owner lệch ⇒ quay lại bước 0.
+
+4. **Built-in workflows — bước thủ công-UI DUY NHẤT còn lại** (GraphQL chỉ có
+   `deleteProjectV2Workflow`). Project settings → Workflows:
    - **Item added to project** → Status: `Inbox`
    - **Item reopened** → Status: `Inbox`
    - **Item closed** → Status: `Done`
