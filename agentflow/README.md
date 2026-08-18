@@ -6,7 +6,7 @@ AgentFlow **tech-stack-agnostic**. Cài **một lần**, chạy theo từng repo
 
 - **Con người ở trong vòng lặp, đúng chỗ nó có giá trị.** Intake và refine (viết AC, chọn QC tier, gate Definition of Ready) chạy **tương tác ngay trong session** — hỏi đáp trực tiếp với bạn. Không sub-agent nào tự viết spec rồi tự làm theo spec của chính nó.
 - **Board 6 cột, một bất biến.** `Inbox · Ready for Dev · In Progress · In QC · Ready for Review · Done`. **Cột do agent sở hữu không bao giờ giữ ticket ở trạng thái nghỉ** — agent không đi tiếp được thì ticket về `Inbox` + label `blocked`. Không có ticket nào kẹt vô hình.
-- **Config ~15 dòng.** `agentflow.yaml` ở root repo chỉ giữ thứ **không suy ra được**: URL board, surfaces, hai toggle. Owner/owner_type/number của board parse từ chính URL đó; repo/branch/owner suy từ `git remote` mỗi run; tên column, label, MCP wiring, ngưỡng rework là **hằng số plugin**.
+- **Config ~15 dòng.** `agentflow.yaml` ở root repo chỉ giữ thứ **không suy ra được**: URL board, surfaces, design source, notify. Owner/owner_type/number của board parse từ chính URL đó; repo/branch/owner suy từ `git remote` mỗi run; tên column, label, MCP wiring, ngưỡng rework là **hằng số plugin**.
 - **Mọi secret một chỗ, theo từng repo.** `GITHUB_TOKEN` — cùng `TELEGRAM_*` và `FIGMA_TOKEN` — sống trong block `env` của **`.claude/settings.local.json`**, file mà `/agentflow:init` bắt buộc phải thấy đã gitignore *trước khi* nói tới token. Đổi lại rủi ro "secret nằm trong working tree": mỗi clone một token, nên mỗi repo chạy được dưới một GitHub identity riêng.
 
 Không có message bus. Agent giao tiếp hoàn toàn qua GitHub primitives: **`Status` field trên Projects v2 board** (state authoritative), **issue comment có prefix** (audit trail duy nhất của transition), và **một section `AGENTFLOW-STATE` trong issue body** (memory giữa các lần chạy). Label không mang state.
@@ -121,7 +121,8 @@ Ba core skill đi kèm plugin, load on demand, không cần đăng ký:
 |---|---|
 | `agentflow-protocol` | **Contract lõi.** Config, hằng số plugin, 6 state + bất biến, shape của Status write, comment prefix, DoR/DoD, section AGENTFLOW-STATE, read/write order, rework loop, trust rules. Phần **chỉ orchestrator/init cần** — queue, `status_map`, tạo/link board, lane của con người, claim, scopes — nằm trong `references/projects-v2-board.md`, và DEV/QC **không** load nó. |
 | `git-flow-working` | Branching tech-agnostic, Conventional Commits, PR convention, an toàn rebase/merge. |
-| `figma-design` | Kéo frame spec/token qua `figma` MCP (có REST fallback) cho handoff design → implementation. |
+| `design-handoff` | Nguồn design của repo → implementation: dispatch theo `design.kind` (`repo` · `artifact` · `design-system` · `figma`), extract token/component, ghi revision đã build, và ba ca ranh giới design↔AC. DEV load khi chạm UI; QC load để verify đúng revision đó. |
+| `figma-design` | Provider Figma của `design-handoff` — MCP tool (REST fallback), parse URL/node id. |
 
 Công thức spec pass (cấu trúc body, AC, sizing, QC tier, tag component, DoR gate, fold PR feedback) **không** là skill riêng — nó sống trong `commands/task.md` §Spec pass, nơi duy nhất chạy nó, với hai chế độ: interactive (`/agentflow:task`) và autonomous (`/agentflow:start` khi nhặt card `Inbox`).
 
@@ -132,18 +133,20 @@ Công thức spec pass (cấu trúc body, AC, sizing, QC tier, tag component, Do
 `agentflow.yaml` ở **root repo** cố tình chỉ giữ thứ **không suy ra được**:
 
 ```yaml
-agentflow: "2.0"
+schema: 2
 board:   { url: "https://github.com/orgs/passion-ui/projects/11" }   # hoặc /users/<login>/projects/<N>
 surfaces:                       # BỎ HẲN block này nếu repo single-surface
   api:    { path: "api/" }
   mobile: { path: "app/", forbidden: ["android/key.properties"] }
-figma:   { enabled: true, files: [{ name: "Design System", key: "AbC123" }] }
+design:  { kind: repo, path: "docs/design", screens: "screens/*.html", tokens: "css/app.css" }
 notify:  { enabled: false, events: ["blocked", "ready_for_review"] }
 ```
 
 `board.url` là nguồn duy nhất cho `owner` + `owner_type` + `project_number` của mọi call `projects_*` — dán nguyên URL từ trình duyệt, và board **được phép** thuộc owner khác repo. Mọi thứ khác đến từ ba nguồn còn lại: **suy từ git** (repo, owner, default branch), **hằng số plugin** (6 tên column, label, branch prefix, global forbidden paths `infra/**` + `.github/workflows/**` + `**/*.pem` + `**/.env`, ngưỡng rework `2`, ý nghĩa QC tier), và **auto-discovery** (project skill). Quy tắc khi phân vân: *hành vi agent → yaml · công cụ/harness và mọi secret → `.claude/settings.local.json`.*
 
 **Surfaces** là tùy chọn — vắng mặt nghĩa là single-surface, DEV/QC gate toàn repo. Có mặt thì mỗi key sinh một label `component/<key>`; spec pass tag issue, DEV/QC chỉ build/lint/test những surface đó theo convention của chính repo (không có command nào trong config).
+
+**Design source** là tùy chọn và có 5 `kind`. `repo` (prototype trong repo) là kind duy nhất **pin được theo commit** — design đổi là một commit, hiện trong PR diff. Ba kind cloud (`artifact`, `design-system`, `figma`) cho phép designer sửa mà không cần push repo, đổi lại design có thể đổi giữa chừng pipeline: DEV bắt buộc ghi `design: <kind> @ <revision>` vào comment handoff, QC verify đúng revision đó. `design-system` lưu **component kit**, không phải screens.
 
 **QC tier** là gợi ý độ sâu test cố định trong plugin: `quick` = lint + unit · `full` = + integration · `regression` = + e2e (cộng dồn). Không có coverage gate bằng số — QC đánh giá test adequacy bằng inspection.
 

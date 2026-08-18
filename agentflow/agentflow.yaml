@@ -1,8 +1,10 @@
 # AgentFlow — config của MỘT project. `/agentflow:init` copy file này vào ROOT repo rồi điền value.
 # COMMIT ĐƯỢC: chỉ chứa thứ KHÔNG suy ra được, không bao giờ chứa secret.
-# Cách dùng / protocol / thêm key mới → README của plugin agentflow (`/agentflow:status` để xem pipeline).
+# Cách dùng / thêm key mới → README của plugin agentflow (`/agentflow:status` để xem pipeline).
 
-agentflow: "2.0"
+# Schema version của chính file này (số nguyên, KHÔNG phải version của plugin).
+# Chỉ tăng khi có breaking change; plugin không đọc được schema khác → yêu cầu re-init.
+schema: 2
 
 # ── BOARD (bắt buộc) ─────────────────────────────────────────────────────────
 # Dán nguyên URL board từ thanh địa chỉ trình duyệt. URL là nguồn DUY NHẤT cho
@@ -32,12 +34,36 @@ board:
 #     path: "app/"
 #     forbidden: ["android/key.properties", "ios/Runner/GoogleService-Info.plist"]
 
-# ── FIGMA (tùy chọn) ─────────────────────────────────────────────────────────
-# DEV pull frame spec/token khi làm UI. Server chính thức dùng OAuth — không có
-# token nào để đặt: /mcp → figma → Authenticate.  (skill: figma-design)
-figma:
-  enabled: false
-  files: []                    # [{ name: "Design System", key: "AbC123xyz" }]
+# ── DESIGN (tùy chọn) ────────────────────────────────────────────────────────
+# Nguồn design mà DEV implement theo và QC verify đối chiếu. `kind` chọn provider;
+# mỗi kind đọc một tập key riêng, khai key của kind khác là thừa.  (skill: design-handoff)
+#
+#   none           không có design source — DEV build từ AC, QC verify theo AC (mặc định)
+#   repo           prototype nằm trong repo, pin theo commit — chắc chắn nhất
+#   artifact       một Artifact trên claude.ai — sửa trên cloud, không cần push repo
+#   design-system  design-system project trên claude.ai/design (component kit, KHÔNG phải screens)
+#   figma          Figma file/frame qua figma MCP (OAuth) hoặc REST fallback
+#
+# Ba kind cloud (artifact / design-system / figma) KHÔNG pin được: design đổi giữa
+# chừng pipeline mà không ai thấy. DEV bắt buộc ghi revision đã build vào comment
+# [DEV], QC verify đúng revision đó — xem skill design-handoff.
+design:
+  kind: "none"
+
+# kind: repo
+#   path:    "docs/design"          # thư mục gốc của prototype
+#   screens: "screens/*.html"       # glob màn hình, relative tới path
+#   tokens:  "css/app.css"          # file token contract, relative tới path
+#   frame:   { width: 366, height: 745 }   # canvas màn hình, dùng khi render ảnh
+#
+# kind: artifact
+#   url: "https://claude.ai/code/artifact/<id>"
+#
+# kind: design-system
+#   project_id: "<uuid>"            # projectId từ DesignSync list_projects
+#
+# kind: figma
+#   files: [{ name: "Design System", key: "AbC123xyz" }]
 
 # ── NOTIFY (tùy chọn) ────────────────────────────────────────────────────────
 # Ping MỘT CHIỀU tới bạn khi pipeline dừng lại chờ người. Không phải message bus:

@@ -7,7 +7,7 @@ In một bản tóm tắt pipeline gọn cho repo này. **Chỉ đọc** — kh�
 
 ## 1. Config
 
-`agentflow.yaml` ở repo root: version gate `agentflow: "2.0"`, parse `board.url` → `owner` + `owner_type` + `project_number` (`agentflow-protocol` §1). Owner/repo của issue suy từ `git remote get-url origin`.
+`agentflow.yaml` ở repo root: schema gate `schema: 2`, parse `board.url` → `owner` + `owner_type` + `project_number` (`agentflow-protocol` §1). Owner/repo của issue suy từ `git remote get-url origin`.
 
 ## 2. Board pass (dùng chung cho cả 3 mode)
 

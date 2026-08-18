@@ -32,13 +32,13 @@ Bài học: `$ARGUMENTS` (tách flag `--no-release`/`--release` ra khỏi nội 
 
 Đề xuất 1–3 candidate, mỗi cái một dòng dạng "agent nên X thay vì Y (bằng chứng: …)", cho user chọn/sửa/bỏ. Không thấy gì → hỏi thẳng: "Bài học lần này là gì?". Bài học **mơ hồ** (không chỉ ra được hành vi khác đi cụ thể) → hỏi một câu làm rõ trước khi routing, đừng đoán.
 
-## 2. Phân tầng — plugin hay project? (+ STOP protocol-change)
+## 2. Phân tầng — plugin hay project? (+ STOP schema-change)
 
 **Project-level** — convention của riêng MỘT repo đang dùng agentflow, không generalize: đích là repo ĐÓ — value trong `agentflow.yaml` ở root repo đó, hoặc một project skill role-prefixed `.claude/skills/<dev|qc>-*`. Vẫn confirm-first show diff, nhưng KHÔNG bump plugin version, KHÔNG release loop. Xong dừng ở đây.
 
-**STOP — protocol-change class.** Bài học đụng (a) FORMAT/schema của `agentflow.yaml` (thêm/đổi/bỏ key mà agent đọc), (b) semantics Status column / state machine transition, hoặc (c) wire value (tên Status option, comment prefix, format AGENTFLOW-STATE) → cần bump protocol constant ở `skills/agentflow-protocol/SKILL.md` §1 (Version gate) + dòng `agentflow:` trong `agentflow.yaml` ở plugin root + phần detect config cũ ở `commands/init.md`, và mọi repo hiện có sẽ lệch protocol cho tới khi re-init. DỪNG, liệt kê chính xác các chỗ phải đổi, chỉ tiếp tục khi user xác nhận làm nó như một thay đổi có chủ đích (bump **minor/major**, không phải patch).
+**STOP — schema-change class.** Bài học đụng (a) FORMAT của `agentflow.yaml` (thêm/đổi/bỏ key mà agent đọc), (b) semantics Status column / state machine transition, hoặc (c) wire value (tên Status option, comment prefix, format AGENTFLOW-STATE) → cần bump `schema` ở `skills/agentflow-protocol/SKILL.md` §1 (Schema gate) + dòng `schema:` trong `agentflow.yaml` ở plugin root, và mọi repo hiện có sẽ lệch schema cho tới khi re-init. DỪNG, liệt kê chính xác các chỗ phải đổi, chỉ tiếp tục khi user xác nhận làm nó như một thay đổi có chủ đích (bump **minor/major**, không phải patch).
 
-**Trước khi thêm bất cứ key nào vào `agentflow.yaml`:** file đó cố tình chỉ giữ thứ KHÔNG suy ra được. Key mới phải trả lời được "vì sao không suy từ git / không parse từ `board.url` / không làm hằng số plugin / không auto-discover?" — không trả lời được thì nó thuộc về một trong bốn chỗ đó, không phải config.
+**Trước khi thêm bất cứ key nào vào `agentflow.yaml`:** file đó cố tình chỉ giữ thứ KHÔNG suy ra được. Key mới phải trả lời được "vì sao không suy từ git / không parse từ URL đã có / không làm hằng số plugin / không auto-discover?" — không trả lời được thì nó thuộc về một trong bốn chỗ đó, không phải config. Key chỉ có nghĩa với một `design.kind` thì sống **dưới** `design`, không lên top-level.
 
 ## 3. Routing table (plugin-level)
 
@@ -52,10 +52,11 @@ Map bài học tới **một** đích chính dưới `$SRC`:
 | Config (2 file), parse `board.url`, hằng số plugin, wire protocol: comment prefix, DoR/DoD, AGENTFLOW-STATE, read/write order, rework loop, trust rules — **và shape của `update_project_item` / `get_project_item`** (runtime path của MỌI agent) | `skills/agentflow-protocol/SKILL.md` |
 | Phần **chỉ orchestrator/init chạm**: queue + paginate + `field_names`, `status_map`, Missing-Status, tạo/link board, lane của con người & claim, scopes | `skills/agentflow-protocol/references/projects-v2-board.md` |
 | **Ranh giới giữa hai file trên là AUDIENCE, không phải chủ đề.** DEV/QC load `SKILL.md` ở mọi spawn và **không** load reference — đẩy một thứ họ cần ra reference là bắt họ load cả hai. Ngược lại, kéo queue/board-setup vào `SKILL.md` là bắt mọi spawn trả tiền cho thứ chỉ orchestrator dùng. | (quy tắc routing, không phải file) |
-| Figma → code mapping | `skills/figma-design/SKILL.md` |
+| Design source: kind mới, cách fetch, revision pinning, ranh giới design↔AC | `skills/design-handoff/SKILL.md` |
+| Cơ chế **riêng của Figma** (MCP tool, REST, parse node id) | `skills/figma-design/SKILL.md` — provider của `design-handoff`, không giữ discipline riêng |
 | Behavior của một command entry (`/agentflow:task`, `/agentflow:start`, …) | `commands/<lệnh>.md` (kể cả chính `improve.md`) |
 | **Auto-invoke sai lúc/sai chỗ** | `description:` frontmatter của file tương ứng (đó là cái điều khiển auto-invoke) |
-| Shape config sinh mới | `agentflow.yaml` ở plugin root — đổi key = protocol-change class §2. **Comment trong file đó chỉ giải thích từng key**; hướng dẫn sử dụng thuộc về `README.md` (yaml bị copy vào repo user và đóng băng ở đó) |
+| Shape config sinh mới | `agentflow.yaml` ở plugin root — đổi key = schema-change class §2. **Comment trong file đó chỉ giải thích từng key**; hướng dẫn sử dụng thuộc về `README.md` (yaml bị copy vào repo user và đóng băng ở đó) |
 | Setup board: tên/màu/description của 6 option Status, built-in workflow, board description, parse URL | `commands/init.md` → Step 6 + `skills/agentflow-protocol/references/projects-v2-board.md` → §"Tạo board" |
 | Shape `.claude/settings.local.json` sinh cho repo (marketplace, enabledPlugins, merge semantics) | `commands/init.md` → Step 8.2 |
 | MCP server, hoặc biến môi trường user phải cấu hình | `.mcp.json` (+ Step 1a/3 của `commands/init.md`) |
@@ -96,4 +97,4 @@ Cache khoá theo version — không chạy loop này thì bản sửa **không b
    ```
 3. **Verify**: đọc lại `installed_plugins.json` (query như §0) — installed == `NEW` và cache dir `~/.claude/plugins/cache/agent-flow-plugins/agentflow/<NEW>/` tồn tại. Mismatch → chạy lại `marketplace update`; kẹt nữa → `uninstall` + `install` (CONTRIBUTING.md).
 
-In: version cũ → mới, file đã đổi, một dòng tóm tắt. Nhắc **restart Claude Code** để load (session này vẫn chạy snapshot cũ). Protocol-change → nhắc thêm mỗi repo đang dùng chạy `/agentflow:init` để migrate. Cuối cùng hỏi (không tự làm): commit repo plugin với message `improve: <tóm tắt> (v<NEW>)`? — `installed_plugins.json` ghi `gitCommitSha` lúc install, nên commit đúng nhịp release thì sha ↔ version trace được nhau. Không bao giờ tự push.
+In: version cũ → mới, file đã đổi, một dòng tóm tắt. Nhắc **restart Claude Code** để load (session này vẫn chạy snapshot cũ). Schema-change → nhắc thêm mỗi repo đang dùng chạy `/agentflow:init` để migrate. Cuối cùng hỏi (không tự làm): commit repo plugin với message `improve: <tóm tắt> (v<NEW>)`? — `installed_plugins.json` ghi `gitCommitSha` lúc install, nên commit đúng nhịp release thì sha ↔ version trace được nhau. Không bao giờ tự push.

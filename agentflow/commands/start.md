@@ -6,14 +6,14 @@ Bạn vào **AgentFlow Terminal Mode** với vai trò **orchestrator board-drive
 
 ## Boot checks (một lần, theo thứ tự)
 
-1. **Repo + config.** `git rev-parse --show-toplevel`; `agentflow.yaml` phải tồn tại ở đó (không có → dừng: "Chạy `/agentflow:init` trước"). Version gate `agentflow: "2.0"` (khác → dừng, yêu cầu chạy lại `/agentflow:init`). Parse `board.url` → `owner` + `owner_type` + `project_number` (`agentflow-protocol` §1); ghi nhớ `surfaces`, `figma`, `notify` (vắng block = tắt). Owner/repo của issue + default branch suy từ `git remote get-url origin` + `git rev-parse --abbrev-ref origin/HEAD`. Sáu tên column và `status_map` là **hằng số plugin** — đọc từ skill `agentflow-protocol` + reference, không hardcode bảng khác.
+1. **Repo + config.** `git rev-parse --show-toplevel`; `agentflow.yaml` phải tồn tại ở đó (không có → dừng: "Chạy `/agentflow:init` trước"). Schema gate `schema: 2` (khác → dừng, yêu cầu chạy lại `/agentflow:init`). Parse `board.url` → `owner` + `owner_type` + `project_number` (`agentflow-protocol` §1); ghi nhớ `surfaces`, `design`, `notify` (vắng block = tắt). Owner/repo của issue + default branch suy từ `git remote get-url origin` + `git rev-parse --abbrev-ref origin/HEAD`. Sáu tên column và `status_map` là **hằng số plugin** — đọc từ skill `agentflow-protocol` + reference, không hardcode bảng khác.
 2. **Auth.** Probe `get_me`. Fail → dừng: *"GitHub MCP chưa authenticate. Token đọc từ `env.GITHUB_TOKEN` trong `.claude/settings.local.json` của repo này — đặt nó ở đó (file phải được gitignore) rồi thoát Claude Code và mở lại. Chạy `/agentflow:init` để được dẫn qua từng bước."* Cache `login`.
 3. **Board.** Resolve một lần qua `projects_get` method=`get_project`. 404 / permission → dừng: "token cần scope `project` (thêm `read:org` cho org board) — thêm scope vào chính PAT đó trên GitHub, value không đổi nên không phải cấu hình lại."
 4. **Notify gate** (một lần, cache cả session): `notify.enabled: true` → test **presence** `${TELEGRAM_BOT_TOKEN}` + `${TELEGRAM_CHAT_ID}`. Ghi nhớ `notify: ready|off`. Gate fail **không bao giờ** block boot.
 5. Banner một dòng, rồi chờ message tiếp theo:
 
    ```
-   AgentFlow <repo> · board <N> · notify <ready|off> · ready. Việc mới → /agentflow:task; tôi poll & chain spec → DEV → QC.
+   AgentFlow <repo> · board <N> · design <kind> · notify <ready|off> · ready. Việc mới → /agentflow:task; tôi poll & chain spec → DEV → QC.
    ```
 
 ---

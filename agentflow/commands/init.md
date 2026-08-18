@@ -5,7 +5,7 @@ argument-hint: (không có args — chạy một setup wizard tương tác)
 
 Bootstrap **AgentFlow** trong repository HIỆN TẠI. Setup một lần nhưng **idempotent và chạy lại được**. Không bao giờ ghi đè một `agentflow.yaml` đã sửa tay mà không cảnh báo: đã có thì đọc nó, coi value của nó là default cho mỗi bước, và xác nhận trước khi ghi.
 
-**Config viết theo protocol khác `2.0`** → **không migrate tự động**. Nói cho user biết file sẽ được thay, rồi đọc value cũ làm default ở đâu suy được (protocol `1.0` có `board.number` + `board.owner_type` → ghép thành `board.url` ở Step 6; surface path; toggle figma/notify) và ghi lại theo format `2.0`.
+**Config viết theo `schema` khác `2`** → **không migrate tự động**. Nói cho user biết file sẽ được thay, hỏi lại từng giá trị như một lần init mới, rồi ghi lại theo schema `2`.
 
 Thực hiện các bước **theo thứ tự**. Precondition fail → nói chính xác cần fix gì rồi **stop**. **Không bao giờ echo giá trị secret.**
 
@@ -118,7 +118,23 @@ Figma official MCP server dùng **OAuth**, không có token nào để kiểm �
 
 Chỉ hai câu hỏi (GitHub và board là bắt buộc, wiring của chúng là hằng số plugin):
 
-- **figma** — *bật design source cho DEV?* Bật → `figma.enabled: true`, seed `figma.files` bằng file key đã biết (`[{ name, key }]`), và bảo user authenticate một lần: `claude mcp add --transport http figma https://mcp.figma.com/mcp` rồi `/mcp → figma → Authenticate`. Từ chối → `enabled: false`.
+- **design source** — *DEV implement theo design nào?* Hỏi `kind`, rồi chỉ hỏi tiếp key của kind đó (skill `design-handoff` §2 giữ shape đầy đủ):
+
+  | kind | Hỏi thêm | Verify tại chỗ |
+  |---|---|---|
+  | `none` (mặc định) | — | — |
+  | `repo` | `path`, `screens` glob, `tokens`, `frame` w×h | `ls` thấy `path`; glob `screens` khớp ≥1 file — không khớp thì hỏi lại, đừng ghi config trỏ vào chỗ trống |
+  | `artifact` | `url` | assert dạng `https://claude.ai/…/artifact/<id>` |
+  | `design-system` | `project_id` | `DesignSync` method=`list_projects`; user chưa có project nào → nói thẳng và đề nghị chuyển sang kind khác |
+  | `figma` | `files: [{ name, key }]` | bảo user authenticate một lần: `claude mcp add --transport http figma https://mcp.figma.com/mcp` rồi `/mcp → figma → Authenticate` |
+
+  Scan trước khi hỏi — thấy prototype trong repo thì **đề xuất `kind: repo`** kèm path tìm thấy, thay vì hỏi mở:
+
+  ```bash
+  for d in docs/design design prototype mockups; do [ -d "$d" ] && echo "$d: $(find "$d" -name '*.html' | wc -l) html"; done
+  ```
+
+  Ba kind cloud (`artifact` / `design-system` / `figma`) **không pin được revision** — design đổi giữa chừng pipeline mà không ai thấy. Nói một câu cho user biết trước khi chọn.
 - **notify** — *ping Telegram khi pipeline dừng chờ bạn?* Cần khi chạy `/agentflow:start` unattended qua `/loop`; ping **một chiều cho người**, không phải kênh giữa các agent. Bật → `notify.enabled: true`, `events: ["blocked", "ready_for_review"]`. Cả hai key đã có giá trị → **smoke test** (fail thì **cảnh báo rồi tiếp tục**, không bao giờ stop init):
 
   ```bash
@@ -253,10 +269,10 @@ Hai file, hai mối quan tâm (skill `agentflow-protocol` §1):
 
    | Key | Giá trị |
    |---|---|
-   | `agentflow: "2.0"` | copy nguyên văn — **protocol version**, KHÔNG substitute từ `plugin.json` |
+   | `schema: 2` | copy nguyên văn — schema version của file yaml, **KHÔNG** substitute từ `plugin.json` |
    | `board.url` | URL chốt ở Step 6. Ghi xong **assert nó khớp regex** `^https://github\.com/(orgs\|users)/[^/]+/projects/[0-9]+$` — template để `null`, và một init crash giữa chừng để lại `null` là fail sớm và đọc được |
    | `surfaces` | Step 5 phát hiện **nhiều** surface → bỏ comment block ví dụ và khai báo từng cái (`path` + `forbidden`). **Single-surface → để nguyên dạng comment** |
-   | `figma.enabled` / `figma.files` | Step 4 |
+   | `design.kind` + key của kind đó | Step 4 — **chỉ ghi key thuộc kind đã chọn**, key của kind khác là rác |
    | `notify.enabled` | Step 4 |
 
    Giữ nguyên các comment đã curate. **Đừng bịa key template không có** — đặc biệt không thêm `project:`, `connections:`, `labels:`, `board.number`, hay `board.columns`: repo/owner/default-branch suy từ git, board params parse từ `board.url`, còn label và 6 tên column là hằng số plugin.
@@ -353,12 +369,13 @@ issue_write    method=update state=closed
 ## 11. Tóm tắt
 
 ```
-AgentFlow initialized on <OWNER/REPO> (protocol v2.0)
+AgentFlow initialized on <OWNER/REPO> (config schema 2)
 
 Board       : <board.url> — Status field 6 option, built-in workflows đã hướng dẫn bật
 Surfaces    : <key>=<path>, …   |   single-surface (không khai báo — gate toàn repo)
 Labels      : <5 + N> created/updated (type/* ·3, component/* ·N, rework, blocked)
-Toggles     : figma <on (OAuth) | off>   notify <on (smoke ✓) | on (chưa có secret — tự tắt) | off>
+Design      : <kind> <path/url/project_id/files — hoặc "không khai báo, DEV build từ AC">
+Notify      : <on (smoke ✓) | on (chưa có secret — tự tắt) | off>
 Auth        : GITHUB_TOKEN (env, .claude/settings.local.json — gitignored ✓) — login <login>
               TELEGRAM_* cùng file: <có | không>
 Skills      : <stub đã scaffold, hoặc none>

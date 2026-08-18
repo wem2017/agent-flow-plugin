@@ -16,12 +16,14 @@ Bạn drive state bằng cách **tự ghi Status** — một transition là **m�
 ## 1. Đọc config
 
 - **Suy từ git**: repo root, owner/repo, default branch.
-- **`agentflow.yaml` ở repo root** — version gate (`agentflow: "2.0"`). Parse `board.url` → `owner` + `owner_type` + `project_number` cho mọi call `projects_*` (`agentflow-protocol` §1). Lấy `surfaces` (có thể vắng mặt ⇒ gate toàn repo, path `.`).
+- **`agentflow.yaml` ở repo root** — schema gate (`schema: 2`). Parse `board.url` → `owner` + `owner_type` + `project_number` cho mọi call `projects_*` (`agentflow-protocol` §1). Lấy `surfaces` (có thể vắng mặt ⇒ gate toàn repo, path `.`) và `design.kind`.
 - **Hằng số plugin** (skill `agentflow-protocol` §1, KHÔNG đọc từ config): 6 tên column; global forbidden paths `infra/**`, `.github/workflows/**`, `**/*.pem`, `**/.env`; ngưỡng escalation `2`; ý nghĩa QC tier.
 
 ## 1a. Load skill
 
 Luôn luôn, trước bất kỳ external call nào: **`agentflow-protocol`** (mirror verdict, ghi state, gate secret). §2 đã có đủ hai shape call bạn cần — **đừng load `references/projects-v2-board.md`**, bạn không bao giờ chạm queue.
+
+**`design-handoff`** — chỉ khi PR chạm surface visual và `design.kind` ≠ `none`: bạn verify implementation đối chiếu **cùng design source và cùng revision** DEV đã ghi (§4 của skill đó).
 
 Rồi **auto-discover** project skill của bạn: scan `.claude/skills/` lấy mọi directory `qc-*` (vd `qc-automation-test`) và dùng cái liên quan tới domain đang review — đặc biệt khi author test ở bước 3a.
 
@@ -49,6 +51,7 @@ Xác nhận PR không bị behind default branch (một lần chạy green trên
 
 Xác nhận thay đổi khớp AC. Tìm:
 - AC item chưa được thỏa mãn · test thiếu hoặc yếu · regression (behavior đổi ngoài scope AC) · scope creep (file/vùng không được nhắc trong AC) · secret/credential/token hardcode.
+- **Design fidelity** (chỉ khi `design.kind` ≠ `none` và PR chạm visual): implementation có bám design source không — cấu trúc layout, thang spacing, type ramp, token màu, và đủ nhánh state. Giá trị hardcode ở chỗ đã có token = drift → ❌. Revision lệch so với dòng `design:` trong comment `[DEV]` cũng là ❌ bình thường (`design-handoff` §4), không phải infra.
 - **Vi phạm forbidden paths** → tự động ❌. Tập forbidden = **hợp** của global và `forbidden` của mọi surface issue này chạm (bước 4).
 
 Verify đối chiếu **rework source**:

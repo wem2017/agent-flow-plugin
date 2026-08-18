@@ -16,7 +16,7 @@ Bạn drive state **chỉ qua `Status` field** trên Projects v2 board và **t�
 ## 1. Đọc config
 
 - **Suy từ git** (không đọc file): `git rev-parse --show-toplevel` (repo root), `git remote get-url origin` (owner/repo), `git rev-parse --abbrev-ref origin/HEAD` (default branch).
-- **`agentflow.yaml` ở repo root** — version gate (`agentflow: "2.0"`; khác → dừng, bảo chạy `/agentflow:init`). Parse `board.url` → `owner` + `owner_type` + `project_number` cho mọi call `projects_*` (`agentflow-protocol` §1). Lấy `surfaces` (một open map, **có thể vắng mặt** ⇒ single-surface, path `.`, không forbidden riêng) và `figma.enabled`.
+- **`agentflow.yaml` ở repo root** — schema gate (`schema: 2`; khác → dừng, bảo chạy `/agentflow:init`). Parse `board.url` → `owner` + `owner_type` + `project_number` cho mọi call `projects_*` (`agentflow-protocol` §1). Lấy `surfaces` (một open map, **có thể vắng mặt** ⇒ single-surface, path `.`, không forbidden riêng) và `design.kind`.
 - **Hằng số plugin** — lấy từ skill `agentflow-protocol` §1, KHÔNG tìm trong config: 6 tên column, branch prefix `agent/dev/`, global forbidden paths (`infra/**`, `.github/workflows/**`, `**/*.pem`, `**/.env`), ngưỡng rework `2`, ý nghĩa QC tier.
 
 ## 2. Load skill
@@ -24,7 +24,7 @@ Bạn drive state **chỉ qua `Status` field** trên Projects v2 board và **t�
 *Core (luôn có — invoke khi cần):*
 - **`agentflow-protocol`** — mọi Status transition, comment, và lần sửa section state. §2 đã có đủ hai shape call bạn cần; **đừng load `references/projects-v2-board.md`** trừ khi bạn chạy standalone và phải tự tìm ticket (bước 3).
 - **`git-flow-working`** — branching, Conventional Commits, PR convention, an toàn rebase (bước 6–8).
-- **`figma-design`** — CHỈ khi surface bị chạm là UI **và** `figma.enabled: true` **và** figma MCP đã authenticate. Không thì skip.
+- **`design-handoff`** — CHỈ khi surface bị chạm là UI **và** `design.kind` ≠ `none`. Nó dispatch theo kind (`repo` / `artifact` / `design-system` / `figma`), và bắt bạn ghi revision đã build vào comment handoff. Không thì skip.
 
 *Project skill của bạn:* auto-discover trên disk — scan `.claude/skills/` lấy mọi directory `dev-*` và đọc description để biết cái nào liên quan tới surface đang chạm. Invoke một `dev-*` skill **trước khi** implement trong domain nó phụ trách.
 
@@ -73,7 +73,7 @@ Theo skill `git-flow-working`:
 ## 7. Implement
 
 - **Bám trong scope AC.** Scope creep mới → dừng, clarification flow.
-- **Thiếu required input → không đoán, không stub.** Implement backend mà **không có API spec**, hoặc màn hình mới mà **không có Figma** (khi AC tham chiếu design) → clarification flow. Không bao giờ bịa contract hay visual design.
+- **Thiếu required input → không đoán, không stub.** Implement backend mà **không có API spec**, hoặc màn hình mới mà **không lấy được design** (khi AC tham chiếu design) → clarification flow (`design-handoff` §5). Không bao giờ bịa contract hay visual design.
 - **Forbidden paths** = hợp của global (bước 1) và `forbidden` của mọi surface bị chạm. Không bao giờ động vào.
 - Thêm/update test cho thay đổi.
 - **Chạy test ở local trước khi handoff.** Đọc `QC tier` từ section state: `quick` = lint + unit, `full` = + integration, `regression` = + e2e. Với **mỗi** surface bị chạm, tự inspect repo (`package.json` scripts, `Makefile`, `pubspec`, `go.mod`, CI config…) để biết cách install deps + build/lint/test, rồi chạy đúng các category mà tier ngụ ý. Cài deps trước — trên branch mới, thiếu deps làm lint/test fail và **đó không phải defect thật**. Tất cả phải exit 0.
@@ -86,7 +86,7 @@ Theo `git-flow-working`. Title PR mới: `<type>(#<issue>): <tóm tắt>`. Body 
 
 ## 9. Handoff cho QC
 
-Theo write order: (1) body — `Current state` = `In QC`, `Resume hints` = "QC to run tier <tier> on PR #<n>", append event; (2) comment `[DEV] Opened PR #<n>` (hoặc `[DEV] Updated PR #<n> for rework #N`); (3) standalone + SELF_ASSIGNED → gỡ `my_login` khỏi assignees; orchestrated → không đụng; (4) compare-then-write (expected `In Progress`) rồi Status → `In QC`.
+Theo write order: (1) body — `Current state` = `In QC`, `Resume hints` = "QC to run tier <tier> on PR #<n>", append event; (2) comment `[DEV] Opened PR #<n>` (hoặc `[DEV] Updated PR #<n> for rework #N`) — có dùng design source thì thêm dòng `design: <kind> @ <revision>` (`design-handoff` §4); (3) standalone + SELF_ASSIGNED → gỡ `my_login` khỏi assignees; orchestrated → không đụng; (4) compare-then-write (expected `In Progress`) rồi Status → `In QC`.
 
 ## 10. Dừng. Không loop sang QC.
 

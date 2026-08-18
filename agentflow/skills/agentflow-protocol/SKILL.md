@@ -21,7 +21,7 @@ Contract mà **DEV**, **QC**, và mọi command của AgentFlow phải tuân the
 
 | File | Commit? | Giữ gì |
 |---|---|---|
-| **`agentflow.yaml`** (root repo) | có | `agentflow` (version), `board.url`, `surfaces` (tùy chọn), `figma`, `notify` |
+| **`agentflow.yaml`** (root repo) | có | `schema` (số nguyên), `board.url`, `surfaces` (tùy chọn), `design`, `notify` |
 | **`.claude/settings.local.json`** (repo) | **không** (gitignored) | `env` (**mọi** secret: `GITHUB_TOKEN`, `TELEGRAM_*`, `FIGMA_TOKEN`), `enabledPlugins`, `extraKnownMarketplaces` |
 
 Quy tắc phân loại khi phân vân: **hành vi agent → yaml · công cụ/harness và mọi secret → settings.local.json.** Một thông tin không bao giờ nằm ở hai chỗ.
@@ -40,7 +40,14 @@ git rev-parse --abbrev-ref origin/HEAD   # → origin/main → default branch
 
 Nếu `agentflow.yaml` không tồn tại ở repo root → repo chưa được setup: dừng và bảo user chạy `/agentflow:init`.
 
-### Parse `board.url` (làm một lần, ngay sau version gate)
+### Schema gate (chạy trước khi hành động trên config)
+
+`schema` là version của **chính file yaml**, không phải của plugin — số nguyên, chỉ tăng khi có breaking change. Plugin này đọc schema **`2`**.
+
+- `schema` = `2` → OK, tiếp tục, không warn.
+- Thiếu key `schema`, hoặc bất kỳ giá trị nào khác → **HARD-STOP**: file viết theo schema khác, các key nó trỏ tới không còn được đọc. Bảo user chạy lại `/agentflow:init`. Không có đường migrate tự động.
+
+### Parse `board.url` (làm một lần, ngay sau schema gate)
 
 `board.url` là URL board copy từ trình duyệt và là **nguồn duy nhất** của ba tham số mà mọi call `projects_*` cần. Board **có thể thuộc owner khác repo** (org board cho repo cá nhân) — nên đừng bao giờ suy owner của board từ `git remote`:
 
@@ -52,13 +59,6 @@ https://github.com/users/<OWNER>/projects/<N>   → owner=<OWNER>  owner_type=us
 Regex: `^https://github\.com/(orgs|users)/([^/]+)/projects/(\d+)` — bỏ qua phần đuôi (`/views/1`, query string) khi user dán nguyên URL từ tab đang mở. Không khớp, hoặc `url: null` → **HARD-STOP**, bảo user chạy `/agentflow:init`; **không đoán** owner từ git remote.
 
 Ba giá trị này (`owner`, `owner_type`, `project_number`) được dùng nguyên văn ở mọi shape call §2 bên dưới. `item_owner` / `item_repo` thì ngược lại — luôn là **owner/repo của issue**, suy từ `git remote`.
-
-### Version gate (chạy trước khi hành động trên config)
-
-`agentflow` trong yaml là **protocol version**, không phải plugin version. Plugin này hỗ trợ protocol **`2.0`**.
-
-- `agentflow` = `2.0` → OK, tiếp tục, không warn.
-- Thiếu key `agentflow`, hoặc bất kỳ giá trị nào khác (`1.0` dùng `board.{number,owner_type}` — key đó không còn được đọc) → **HARD-STOP**: config viết theo protocol khác. Bảo user chạy lại `/agentflow:init`. Không có đường migrate tự động.
 
 ### Hằng số plugin (KHÔNG đọc từ config — cố định trong file này)
 
@@ -85,6 +85,10 @@ Có mặt ⇒ mỗi key là một phần build được: `path` (glob root) + `f
 
 Tập forbidden hiệu lực cho một thay đổi = **hợp** của global forbidden paths và `forbidden` của mọi surface bị chạm.
 
+### Design source
+
+`design.kind` chọn provider của design source; `none` (mặc định) ⇒ không có design, DEV build từ AC và QC verify theo AC. Năm kind: `none` · `repo` · `artifact` · `design-system` · `figma`. Mỗi kind đọc một tập key riêng — shape đầy đủ, cách fetch, và discipline (revision pinning, design mâu thuẫn AC, missing input) nằm ở skill **`design-handoff`**. Đừng suy design source từ chỗ nào khác trong repo.
+
 ### Secret — MỘT đích duy nhất
 
 | Secret | Sống ở đâu | Ai đọc nó |
@@ -106,7 +110,7 @@ Bốn hệ quả vận hành, cả bốn load-bearing:
 | Service | Gate | Fail thì sao |
 |---|---|---|
 | `github` (+ board) | probe `get_me` trả về `login` (probe MCP, **không** test `${GITHUB_TOKEN}` — biến có giá trị vẫn có thể sai scope) | **DỪNG** — không có nó thì không có state machine |
-| `figma` | `figma.enabled: true` + `figma` MCP server đã OAuth (không có token để test) | Degrade: build từ AC, note một dòng trong comment `[DEV]` |
+| `design` | `design.kind` ≠ `none` + access path của kind đó thật sự sống (skill `design-handoff`) | Degrade: build từ AC, note một dòng trong comment `[DEV]` — trừ khi AC tham chiếu một design không lấy được, lúc đó là *missing input* |
 | `notify` | `notify.enabled: true` + `[ -n "${TELEGRAM_BOT_TOKEN:-}" ]` + `[ -n "${TELEGRAM_CHAT_ID:-}" ]` | Bỏ qua im lặng kèm note — **không bao giờ** block |
 
 **Secret hygiene.** Không bao giờ print/echo giá trị token — **kể cả `GITHUB_TOKEN`, dù Bash đọc được nó**; test presence bằng `[ -n "${VAR:-}" ]`. Không bao giờ đặt secret vào `agentflow.yaml` (file này được commit) — phát hiện ở đó thì cảnh báo và bảo rotate. Khi phải ghi một giá trị secret vào file, dùng Read + Write, **không** Bash (tránh shell history). Tham chiếu bằng `${TÊN_KEY}` để shell tự expand lúc chạy.

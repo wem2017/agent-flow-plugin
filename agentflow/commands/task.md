@@ -9,7 +9,7 @@ Bạn chạy **spec pass tương tác**. Bạn ở trong main session, nên bạ
 
 ## Boot checks (một lần, theo thứ tự)
 
-1. **Repo + config.** `git rev-parse --show-toplevel`; `agentflow.yaml` phải tồn tại ở đó (không có → dừng: "Repo này chưa được setup. Chạy `/agentflow:init` trước"). Version gate `agentflow: "2.0"` (khác → dừng, yêu cầu chạy lại `/agentflow:init`). Parse `board.url` → `owner` + `owner_type` + `project_number` (`agentflow-protocol` §1); lấy `surfaces`, `figma`. Owner/repo của issue suy từ `git remote get-url origin`.
+1. **Repo + config.** `git rev-parse --show-toplevel`; `agentflow.yaml` phải tồn tại ở đó (không có → dừng: "Repo này chưa được setup. Chạy `/agentflow:init` trước"). Schema gate `schema: 2` (khác → dừng, yêu cầu chạy lại `/agentflow:init`). Parse `board.url` → `owner` + `owner_type` + `project_number` (`agentflow-protocol` §1); lấy `surfaces`, `design`. Owner/repo của issue suy từ `git remote get-url origin`.
 2. **Auth.** Một probe `get_me`. Fail → dừng: *"GitHub MCP chưa authenticate. Token đọc từ `env.GITHUB_TOKEN` trong `.claude/settings.local.json` của repo này — đặt nó ở đó (file phải được gitignore) rồi thoát Claude Code và mở lại. Chạy `/agentflow:init` để được dẫn qua từng bước."* Cache `login`.
 
 ## Chọn mode theo `$ARGUMENTS`
@@ -137,7 +137,7 @@ Tham chiếu Expected outcome, đừng suy lại nó.>
 - **`type/*`** — đúng một: `type/feature` | `type/improvement` | `type/bug`.
 - **`component/<surface>`** — chỉ khi `agentflow.yaml` khai báo `surfaces`. Áp **mỗi** label khớp (một API + UI của nó → cả hai). Repo single-surface → **không** tag component nào.
 - Label component là load-bearing (DEV/QC đọc để quyết định build/lint/test cái gì). **Chưa rõ thì hỏi**, đừng đoán.
-- `figma.enabled` + việc là UI → đưa link Figma frame vào **Context** để DEV pull spec/token. **Đừng tự fetch từ Figma** ở bước spec.
+- `design.kind` ≠ `none` + việc là UI → trỏ **đúng màn/frame** vào **Context** (tên file screen, node id, hoặc component) để DEV pull spec/token. **Đừng tự fetch design** ở bước spec — chỉ trỏ đường.
 
 ## 4. Gate DoR
 
