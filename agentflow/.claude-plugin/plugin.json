@@ -1,6 +1,6 @@
 {
   "name": "agentflow",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Dev workflow tech-stack-agnostic cho một GitHub repo: bạn là Product Owner, agent DEV + QC phối hợp qua Status field của một GitHub Projects v2 board. Con người giữ quyền merge.",
   "author": {
     "name": "Wem",

@@ -1,97 +1,101 @@
 ---
-description: Tổng quan pipeline AgentFlow của repo này — số board item theo từng Status column, kể cả ticket đã close mà Status còn kẹt ngoài Done. `--audit` chạy membership hai chiều + reconcile + orphan check (ticket /agentflow:start không nhặt lại được). `--metrics` tính flow metrics (throughput, cycle time, first-pass yield, rework/escalation rate, WIP, aging) suy ra từ transition comment + Status trên board.
+description: Tổng quan pipeline AgentFlow của repo này — đếm board item theo từng Status column, kể cả ticket đã close mà Status còn kẹt ngoài Done. `--audit` chạy membership hai chiều + reconcile + orphan check (ticket /agentflow:start không nhặt lại được). `--metrics` tính flow metrics (throughput, cycle time, first-pass yield, rework/escalation rate, WIP, aging) suy ra từ transition comment + Status trên board.
 argument-hint: "[--audit] [--metrics] [--since <N>d]"
 ---
 
-In một bản tóm tắt pipeline gọn cho repo này.
+In một bản tóm tắt pipeline gọn cho repo này. **Chỉ đọc** — không mode nào ở đây ghi gì.
 
-1. Đọc `agentflow.yaml` ở repo root (`board.number`, `board.owner_type`); owner/repo suy từ `git remote get-url origin`. Version gate `agentflow: "1.0"`.
-2. Đếm qua **một** lượt `projects_list` method=`list_project_items`, paginate toàn board (`per_page` ≤ 50, `after` cursor, **LUÔN truyền `field_names: ["Status"]`** — caveat: reference §"List board items"):
-   - Group theo tên option Status (6 hằng số plugin).
-   - Năm state đầu chỉ đếm item có issue `state == open`; **`Done` đếm riêng**: mọi item Status `Done` bất kể issue open/closed.
-   - Trong `Inbox`, tách riêng số ticket mang aux `blocked` — **`/agentflow:start` không tự đụng chúng**, nên con số này là hàng đợi đang chờ chính bạn.
-   - Item Status **trống** → đếm vào dòng riêng; phân loại bằng `--audit`.
-   - **Item có issue `state == closed` mà Status ∉ {`Done`}** → đếm vào **dòng riêng, luôn liệt kê issue number**. Không có dòng này thì chúng rơi khỏi mọi con số (năm state đầu lọc `open`) và biến mất — reference §"Missing Status & membership" ca 4. Thường là: bạn đã merge PR trên github.com nhưng built-in workflow *"Item closed → Done"* chưa bật.
-3. In:
+## 1. Config
 
-   ```
-   PROJECT: <owner/repo>   board #<N>
+`agentflow.yaml` ở repo root: version gate `agentflow: "2.0"`, parse `board.url` → `owner` + `owner_type` + `project_number` (`agentflow-protocol` §1). Owner/repo của issue suy từ `git remote get-url origin`.
 
-   Inbox                <n>   (trong đó blocked: <b> — chờ bạn, chạy /agentflow:task #<n>)
-   Ready for Dev        <n>
-   In Progress          <n>
-   In QC                <n>
-   Ready for Review     <n>
-   Done                 <n>
-   (Status trống)       <n>                    # chỉ in khi > 0
-   ⚠ closed ≠ Done      <n>  #<a>, #<b>        # chỉ in khi > 0 — kéo card sang Done
-   ```
+## 2. Board pass (dùng chung cho cả 3 mode)
 
-Chỉ đếm số lượng — không liệt kê từng card (trừ dòng `blocked` và dòng `closed ≠ Done`: liệt kê issue number để bạn xử lý được ngay).
+Một lượt `projects_list` method=`list_project_items`, paginate toàn board (`per_page` ≤ 50, `after` cursor, **LUÔN truyền `field_names: ["Status"]`** — thiếu nó Status vắng mặt, đó là read bug). Giữ cho mỗi item: `item_id`, issue number, issue state, assignees, tên option Status, aux label.
+
+## 3. Đếm và in
+
+- Group theo tên option Status (6 hằng số plugin).
+- Năm state đầu chỉ đếm issue `state == open`; **`Done` đếm riêng**: mọi item Status `Done` bất kể open/closed.
+- Trong `Inbox`, tách riêng số ticket mang aux `blocked` — `/agentflow:start` không tự đụng chúng, nên đó là hàng đợi đang chờ chính bạn.
+- Status **trống** → dòng riêng; phân loại bằng `--audit`.
+- Issue `state == closed` mà Status ∉ {`Done`} → **dòng riêng, luôn liệt kê issue number**. Không có dòng này thì chúng rơi khỏi mọi con số (năm state đầu lọc `open`) và biến mất. Thường là: bạn merge PR trên github.com nhưng built-in workflow *"Item closed → Done"* chưa bật.
+
+```
+PROJECT: <owner/repo>   board #<N>
+
+Inbox                <n>   (trong đó blocked: <b> — chờ bạn, chạy /agentflow:task #<n>)
+Ready for Dev        <n>
+In Progress          <n>
+In QC                <n>
+Ready for Review     <n>
+Done                 <n>
+(Status trống)       <n>                    # chỉ in khi > 0
+⚠ closed ≠ Done      <n>  #<a>, #<b>        # chỉ in khi > 0 — kéo card sang Done
+```
+
+Chỉ đếm số lượng — không liệt kê từng card, trừ dòng `blocked` và dòng `closed ≠ Done`.
 
 ---
 
 ## `--audit` — membership + reconcile + orphan check
 
-`Status` trên board **LÀ** state authoritative, nên không có gì để "đối chiếu drift". Nhưng còn ba lớp bất thường mà routing không tự thấy. `--audit` **chỉ đọc**, không sửa gì.
+`Status` trên board **LÀ** state authoritative, nên không có drift để đối chiếu. Ba lớp bất thường routing không tự thấy:
 
-1. **Board pass:** một `projects_list` như trên; giữ cho mỗi item: issue number, issue state, assignees, tên option Status, aux label. Card **draft** (không có issue content) nằm ngoài state machine — liệt kê để người convert qua `/agentflow:task`.
-2. **Membership check** — hai chiều, cả hai đều là "ticket vô hình":
-   - `list_issues` (`state: "open"`, không filter label) → issue open nào **không có trên board** → liệt kê. Nó vô hình với routing.
-   - Từ data bước 1 (không cần call thêm): item nào có issue `state == closed` mà Status ∉ {`Done`} → liệt kê. Đây là lane thoát bị bỏ lỡ — bạn merge PR trên github.com và built-in workflow *"Item closed → Done"* chưa bật. Fix: **kéo card sang `Done`**, rồi bật workflow đó (Project settings → Workflows) để lần sau không lặp lại.
-3. **Reconcile check:** với mỗi board item có issue open, `issue_read` method=`get` lấy body, parse `Current state` trong block `<!-- AGENTFLOW-STATE -->` (1+K call — chấp nhận cho một lệnh chẩn đoán chạy tay). So với Status:
-   - Lệch → liệt kê. **Không cần sửa tay**: pickup kế tiếp tự reconcile — Status thắng.
-   - Status **trống** → Missing-Status rule (reference): case intake → coi như `Inbox` (bình thường); case ANOMALY → liệt kê, người re-set column.
-4. **Orphan check** (từ data bước 1, không cần call thêm). `/agentflow:start` claim mọi ticket **unassigned + không `blocked` + Status ∈ {`Inbox`, `Ready for Dev`, `In QC`}**, và nhả claim mỗi khi nó dừng — nên chỉ còn hai lớp bất thường, cả hai đều là **assignee bị bỏ quên**. Các case dưới chỉ đúng khi không có terminal `/agentflow:start` nào đang thật sự chạy ticket đó (audit không tự kiểm được; bạn tự đối chiếu terminal của mình):
-   - **Assigned + Status bất kỳ** → một terminal đã claim rồi chết trước khi nhả (crash, đóng terminal, mất mạng giữa chừng). Ticket vô hình với queue vì filter loại item có assignee. Fix: **unassign là đủ** — `/agentflow:start` sẽ tự nhặt lại đúng cột nó đang đứng (`Ready for Dev` / `In QC` chạy tiếp; `Inbox` chạy spec pass). Không cần kéo card.
-   - **Unassigned + Status `In Progress`** → cột duy nhất không nằm trong queue (in-flight guard). Một DEV run đã chết giữa chừng. Fix: **kéo card về `Ready for Dev`** — DEV sẽ tái dùng branch/PR sẵn có và chạy tiếp, không build lại.
-   - Ngoài hai case trên, một ticket unassigned ở `Inbox` / `Ready for Dev` / `In QC` là **bình thường** — nó đang nằm trong queue chờ `/agentflow:start`. Đừng báo động.
-5. In `✓ mọi open issue đều có trên board, không issue closed nào kẹt ngoài Done, body khớp Status, không có ticket mồ côi` nếu sạch; ngược lại mỗi bất thường một dòng, ví dụ:
+1. **Membership** (hai chiều, cả hai đều là "ticket vô hình"):
+   - `list_issues` (`state: "open"`, không filter label) → issue open **không có trên board** → liệt kê.
+   - Từ board pass: item có issue `state == closed` mà Status ∉ {`Done`} → liệt kê. Fix: **kéo card sang `Done`**, rồi bật workflow *"Item closed → Done"* (Project settings → Workflows).
+   - Card **draft** (không có issue content) nằm ngoài state machine → liệt kê để người convert qua `/agentflow:task`.
+2. **Reconcile:** với mỗi item có issue open, `issue_read` method=`get` → parse `Current state` trong block `<!-- AGENTFLOW-STATE -->`, so với Status (1+K call — chấp nhận cho lệnh chẩn đoán chạy tay).
+   - Lệch → liệt kê. **Không cần sửa tay**: pickup kế tiếp tự reconcile (Status thắng).
+   - Status **trống** → Missing-Status rule (reference §"Missing Status & membership"): case intake → coi như `Inbox`, bình thường; case ANOMALY → liệt kê, người re-set column.
+3. **Orphan** (từ board pass, không cần call thêm). Chỉ đúng khi không có terminal `/agentflow:start` nào đang thật sự chạy ticket đó — bạn tự đối chiếu terminal của mình:
+   - **Assigned (Status bất kỳ)** → một terminal claim rồi chết trước khi nhả. Vô hình với queue vì filter loại item có assignee. Fix: **unassign là đủ** — `/agentflow:start` nhặt lại đúng cột nó đang đứng.
+   - **Unassigned + Status `In Progress`** → cột duy nhất không nằm trong queue (in-flight guard); một DEV run đã chết giữa chừng. Fix: **kéo card về `Ready for Dev`** — DEV tái dùng branch/PR sẵn có.
+   - Unassigned ở `Inbox` / `Ready for Dev` / `In QC` là **bình thường** (đang trong queue). Đừng báo động.
 
-   ```
-   ⚠ #57  open issue không có trên board — vô hình với /agentflow:start: add card (hoặc /agentflow:task #57)
-   ⚠ #53  issue CLOSED nhưng Status "Ready for Review" — kéo card sang Done; bật workflow "Item closed → Done"
-   ⚠ #42  body Current state "In QC" ≠ Status "Inbox" (pickup kế tiếp tự reconcile — Status thắng)
-   ⚠ #48  assigned, Status "In QC" — claim mồ côi: nếu không terminal nào đang chạy → unassign, /agentflow:start tự nhặt lại
-   ⚠ #61  unassigned, Status "In Progress" — DEV run đã chết giữa chừng: kéo card về "Ready for Dev"
-   ```
+Sạch → in `✓ mọi open issue đều có trên board, không issue closed nào kẹt ngoài Done, body khớp Status, không có ticket mồ côi`. Ngược lại mỗi bất thường một dòng:
+
+```
+⚠ #57  open issue không có trên board — vô hình với /agentflow:start: add card (hoặc /agentflow:task #57)
+⚠ #53  issue CLOSED nhưng Status "Ready for Review" — kéo card sang Done; bật workflow "Item closed → Done"
+⚠ #42  body Current state "In QC" ≠ Status "Inbox" (pickup kế tiếp tự reconcile — Status thắng)
+⚠ #48  assigned, Status "In QC" — claim mồ côi: nếu không terminal nào đang chạy → unassign, /agentflow:start tự nhặt lại
+⚠ #61  unassigned, Status "In Progress" — DEV run đã chết giữa chừng: kéo card về "Ready for Dev"
+```
 
 ---
 
 ## `--metrics` — flow metrics
 
-**Nguồn dữ liệu, và vì sao là nó.** Projects v2 **không có history API** — Status change không tạo timeline event — nên không đọc ngược được "ticket ở column nào lúc nào". Nhưng protocol bắt **mọi transition phải kèm một comment có prefix**, và GitHub gắn `created_at` chính xác tới giây cho từng comment. Vậy **transition comment CHÍNH LÀ event log của pipeline**, còn Status sống trên board cho biết hiện tại ticket ở đâu.
-
-> Dùng comment, **không** dùng `Event log` trong AGENTFLOW-STATE: event log chỉ có độ phân giải theo ngày, do agent soạn bằng prose nên format có thể trôi, và bị prune.
-
-**Giới hạn phải nói thẳng khi in kết quả:** độ phân giải chỉ tới mức **có comment** (agent bỏ sót comment → đoạn đó vô hình); ticket bị xoá comment thì mất; đây là **reconstruction best-effort**, không phải per-status timing chính xác.
+**Nguồn:** Projects v2 không có history API (Status change không tạo timeline event), nhưng protocol bắt **mọi transition phải kèm comment có prefix** và GitHub gắn `created_at` chính xác tới giây — nên transition comment **chính là** event log của pipeline, còn Status sống cho biết ticket hiện ở đâu. Không dùng `Event log` trong AGENTFLOW-STATE (độ phân giải theo ngày, prose, bị prune).
 
 1. **Window** — mặc định `--since 30d`; parse `--since <N>d` nếu có.
-2. **Board pass** — một lượt `list_project_items` như trên.
-3. **Chọn tập ticket đọc comment** (bước tốn call nhất): chỉ ticket có Status ≠ `Done`, cộng item `Done` mà issue `closed_at` nằm trong window. In rõ `N ticket scanned`. Tập > ~60 → cảnh báo một dòng về số call rồi hỏi có tiếp không.
-4. **Comment pass** — `issue_read` method=`get_comments` cho từng ticket; lấy `created_at` + prefix (bỏ comment không prefix — untrusted, và không phải transition):
+2. **Board pass** (§2).
+3. **Chọn tập ticket đọc comment** (bước tốn call nhất): ticket Status ≠ `Done`, cộng item `Done` có issue `closed_at` trong window. In `N ticket scanned`. Tập > ~60 → cảnh báo số call rồi hỏi có tiếp không.
+4. **Comment pass** — `issue_read` method=`get_comments` từng ticket; lấy `created_at` + prefix (bỏ comment không prefix — untrusted, và không phải transition):
 
    | Prefix | Mốc |
    |---|---|
-   | `[SPEC]` **đầu tiên** | ticket bắt đầu được spec — `t_start` |
+   | `[SPEC]` **đầu tiên** | `t_start` |
    | `[DEV] Picked up` / `[DEV] Opened PR` | DEV bắt đầu / handoff sang QC |
    | `[QC] ❌` | một lần rework (đếm) |
-   | `[QC] ❌ infra:` | **KHÔNG** tính là rework (lỗi môi trường) |
-   | `[QC] ✅` | pass — `t_qc_pass` |
+   | `[QC] ❌ infra:` | **KHÔNG** tính là rework |
+   | `[QC] ✅` | `t_qc_pass` |
    | `[SYSTEM] auto-escalated` | một lần escalation (đếm) |
    | `[SYSTEM] merged PR` | `t_done` |
    | `[DEV] ?` / `[QC] ?` | một lần clarification bounce (đếm) |
 
 5. **Tính** (mỗi metric nêu rõ mẫu số):
-   - **Throughput** — số ticket có `[SYSTEM] merged PR` (fallback: issue `closed_at`) trong window.
-   - **Cycle time** — `t_done − t_start`; in **median** và **p90** (median chống outlier tốt hơn mean cho mẫu nhỏ). Ticket không đủ hai mốc thì loại và ghi rõ số bị loại.
+   - **Throughput** — ticket có `[SYSTEM] merged PR` (fallback: issue `closed_at`) trong window.
+   - **Cycle time** — `t_done − t_start`, in **median** + **p90**. Ticket thiếu mốc thì loại và ghi rõ số bị loại.
    - **Time-to-first-PR** — `[DEV] Opened PR` đầu tiên `− t_start`, median.
-   - **First-pass yield** — % ticket đạt `[QC] ✅` mà **không** có `[QC] ❌` nào trước đó. Đây là chỉ số chất lượng quan trọng nhất: nó đo DEV có làm đúng ngay từ đầu không.
+   - **First-pass yield** — % ticket đạt `[QC] ✅` mà **không** có `[QC] ❌` nào trước đó. Chỉ số chất lượng quan trọng nhất: DEV có làm đúng ngay từ đầu không.
    - **Rework rate** — tổng `[QC] ❌` (loại `infra:`) ÷ số ticket đã qua QC.
    - **Escalation rate** — % ticket có ≥1 `[SYSTEM] auto-escalated`.
-   - **Blocked rate** — % ticket từng phải quay về người (suy từ `[DEV] ?`, `[QC] ?`, `[SYSTEM] auto-escalated`). Cao = spec vào pipeline còn mỏng.
-   - **WIP hiện tại** — đếm live theo column cho `Ready for Dev` / `In Progress` / `In QC`.
-   - **Aging** — với ticket đang **park** (`Inbox +blocked`, `Ready for Review`), tính `now − created_at` của comment mới nhất. **Liệt kê từng cái quá 3 ngày** — đây là phần hành động được nhất của cả lệnh: nó chỉ đúng ticket đang chặn dòng chảy.
+   - **Blocked rate** — % ticket từng quay về người (`[DEV] ?`, `[QC] ?`, `[SYSTEM] auto-escalated`). Cao = spec vào pipeline còn mỏng.
+   - **WIP** — đếm live theo column cho `Ready for Dev` / `In Progress` / `In QC`.
+   - **Aging** — ticket đang park (`Inbox +blocked`, `Ready for Review`): `now − created_at` của comment mới nhất. **Liệt kê từng cái quá 3 ngày** — phần hành động được nhất của cả lệnh.
 
 6. **In:**
 
@@ -117,7 +121,8 @@ Chỉ đếm số lượng — không liệt kê từng card (trừ dòng `block
      #38  Inbox +blocked    4d   chờ bạn trả lời [DEV] ? về scope export
 
    Nguồn: transition comment (timestamp GitHub) + Status trên board. Projects v2 không có history
-   API, nên đây là reconstruction best-effort — độ phân giải tới mức có comment.
+   API, nên đây là reconstruction best-effort — độ phân giải tới mức có comment (agent bỏ sót
+   comment → đoạn đó vô hình).
    ```
 
-Không ticket nào đủ dữ liệu → in `chưa đủ dữ liệu trong window — thử /agentflow:status --metrics --since 90d`. `--metrics` **chỉ đọc**; kết hợp được với `--audit` (chạy lần lượt, dùng chung board pass).
+Không ticket nào đủ dữ liệu → in `chưa đủ dữ liệu trong window — thử /agentflow:status --metrics --since 90d`. Kết hợp được với `--audit` (chạy lần lượt, dùng chung board pass §2).

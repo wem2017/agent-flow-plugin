@@ -2,15 +2,18 @@
 # COMMIT ĐƯỢC: chỉ chứa thứ KHÔNG suy ra được, không bao giờ chứa secret.
 # Cách dùng / protocol / thêm key mới → README của plugin agentflow (`/agentflow:status` để xem pipeline).
 
-agentflow: "1.0"
+agentflow: "2.0"
 
 # ── BOARD (bắt buộc) ─────────────────────────────────────────────────────────
-# `Status` field của Projects v2 board LÀ state authoritative, và board là inbox
-# queue của /agentflow:start. Status field phải có đúng 6 option, đúng tên:
+# Dán nguyên URL board từ thanh địa chỉ trình duyệt. URL là nguồn DUY NHẤT cho
+# owner + owner_type + project number (board có thể thuộc org khác owner của repo):
+#   https://github.com/orgs/<org>/projects/<N>      → owner_type org
+#   https://github.com/users/<login>/projects/<N>   → owner_type user
+# `Status` field của board LÀ state authoritative, và board là inbox queue của
+# /agentflow:start. Status field phải có đúng 6 option, đúng tên:
 #   Inbox · Ready for Dev · In Progress · In QC · Ready for Review · Done
 board:
-  number: null                 # ← BẮT BUỘC THAY: project number (phần /projects/<N> trong URL)
-  owner_type: "user"           # org | user — board thuộc org hay user (owner suy từ git remote)
+  url: null                    # ← BẮT BUỘC THAY, vd "https://github.com/orgs/passion-ui/projects/11"
 
 # ── SURFACES (tùy chọn — mặc định là KHÔNG khai báo) ─────────────────────────
 # Repo single-surface thì để nguyên như vậy: DEV/QC gate toàn repo, issue không

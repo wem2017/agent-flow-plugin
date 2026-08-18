@@ -21,7 +21,7 @@ Contract mà **DEV**, **QC**, và mọi command của AgentFlow phải tuân the
 
 | File | Commit? | Giữ gì |
 |---|---|---|
-| **`agentflow.yaml`** (root repo) | có | `agentflow` (version), `board.{number,owner_type}`, `surfaces` (tùy chọn), `figma`, `notify` |
+| **`agentflow.yaml`** (root repo) | có | `agentflow` (version), `board.url`, `surfaces` (tùy chọn), `figma`, `notify` |
 | **`.claude/settings.local.json`** (repo) | **không** (gitignored) | `env` (**mọi** secret: `GITHUB_TOKEN`, `TELEGRAM_*`, `FIGMA_TOKEN`), `enabledPlugins`, `extraKnownMarketplaces` |
 
 Quy tắc phân loại khi phân vân: **hành vi agent → yaml · công cụ/harness và mọi secret → settings.local.json.** Một thông tin không bao giờ nằm ở hai chỗ.
@@ -34,18 +34,31 @@ Những thứ sau **không** có trong config vì chúng luôn suy ra được �
 
 ```bash
 git rev-parse --show-toplevel            # repo root — nơi agentflow.yaml phải nằm
-git remote get-url origin                # → OWNER/REPO  (owner của board cũng là OWNER này)
+git remote get-url origin                # → OWNER/REPO của issue/PR (KHÔNG phải owner của board)
 git rev-parse --abbrev-ref origin/HEAD   # → origin/main → default branch
 ```
 
 Nếu `agentflow.yaml` không tồn tại ở repo root → repo chưa được setup: dừng và bảo user chạy `/agentflow:init`.
 
+### Parse `board.url` (làm một lần, ngay sau version gate)
+
+`board.url` là URL board copy từ trình duyệt và là **nguồn duy nhất** của ba tham số mà mọi call `projects_*` cần. Board **có thể thuộc owner khác repo** (org board cho repo cá nhân) — nên đừng bao giờ suy owner của board từ `git remote`:
+
+```
+https://github.com/orgs/<OWNER>/projects/<N>    → owner=<OWNER>  owner_type=org   project_number=<N>
+https://github.com/users/<OWNER>/projects/<N>   → owner=<OWNER>  owner_type=user  project_number=<N>
+```
+
+Regex: `^https://github\.com/(orgs|users)/([^/]+)/projects/(\d+)` — bỏ qua phần đuôi (`/views/1`, query string) khi user dán nguyên URL từ tab đang mở. Không khớp, hoặc `url: null` → **HARD-STOP**, bảo user chạy `/agentflow:init`; **không đoán** owner từ git remote.
+
+Ba giá trị này (`owner`, `owner_type`, `project_number`) được dùng nguyên văn ở mọi shape call §2 bên dưới. `item_owner` / `item_repo` thì ngược lại — luôn là **owner/repo của issue**, suy từ `git remote`.
+
 ### Version gate (chạy trước khi hành động trên config)
 
-`agentflow` trong yaml là **protocol version**, không phải plugin version. Plugin này hỗ trợ protocol **`1.0`**.
+`agentflow` trong yaml là **protocol version**, không phải plugin version. Plugin này hỗ trợ protocol **`2.0`**.
 
-- `agentflow` = `1.0` → OK, tiếp tục, không warn.
-- Thiếu key `agentflow`, hoặc là bất kỳ giá trị nào khác (kể cả `0.x`, `1.1.0` của thế hệ AgentFlow cũ) → **HARD-STOP**: config viết theo protocol khác, các key nó trỏ tới không còn được đọc. Bảo user chạy lại `/agentflow:init`. Không có đường migrate tự động.
+- `agentflow` = `2.0` → OK, tiếp tục, không warn.
+- Thiếu key `agentflow`, hoặc bất kỳ giá trị nào khác (`1.0` dùng `board.{number,owner_type}` — key đó không còn được đọc) → **HARD-STOP**: config viết theo protocol khác. Bảo user chạy lại `/agentflow:init`. Không có đường migrate tự động.
 
 ### Hằng số plugin (KHÔNG đọc từ config — cố định trong file này)
 
@@ -143,9 +156,9 @@ Một transition là **một call duy nhất**, resolve item theo (`item_owner` 
 
 ```
 projects_write method=update_project_item
-  owner: <OWNER>
-  owner_type: <org|user>              # LUÔN pass
-  project_number: <board.number>
+  owner: <owner từ board.url>
+  owner_type: <org|user từ board.url>   # LUÔN pass
+  project_number: <N từ board.url>
   item_owner: <owner của issue>       # (item_owner + item_repo + issue_number) resolve item
   item_repo:  <repo của issue>
   issue_number: <n>
@@ -164,7 +177,7 @@ projects_write method=update_project_item
 
 ```
 projects_get method=get_project_item
-  owner: <OWNER>   owner_type: <org|user>   project_number: <board.number>
+  owner / owner_type / project_number: parse từ `board.url` (§1)
   item_id: <id numeric>
   field_names: ["Status"]          # LUÔN truyền — thiếu nó Status vắng mặt (read bug)
 ```

@@ -21,9 +21,9 @@ KHÔNG `PVT_` node id (ngoại lệ duy nhất: setup board ở init, xem carve-
 2. **`projects_list`** — read dạng list (`list_project_fields` / `list_project_items`)
 3. **`projects_write`** — write (`create_project` / `add_project_item` / `update_project_item` / `delete_project_item`)
 
-Chúng key theo **owner + owner_type + project number** (owner suy từ `git remote`, `owner_type` từ
-`board.owner_type` trong `agentflow.yaml`). **Không bao giờ hardcode node id.** Bất đối xứng quan
-trọng giữa read và write:
+Chúng key theo **owner + owner_type + project number** — cả ba parse từ `board.url` trong
+`agentflow.yaml` (`../SKILL.md` §1). Board có thể thuộc owner khác repo, nên **đừng** suy owner của
+board từ `git remote`. **Không bao giờ hardcode node id.** Bất đối xứng quan trọng giữa read và write:
 
 - **WRITE** (`update_project_item`) resolve item theo (`item_owner` + `item_repo` + `issue_number`)
   và field + option **by name** — tất cả server-side, không cần discover id nào.
@@ -56,9 +56,7 @@ không có fallback.
 
 ```
 projects_get method=get_project
-  owner: <OWNER từ git remote>
-  owner_type: <board.owner_type>
-  project_number: <board.number>
+  owner / owner_type / project_number: parse từ `board.url` (`../SKILL.md` §1)
 ```
 
 Không resolve được → dừng và báo user. Không board là không có state machine.
@@ -76,7 +74,8 @@ projects_write method=create_project
   owner: <OWNER canonical>   owner_type: <org|user>   title: <tên repo>
 ```
 
-Lưu **number** trả về vào `board.number`.
+Ghép **URL** rồi lưu vào `board.url`: `https://github.com/<orgs|users>/<OWNER>/projects/<number>`
+(`owner_type: org` → segment `orgs`, `user` → `users`).
 
 2. **Status field 6 option.** Project mới đi kèm `Status` mặc định `Todo / In Progress / Done`.
    AgentFlow cần **đúng sáu** option, đúng tên, đúng thứ tự:
@@ -92,7 +91,7 @@ Lưu **number** trả về vào `board.number`.
 
 ```
 projects_list method=list_project_fields
-  owner: <OWNER>   owner_type: <org|user>   project_number: <board.number>
+  owner / owner_type / project_number: từ `board.url`
 ```
 
    Assert `Status` (single-select) có đủ 6 option đúng tên; thiếu → liệt kê tên còn thiếu, yêu cầu
@@ -139,7 +138,7 @@ option `Status`.
 
 ```
 projects_list method=list_project_items
-  owner: <OWNER>   owner_type: <org|user>   project_number: <board.number>
+  owner / owner_type / project_number: từ `board.url`
   per_page: 50
   after: <endCursor|null>
   field_names: ["Status"]

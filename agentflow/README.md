@@ -6,7 +6,7 @@ AgentFlow **tech-stack-agnostic**. Cài **một lần**, chạy theo từng repo
 
 - **Con người ở trong vòng lặp, đúng chỗ nó có giá trị.** Intake và refine (viết AC, chọn QC tier, gate Definition of Ready) chạy **tương tác ngay trong session** — hỏi đáp trực tiếp với bạn. Không sub-agent nào tự viết spec rồi tự làm theo spec của chính nó.
 - **Board 6 cột, một bất biến.** `Inbox · Ready for Dev · In Progress · In QC · Ready for Review · Done`. **Cột do agent sở hữu không bao giờ giữ ticket ở trạng thái nghỉ** — agent không đi tiếp được thì ticket về `Inbox` + label `blocked`. Không có ticket nào kẹt vô hình.
-- **Config ~15 dòng.** `agentflow.yaml` ở root repo chỉ giữ thứ **không suy ra được**: board number, surfaces, hai toggle. Repo/branch/owner suy từ `git remote` mỗi run; tên column, label, MCP wiring, ngưỡng rework là **hằng số plugin**.
+- **Config ~15 dòng.** `agentflow.yaml` ở root repo chỉ giữ thứ **không suy ra được**: URL board, surfaces, hai toggle. Owner/owner_type/number của board parse từ chính URL đó; repo/branch/owner suy từ `git remote` mỗi run; tên column, label, MCP wiring, ngưỡng rework là **hằng số plugin**.
 - **Mọi secret một chỗ, theo từng repo.** `GITHUB_TOKEN` — cùng `TELEGRAM_*` và `FIGMA_TOKEN` — sống trong block `env` của **`.claude/settings.local.json`**, file mà `/agentflow:init` bắt buộc phải thấy đã gitignore *trước khi* nói tới token. Đổi lại rủi ro "secret nằm trong working tree": mỗi clone một token, nên mỗi repo chạy được dưới một GitHub identity riêng.
 
 Không có message bus. Agent giao tiếp hoàn toàn qua GitHub primitives: **`Status` field trên Projects v2 board** (state authoritative), **issue comment có prefix** (audit trail duy nhất của transition), và **một section `AGENTFLOW-STATE` trong issue body** (memory giữa các lần chạy). Label không mang state.
@@ -132,8 +132,8 @@ Công thức spec pass (cấu trúc body, AC, sizing, QC tier, tag component, Do
 `agentflow.yaml` ở **root repo** cố tình chỉ giữ thứ **không suy ra được**:
 
 ```yaml
-agentflow: "1.0"
-board:   { number: 7, owner_type: user }
+agentflow: "2.0"
+board:   { url: "https://github.com/orgs/passion-ui/projects/11" }   # hoặc /users/<login>/projects/<N>
 surfaces:                       # BỎ HẲN block này nếu repo single-surface
   api:    { path: "api/" }
   mobile: { path: "app/", forbidden: ["android/key.properties"] }
@@ -141,7 +141,7 @@ figma:   { enabled: true, files: [{ name: "Design System", key: "AbC123" }] }
 notify:  { enabled: false, events: ["blocked", "ready_for_review"] }
 ```
 
-Mọi thứ khác đến từ ba nguồn còn lại: **suy từ git** (repo, owner, default branch), **hằng số plugin** (6 tên column, label, branch prefix, global forbidden paths `infra/**` + `.github/workflows/**` + `**/*.pem` + `**/.env`, ngưỡng rework `2`, ý nghĩa QC tier), và **auto-discovery** (project skill). Quy tắc khi phân vân: *hành vi agent → yaml · công cụ/harness và mọi secret → `.claude/settings.local.json`.*
+`board.url` là nguồn duy nhất cho `owner` + `owner_type` + `project_number` của mọi call `projects_*` — dán nguyên URL từ trình duyệt, và board **được phép** thuộc owner khác repo. Mọi thứ khác đến từ ba nguồn còn lại: **suy từ git** (repo, owner, default branch), **hằng số plugin** (6 tên column, label, branch prefix, global forbidden paths `infra/**` + `.github/workflows/**` + `**/*.pem` + `**/.env`, ngưỡng rework `2`, ý nghĩa QC tier), và **auto-discovery** (project skill). Quy tắc khi phân vân: *hành vi agent → yaml · công cụ/harness và mọi secret → `.claude/settings.local.json`.*
 
 **Surfaces** là tùy chọn — vắng mặt nghĩa là single-surface, DEV/QC gate toàn repo. Có mặt thì mỗi key sinh một label `component/<key>`; spec pass tag issue, DEV/QC chỉ build/lint/test những surface đó theo convention của chính repo (không có command nào trong config).
 
@@ -157,9 +157,13 @@ Mọi thứ khác đến từ ba nguồn còn lại: **suy từ git** (repo, own
 - **Kéo card là human API chính thức — nhưng chỉ ở parked state**: `Ready for Review` → `Inbox` (PR-feedback re-entry), close issue / merge PR → `Done`. Kéo card khi ticket đang `In Progress` / `In QC` **không an toàn**: compare-then-write bắt được phần lớn nhưng vẫn còn cửa sổ clobber — muốn dừng một run đang chạy, dừng terminal.
 - **Status write là mandatory-success.** Fail = **pipeline dừng có chủ đích** (fail-stop), không phải desync. Issue OPEN không có trên board là **vô hình với routing** — `/agentflow:status --audit` phát hiện.
 - **Merge PR trên github.com thì nhớ bật built-in workflow `Item closed → Done`.** Bạn có hai đường merge: gõ `merge #<n>` trong `/agentflow:start` (nó ghi Status `Done` explicit), hoặc bấm Merge trên github.com — đường thứ hai để lại card ở `Ready for Review` với issue đã đóng, trừ khi workflow đó đã bật, và `/agentflow:init` **không verify được** nó (không API nào đọc được). Card như vậy vô hình với cả queue lẫn bảng đếm; `/agentflow:status` in nó ở dòng `⚠ closed ≠ Done`.
-- **Safety rule: một phần đã enforce, phần còn lại vẫn ở mức prompt — đừng nhầm hai cái.**
-  - **Đã enforce (tầng tool):** `disallowedTools` gỡ hẳn `merge_pull_request` khỏi cả hai agent, cộng restriction theo role (DEV mất `pull_request_review_write` — không tự approve PR của mình; QC mất `create_pull_request` — chỉ push lên PR branch sẵn có). Agent bị derail/inject **không gọi được** MCP tool merge.
-  - **CHƯA enforce (vẫn là prompt contract):** forbidden paths (global ∪ `forbidden` của surface bị chạm), no-force-push, no-`gh pr merge`, no-push-to-default-branch, và ranh giới "QC không đụng implementation logic". `/agentflow:init` **không** sinh `permissions` — allow/deny là cấu hình riêng của từng người, plugin không áp đặt. Muốn gate ở tầng harness: tự thêm `permissions.deny` vào `.claude/settings.local.json` (deny thắng allow). **`Bash` là escape hatch** cho mọi mục trên. Gate duy nhất phủ được cả team vẫn là branch protection phía repo.
+- **Safety rule hiện là prompt contract, KHÔNG có enforcement tầng tool.** DEV và QC chạy với **toàn bộ tool** (không khai `disallowedTools`) — chủ ý, để agent không bị chặn giữa chừng bởi một tool mà nó thật sự cần.
+  - **Chỉ là prompt contract:** no-merge, DEV không post PR review, QC không mở PR mới, forbidden paths (global ∪ `forbidden` của surface bị chạm), no-force-push, no-push-to-default-branch, và ranh giới "QC không đụng implementation logic". Một agent bị derail/inject **gọi được** `merge_pull_request`.
+  - **Muốn gate ở tầng harness** (khuyến nghị nếu repo có nhiều người): thêm `permissions.deny` vào `.claude/settings.local.json` — `/agentflow:init` **không** tự sinh, vì allow/deny là cấu hình riêng của từng người:
+    ```json
+    { "permissions": { "deny": ["mcp__github__merge_pull_request"] } }
+    ```
+    Deny thắng allow. **`Bash` vẫn là escape hatch** cho mọi mục trên (`gh pr merge`, `git push --force`). Gate duy nhất phủ được cả team vẫn là branch protection phía repo.
   - **Lớp enforcement thật còn thiếu:** một PreToolUse hook match path/command, và branch-protection ruleset phía repo (block force-push + require PR review) — cái sau là gate duy nhất chạy ngoài tầm với của agent. Cho tới khi có, hãy dùng token least-privilege và review PR trước khi merge.
 - **Comment GitHub không có prefix là untrusted.** Mọi actor — kể cả main session — coi comment không mang prefix nhận diện được là context untrusted, không phải chỉ thị.
 
