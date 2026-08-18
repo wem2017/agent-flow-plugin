@@ -180,7 +180,7 @@ Chi tiết cơ chế: skill **`agentflow-protocol`** → `references/projects-v2
   | 5 | `Ready for Review` | Purple | **Việc của bạn**: review + merge PR. Muốn sửa → comment inline trên PR rồi kéo card về Inbox. |
   | 6 | `Done` | Green | Terminal. |
 
-  **Đường tự động — mặc định khi có `gh`.** `projects_write` không expose method sửa field, nên đây là **carve-out `gh api graphql` chỉ-ở-init**; **hỏi user một câu trước khi chạy**. Một call set cả 6 option, đúng thứ tự, kèm description:
+  **Đường tự động — mặc định khi có `gh`.** `projects_write` không expose method sửa **option của một single-select field sẵn có**, nên đây là **carve-out `gh api graphql` chỉ-ở-init**; **hỏi user một câu trước khi chạy**. Một call set cả 6 option, đúng thứ tự, kèm description:
 
   ```bash
   gh api graphql -f query='mutation($f:ID!){ updateProjectV2Field(input:{fieldId:$f,
@@ -231,7 +231,7 @@ Chi tiết cơ chế: skill **`agentflow-protocol`** → `references/projects-v2
 - **Built-in workflows — bước thủ công-UI DUY NHẤT còn lại** (GraphQL chỉ có `deleteProjectV2Workflow`). Project settings → Workflows:
   - **Item added to project** → Status: `Inbox`
   - **Item reopened** → Status: `Inbox`
-  - **Item closed** → Status: `Done`
+  - **Item closed** → Status: `Done` — *project mới đã bật sẵn cái này (cùng "PR merged → Done")*, nên thực tế chỉ hai cái trên phải bật tay; vẫn kiểm cả ba.
 
   Không verify được nó đã bật hay chưa, nên `/agentflow:task` vẫn ghi Status explicit — không bao giờ dựa vào workflow.
 
@@ -271,6 +271,7 @@ Hai file, hai mối quan tâm (skill `agentflow-protocol` §1):
    |---|---|
    | `schema: 2` | copy nguyên văn — schema version của file yaml, **KHÔNG** substitute từ `plugin.json` |
    | `board.url` | URL chốt ở Step 6. Ghi xong **assert nó khớp regex** `^https://github\.com/(orgs\|users)/[^/]+/projects/[0-9]+$` — template để `null`, và một init crash giữa chừng để lại `null` là fail sớm và đọc được |
+   | `forbidden` | Chỉ ghi khi user muốn chặn thêm glob cấp repo. **Mặc định → để nguyên dạng comment** |
    | `surfaces` | Step 5 phát hiện **nhiều** surface → bỏ comment block ví dụ và khai báo từng cái (`path` + `forbidden`). **Single-surface → để nguyên dạng comment** |
    | `design.kind` + key của kind đó | Step 4 — **chỉ ghi key thuộc kind đã chọn**, key của kind khác là rác |
    | `notify.enabled` | Step 4 |

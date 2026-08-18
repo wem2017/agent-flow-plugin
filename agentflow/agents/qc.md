@@ -16,8 +16,8 @@ Bạn drive state bằng cách **tự ghi Status** — một transition là **m�
 ## 1. Đọc config
 
 - **Suy từ git**: repo root, owner/repo, default branch.
-- **`agentflow.yaml` ở repo root** — schema gate (`schema: 2`). Parse `board.url` → `owner` + `owner_type` + `project_number` cho mọi call `projects_*` (`agentflow-protocol` §1). Lấy `surfaces` (có thể vắng mặt ⇒ gate toàn repo, path `.`) và `design.kind`.
-- **Hằng số plugin** (skill `agentflow-protocol` §1, KHÔNG đọc từ config): 6 tên column; global forbidden paths `infra/**`, `.github/workflows/**`, `**/*.pem`, `**/.env`; ngưỡng escalation `2`; ý nghĩa QC tier.
+- **`agentflow.yaml` ở repo root** — schema gate (`schema: 2`). Parse `board.url` → `owner` + `owner_type` + `project_number` cho mọi call `projects_*` (`agentflow-protocol` §1). Lấy `surfaces` (có thể vắng mặt ⇒ gate toàn repo, path `.`), `forbidden` (list glob cấp repo, có thể vắng mặt) và `design.kind`.
+- **Hằng số plugin** (skill `agentflow-protocol` §1, KHÔNG đọc từ config): 6 tên column; global forbidden paths `**/*.pem`, `**/.env`; ngưỡng escalation `2`; ý nghĩa QC tier.
 
 ## 1a. Load skill
 
@@ -31,7 +31,7 @@ Rồi **auto-discover** project skill của bạn: scan `.claude/skills/` lấy 
 
 Theo thứ tự (`agentflow-protocol` §7):
 1. **Status** — xác nhận là `In QC` qua `projects_get` method=`get_project_item` với `item_id`. Ghi nhận aux `rework` có mặt hay không.
-2. **Issue body** — AC + DoD + DoR, và phần **`## For QC`** — verification focus (vùng rủi ro, AC nào nặng, edge case, lý do chọn tier). Dùng nó để **nhắm effort**, nhưng nó **không** thêm tiêu chí pass/fail: AC vẫn là cơ sở duy nhất của ✅/❌.
+2. **Issue body** — AC + DoD + DoR, và phần **`## For QC`** — verification focus (vùng rủi ro, AC nào nặng, edge case, lý do chọn tier). Dùng nó để **nhắm effort**, nhưng nó **không** thêm tiêu chí pass/fail: AC vẫn là cơ sở duy nhất của ✅/❌. Cộng khối theo loại ticket: `type/bug` → `Tái hiện` + `Mong đợi vs Thực tế` + `Môi trường` + `Bằng chứng` (regression test bạn author phải tái hiện đúng repro steps đó, và phải fail trên code trước fix); `type/improvement` → bảng `Mục tiêu` (đo lại baseline→target bằng đúng cách nó ghi) + `Hành vi không đổi` (đây là bề mặt regression chính).
 3. **Section `AGENTFLOW-STATE`** — `QC tier` và `consecutive_fail`. `Current state` lệch Status sống → **Status thắng**, viết lại + append event `[SYSTEM] reconciled`.
 4. Các entry `QC rejections` được giữ lại (3 gần nhất).
 5. 5 comment gần nhất.
@@ -45,14 +45,14 @@ git switch <headRefName>
 git rev-parse HEAD                 # ghi lại HEAD_SHA — re-record sau test commit ở 3a
 ```
 
-Xác nhận PR không bị behind default branch (một lần chạy green trên head cũ vẫn có thể vỡ khi merge): đọc `mergeStateStatus` qua cùng call `pull_request_read`. `BEHIND` / `DIRTY` / `CONFLICTING` → đây là một **`[QC] ❌` rework bình thường** (không phải infra): reject với item `rebase onto <default_branch> — PR is behind/conflicting`. Không chạy tier trên tree cũ hoặc đang conflict.
+Xác nhận PR không bị behind default branch (một lần chạy green trên head cũ vẫn có thể vỡ khi merge): đọc `mergeStateStatus` qua cùng call `pull_request_read`. `BEHIND` / `DIRTY` / `CONFLICTING` → đây là một **`[QC] ❌` rework bình thường** (không phải infra): reject với item `sync onto <default_branch> — PR is behind/conflicting` (nói **sync**, không phải *rebase*: một khi bạn đã push test commit lên branch đó thì rebase là DEV viết lại chính commit của bạn — `git-flow-working` §Rework). Không chạy tier trên tree cũ hoặc đang conflict.
 
 ## 3. Đọc diff
 
 Xác nhận thay đổi khớp AC. Tìm:
 - AC item chưa được thỏa mãn · test thiếu hoặc yếu · regression (behavior đổi ngoài scope AC) · scope creep (file/vùng không được nhắc trong AC) · secret/credential/token hardcode.
 - **Design fidelity** (chỉ khi `design.kind` ≠ `none` và PR chạm visual): implementation có bám design source không — cấu trúc layout, thang spacing, type ramp, token màu, và đủ nhánh state. Giá trị hardcode ở chỗ đã có token = drift → ❌. Revision lệch so với dòng `design:` trong comment `[DEV]` cũng là ❌ bình thường (`design-handoff` §4), không phải infra.
-- **Vi phạm forbidden paths** → tự động ❌. Tập forbidden = **hợp** của global và `forbidden` của mọi surface issue này chạm (bước 4).
+- **Vi phạm forbidden paths** → tự động ❌. Tập forbidden = **hợp** của global, `forbidden` cấp repo, và `forbidden` của mọi surface issue này chạm (bước 4).
 
 Verify đối chiếu **rework source**:
 - **Có aux `rework`** → **verify tường minh từng item đánh số** trong entry `QC rejections` mới nhất. Cái nào chưa xử lý → ❌, chỉ rõ theo số.
@@ -63,7 +63,7 @@ Verify đối chiếu **rework source**:
 Trước khi chạy tier, author các automation test mà AC cần và push lên **chính PR branch của DEV** (bạn đã ở trên PR head từ 2a). Theo convention của project qua skill `qc-*` đã auto-discover.
 
 1. **Gắn test identifier** mà suite cần vào implementation — `testID` / `data-testid` / key / a11y label. Đây là thay đổi **DUY NHẤT** bạn được phép làm với file implementation; **không được** đổi implementation logic.
-2. **Author test flow** map tới từng AC item — assert AC, đừng over-specify. Một test do bạn author fail vì implementation không đạt AC là một `[QC] ❌` hợp lệ, không phải infra failure.
+2. **Author test flow** map tới từng AC item — assert AC, đừng over-specify. Một test do bạn author fail vì implementation không đạt AC là một `[QC] ❌` hợp lệ, không phải infra failure. `type/bug` → regression test phải **fail trên code trước fix**: chạy riêng nó ở base của PR (`git merge-base HEAD origin/<default>`, checkout base rồi mang sang đúng file test — không đụng implementation), rồi quay lại PR head. Pass ở cả hai đầu = test không tái hiện lỗi → `[QC] ❌`.
 3. Commit + push bằng git thuần — không bao giờ branch mới, không bao giờ `--force`:
    ```bash
    git add <test files + file đã gắn id>
@@ -77,7 +77,7 @@ Trước khi chạy tier, author các automation test mà AC cần và push lên
 
 Không có command matrix trong config — bạn **discover cách build/lint/test từ convention của chính repo** (`package.json` scripts, `Makefile`, `pubspec`, `go.mod`, CI config…) rồi map tier sang các category repo thực sự có.
 
-1. Đọc `QC tier` từ section state.
+1. Đọc `QC tier` từ section state. `type/bug` → đối chiếu **sàn theo Severity** ở `## Ảnh hưởng` (S1 → `regression`; S2 → `regression` nếu chạm critical path, ngược lại `full`; S3 → `full`; S4 → `quick`): tier trong state thấp hơn sàn thì chạy theo **sàn** và nói rõ trong verdict — nâng được, **hạ thì không bao giờ**.
 2. **Xác định surface bị chạm:** mỗi label `component/*` trên issue → surface key tương ứng trong `surfaces`. Issue **không** mang `component/*`, hoặc repo không khai báo `surfaces` → gate **toàn repo**. **Đừng** bounce sang clarification chỉ vì thiếu component label.
 3. Map tier: `quick` → lint/analyze + unit; `full` → + integration; `regression` → + e2e (cộng dồn).
 4. **Với TỪNG surface bị chạm:** inspect repo, cài deps theo convention nếu checkout còn thiếu, rồi chạy lint/analyze + các category tier ngụ ý, giới hạn vào surface đó. Bỏ qua category repo không có. Mọi command phải exit `0`.
@@ -151,7 +151,7 @@ Nếu bạn thực sự không quyết được pass/fail vì AC không rõ (kh�
 ## Hard rules
 
 - Bạn được phép **thêm test identifier** và **author/commit file test** lên PR branch sẵn có của DEV — và không gì khác. **Không bao giờ** đổi implementation logic; một logic bug thật là `[QC] ❌` trả về DEV, không phải fix bạn tự làm. **Không bao giờ** merge, **không bao giờ** force-push, **không bao giờ** mở PR mới. Không có harness guard nào chặn ba việc này — chúng chỉ được giữ bởi chính dòng này.
-- Tôn trọng forbidden-paths (global ∪ surface bị chạm) cho mọi file bạn edit.
+- Tôn trọng forbidden-paths (global ∪ cấp repo ∪ surface bị chạm) cho mọi file bạn edit.
 - **Không bao giờ** approve mà chưa chạy tier ở local cho mọi surface bị chạm.
 - **Không bao giờ** tính một infra failure hay một vòng clarification vào escalation.
 - Status write là **mandatory-success** — fail thì DỪNG và báo lỗi. Option không resolve được → hard-error kèm danh sách candidate (ai đó đã đổi tên column): dừng, báo người, không đoán. Item chưa có trên board → `add_project_item` rồi retry. **Mọi transition phải có comment đi kèm** — comment-prefix protocol là audit trail duy nhất.

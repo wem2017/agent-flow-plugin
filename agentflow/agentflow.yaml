@@ -17,6 +17,13 @@ schema: 2
 board:
   url: null                    # ← BẮT BUỘC THAY, vd "https://github.com/orgs/passion-ui/projects/11"
 
+# ── FORBIDDEN (tùy chọn — mặc định là KHÔNG khai báo) ────────────────────────
+# Glob không agent nào được sửa, áp cho toàn repo. Hằng số plugin chỉ có
+# `**/*.pem` + `**/.env`; glob no-touch khác là quyết định của từng repo.
+#
+# forbidden:
+#   - "path/glob/**"
+
 # ── SURFACES (tùy chọn — mặc định là KHÔNG khai báo) ─────────────────────────
 # Repo single-surface thì để nguyên như vậy: DEV/QC gate toàn repo, issue không
 # cần label component/*, và không có block config nào để trôi.
@@ -24,7 +31,8 @@ board:
 # Repo có nhiều phần build được riêng thì bỏ comment và khai báo từng cái. Mỗi
 # key sinh một label `component/<key>`; DEV/QC chỉ build/lint/test surface mà
 # issue chạm tới, theo convention của chính repo (không khai báo command ở đây).
-# `forbidden` là các glob không ai được động — hợp với global forbidden paths.
+# `forbidden` của surface là glob no-touch riêng — hợp với `forbidden` cấp repo
+# và global forbidden paths.
 #
 # surfaces:
 #   api:

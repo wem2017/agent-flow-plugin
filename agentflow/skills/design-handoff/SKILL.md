@@ -64,7 +64,7 @@ Qua tool `DesignSync`, **chỉ read method**:
 design: { kind: figma, files: [{ name: "Design System", key: "AbC123xyz" }] }
 ```
 
-→ skill **`figma-design`** cho toàn bộ cơ chế (MCP tool, REST fallback, parse URL, node id). Quay lại đây cho §3–§5. Revision = node/version bạn đã pull, trích `FILE_KEY` + `NODE_ID` vào comment `[DEV]`.
+→ skill **`figma-design`** cho toàn bộ cơ chế (MCP tool, REST fallback, parse URL, node id). Quay lại đây cho §3–§5. Comment `[DEV]` luôn trích `FILE_KEY` + `NODE_ID` — nhưng đó là *cái gì* đã pull, **không phải revision**. Revision = field `version` của file, chỉ REST path trả về; official MCP server không có tool nào trả version, đi đường đó thì dùng **timestamp lúc fetch** như kind `artifact`.
 
 ## 3. Extract gì cho implementation
 
@@ -85,8 +85,8 @@ Tạo một **implementation checklist** ngắn gắn với AC — mỗi entry t
 
 `artifact`, `design-system`, `figma` **không pin được**: design có thể đổi sau khi AC đã gate, giữa lúc DEV đang code, hoặc trước khi QC verify — và không ai thấy.
 
-- **DEV:** comment `[DEV]` khi handoff phải mang một dòng `design: <kind> @ <revision>` (`<revision>` = timestamp fetch · `updatedAt` · `FILE_KEY`+`NODE_ID`).
-- **QC:** re-fetch cùng source, so với revision DEV đã ghi. Lệch → đây là **`[QC] ❌` bình thường** với item `design đã đổi sau khi DEV build (<rev cũ> → <rev mới>) — re-spec AC`, KHÔNG phải infra stop. Ticket quay về DEV qua rework loop; nếu AC không còn đúng thì DEV bounce tiếp về `Inbox` theo §5.
+- **DEV:** comment `[DEV]` khi handoff phải mang một dòng `design: <kind> @ <revision>` (`<revision>` = timestamp fetch · `updatedAt` · `version` của file Figma, hoặc timestamp fetch nếu chỉ đi được đường MCP).
+- **QC:** re-fetch cùng source, so với revision DEV đã ghi. Revision lệch là *tín hiệu*, chưa phải kết luận — mọi handle đều thô (timestamp fetch thì lần nào cũng lệch; `version` là của cả file, không của một node), nên xác nhận bằng **nội dung frame liên quan tới AC** trước. Khác thật → đây là **`[QC] ❌` bình thường** với item `design đã đổi sau khi DEV build (<rev cũ> → <rev mới>) — re-spec AC`, KHÔNG phải infra stop. Nhưng nó **không tăng `consecutive_fail`** (protocol §9): designer sửa file không phải DEV implement sai, và đếm nó là escalate ticket vì lỗi của người khác. Ticket quay về DEV qua rework loop; nếu AC không còn đúng thì DEV bounce tiếp về `Inbox` theo §5.
 - `kind: repo` miễn bước này — commit đã là revision.
 
 ## 5. Ba ca ranh giới

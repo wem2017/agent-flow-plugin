@@ -35,11 +35,13 @@ Một carve-out duy nhất, **chỉ ở `/agentflow:init`**: setup board — `St
 nó, link board↔repo, short description, view layout. Runtime (transition / queue / verify) thì 100%
 MCP. Xem `commands/init.md` Step 6 cho mutation cụ thể.
 
-> **Ranh giới chính xác, để không ai nới nó ra.** `projects_write` không expose method sửa field,
-> link repo, hay đổi view — GraphQL thì có. Carve-out được mở **có chủ ý** (v1.1.0) vì bước UI thủ
-> công là bước dễ sai nhất của init: tên option là wire value resolve by-name, sai một ký tự là
-> hard-error ở ticket thật đầu tiên và user không có cách phát hiện trước đó. Cái giá đã chấp nhận:
-> một API surface thứ hai, với tập lỗi và tập quyền riêng. Cái **không** được đánh đổi thêm:
+> **Ranh giới chính xác, để không ai nới nó ra.** `projects_write` không expose method sửa option của
+> một single-select field sẵn có, cũng không link được board vào repo — GraphQL thì có. (View thì
+> **đã** có trong MCP: `create_project_view` / `update_project_view` nhận `layout: board`.) Carve-out
+> được mở **có chủ ý** (v1.1.0) vì bước UI thủ công là bước dễ sai nhất của init: tên option là wire
+> value resolve by-name, sai một ký tự là hard-error ở ticket thật đầu tiên và user không có cách
+> phát hiện trước đó. Cái giá đã chấp nhận: một API surface thứ hai, với tập lỗi và tập quyền riêng.
+> Cái **không** được đánh đổi thêm:
 >
 > - carve-out chỉ sống trong `commands/init.md` — **setup**, one-shot, có consent tường minh của user.
 > - **board item write** (`update_project_item`) **không có ngoại lệ nào**, ở init lẫn runtime.
@@ -50,7 +52,8 @@ MCP. Xem `commands/init.md` Step 6 cho mutation cụ thể.
 `projects` và `labels` là toolset **opt-in**: `github` MCP server phải chạy với header
 `X-MCP-Toolsets: context,issues,pull_requests,users,labels,projects` trong `.mcp.json` (mặc định
 KHÔNG bật hai cái này). Thiếu → các tool `projects_*` không tồn tại và **toàn bộ state machine chết**,
-không có fallback.
+không có fallback. Cùng triệu chứng, nguyên nhân thứ hai: classic PAT thiếu scope `project` thì server
+ẩn `projects_write` (`../SKILL.md` §1) — kiểm cả hai trước khi kết luận.
 
 ## Resolve board
 
@@ -108,6 +111,10 @@ projects_list method=list_project_fields
    - **Item added to project** → Status: `Inbox`
    - **Item reopened** → Status: `Inbox`
    - **Item closed** → Status: `Done`
+
+   Project mới **đã bật sẵn** hai workflow đóng-về-`Done` (issue/PR closed · PR merged), nên thực tế
+   chỉ hai cái đầu phải bật tay — vẫn mở tab Workflows kiểm cả ba, vì trạng thái bật/tắt của chúng
+   không đọc được qua API.
 
    Đây là automation miễn phí phủ các cạnh mà agent không chứng kiến (người tự add card, tự
    close/reopen issue). Race với agent write vô hại vì intake cũng ghi cùng value `Inbox`

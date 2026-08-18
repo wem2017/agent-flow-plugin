@@ -49,7 +49,7 @@ Chỉ đếm số lượng — không liệt kê từng card, trừ dòng `block
 2. **Reconcile:** với mỗi item có issue open, `issue_read` method=`get` → parse `Current state` trong block `<!-- AGENTFLOW-STATE -->`, so với Status (1+K call — chấp nhận cho lệnh chẩn đoán chạy tay).
    - Lệch → liệt kê. **Không cần sửa tay**: pickup kế tiếp tự reconcile (Status thắng).
    - Status **trống** → Missing-Status rule (reference §"Missing Status & membership"): case intake → coi như `Inbox`, bình thường; case ANOMALY → liệt kê, người re-set column.
-3. **Orphan** (từ board pass, không cần call thêm). Chỉ đúng khi không có terminal `/agentflow:start` nào đang thật sự chạy ticket đó — bạn tự đối chiếu terminal của mình:
+3. **Orphan** (từ board pass, không cần call thêm). Chỉ đúng khi không có terminal `/agentflow:start` **hay `/agentflow:task #<n>`** nào đang thật sự cầm ticket đó — bạn tự đối chiếu terminal của mình:
    - **Assigned (Status bất kỳ)** → một terminal claim rồi chết trước khi nhả. Vô hình với queue vì filter loại item có assignee. Fix: **unassign là đủ** — `/agentflow:start` nhặt lại đúng cột nó đang đứng.
    - **Unassigned + Status `In Progress`** → cột duy nhất không nằm trong queue (in-flight guard); một DEV run đã chết giữa chừng. Fix: **kéo card về `Ready for Dev`** — DEV tái dùng branch/PR sẵn có.
    - Unassigned ở `Inbox` / `Ready for Dev` / `In QC` là **bình thường** (đang trong queue). Đừng báo động.
