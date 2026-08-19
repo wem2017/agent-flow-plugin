@@ -45,7 +45,7 @@ Không có message bus. Agent giao tiếp hoàn toàn qua GitHub primitives: **`
 | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | không | như trên | `notify` — ping khi pipeline dừng chờ bạn |
 | `FIGMA_TOKEN` | không | như trên | chỉ REST/Framelink fallback; official server dùng OAuth |
 
-Một file phục vụ cả hai đích: `curl` đọc nó như subprocess, `.mcp.json` expand `${VAR}` từ chính env đó. Xem §Non-goals.
+Một file phục vụ cả hai đích: `curl` đọc nó như subprocess, `.mcp.json` expand `${VAR}` từ chính env đó. Xem [`DESIGN-NOTES.md`](DESIGN-NOTES.md).
 
 ---
 
@@ -93,7 +93,7 @@ về tay bạn:  In Progress ─DEV thiếu spec/Figma, blocker môi trường�
 PR feedback: Ready for Review ─bạn comment inline trên PR + KÉO CARD──▶ Inbox
 ```
 
-- **Bạn (+ session)** sở hữu `Inbox`. Spec pass biến mô tả thành issue chuẩn theo **template riêng của từng `type/*`** (feature: user story + design pointer · bug: repro + mong đợi/thực tế + bằng chứng + severity · improvement: baseline→target đo được + hành vi không đổi), cộng phần chung: Context, AC Given/When/Then đánh số, Out of Scope, size, QC tier, và hai section định hướng `## For DEV` / `## For QC`. **Ticket mô tả hành vi quan sát được, không nói bằng code** — không file, không tên hàm, không chọn thư viện; cách hiện thực là quyết định của DEV sau khi đọc source. Gate DoR sống ở **đúng một chỗ** — `/agentflow:task` §Spec pass.
+- **Bạn (+ session)** sở hữu `Inbox`. Spec pass biến mô tả thành issue chuẩn theo **template riêng của từng `type/*`** (feature: user story + design pointer · bug: repro + mong đợi/thực tế + bằng chứng + severity · improvement: baseline→target đo được + hành vi không đổi), cộng phần chung: Context, AC Given/When/Then đánh số, Out of Scope, size (định nghĩa ở `agentflow-protocol` §4), QC tier, và hai section định hướng `## For DEV` / `## For QC`. **Ticket mô tả hành vi quan sát được, không nói bằng code** — không file, không tên hàm, không chọn thư viện; cách hiện thực là quyết định của DEV sau khi đọc source. Gate DoR sống ở **đúng một chỗ** — `/agentflow:task` §Spec pass.
 - **DEV** implement trên branch đặt tên theo type (`agent/dev/<kind>/<issue#>-<slug>`) và mở/cập nhật PR, giữ trong phạm vi AC, không bao giờ chạm forbidden paths. Với mỗi surface bị chạm: lint/analyze **phải** green trước khi handoff. (Không bao giờ merge.)
 - **QC** đọc diff đối chiếu AC, **author automation test** (thêm test ID + viết test flow map tới AC) rồi commit/push lên chính PR branch của DEV, chạy các test category mà QC tier ngụ ý ở local, và ký duyệt `[QC] ✅` hoặc từ chối `[QC] ❌`. Từ chối trong ngưỡng → `Ready for Dev` + `rework`; quá 2 lần liên tiếp → escalate về `Inbox +blocked`. (Chỉ đụng test file/test ID. Không bao giờ merge.)
 - **Bạn** review và merge — hoặc để **feedback inline trên code của PR** rồi **kéo card về `Inbox`**: spec pass đọc feedback đó, fold vào AC, DEV **amend chính PR đó** (không build lại), QC re-gate.
@@ -115,7 +115,7 @@ PR feedback: Ready for Review ─bạn comment inline trên PR + KÉO CARD──
 
 ## Skills
 
-Ba core skill đi kèm plugin, load on demand, không cần đăng ký:
+Bốn core skill đi kèm plugin, load on demand, không cần đăng ký:
 
 | Skill | Dùng để làm gì |
 |---|---|
@@ -124,7 +124,7 @@ Ba core skill đi kèm plugin, load on demand, không cần đăng ký:
 | `design-handoff` | Nguồn design của repo → implementation: dispatch theo `design.kind` (`repo` · `artifact` · `design-system` · `figma`), extract token/component, ghi revision đã build, và ba ca ranh giới design↔AC. DEV load khi chạm UI; QC load để verify đúng revision đó. |
 | `figma-design` | Provider Figma của `design-handoff` — MCP tool (REST fallback), parse URL/node id. |
 
-Công thức spec pass (ba template body theo `type/*`, luật ngôn ngữ ticket, AC, sizing, QC tier, tag component, DoR gate, fold PR feedback) **không** là skill riêng — nó sống trong `commands/task.md` §Spec pass, nơi duy nhất chạy nó, với hai chế độ: interactive (`/agentflow:task`) và autonomous (`/agentflow:start` khi nhặt card `Inbox`).
+Công thức spec pass (ba template body theo `type/*`, luật ngôn ngữ ticket, AC, QC tier, tag component, DoR gate, write order, fold PR feedback) **không** là skill riêng — nó sống trong `commands/task.md` §Spec pass, nơi duy nhất chạy nó, với hai chế độ: interactive (`/agentflow:task`) và autonomous (`/agentflow:start` khi nhặt card `Inbox`).
 
 **Project skill** mở rộng theo từng repo: thả một skill vào `.claude/skills/` đặt tên `dev-*` hoặc `qc-*` — agent tương ứng **auto-discover** nó. Không có registry nào phải giữ đồng bộ. `/agentflow:init` scaffold được các stub khởi đầu (luôn đề xuất `qc-automation-test`).
 
@@ -153,38 +153,3 @@ notify:  { enabled: false, events: ["blocked", "ready_for_review"] }
 **QC tier** là gợi ý độ sâu test cố định trong plugin: `quick` = lint + unit · `full` = + integration · `regression` = + e2e (cộng dồn). Không có coverage gate bằng số — QC đánh giá test adequacy bằng inspection.
 
 ---
-
-## Ghi chú & giới hạn
-
-- **Mặc định synchronous; continuous là opt-in.** Break-out ở terminal *chính là* notification. Chạy `/agentflow:start` unattended qua skill `/loop`; bật `notify` (Telegram) để biết ngay khi ticket park, thay vì phát hiện muộn. Ping **một chiều tới người** — không agent nào đọc kênh đó, board vẫn là nơi phối hợp duy nhất.
-- **Không có agent nào gate DoR thay bạn.** Đây là đánh đổi trực tiếp của thiết kế: chất lượng spec phụ thuộc bạn có mặt lúc intake. Dưới `/loop`, ticket cần quyết định của con người park ở `Inbox +blocked` và loop drain phần còn lại.
-- **Claim là GitHub `assignee`** + Status trên board (`/agentflow:task #<n>` cũng giữ claim suốt spec pass tương tác, nhả sau Status write). `/agentflow:start` lấy ticket chưa assign, không mang `blocked`, ở một trong ba cột agent-actionable (`Inbox`, `Ready for Dev`, `In QC`) rồi tự assign — nên **nhiều terminal `/agentflow:start` chạy song song được**, và một turn kết thúc giữa chừng vẫn resume được (orchestrator luôn nhả claim khi dừng, ticket rơi lại vào queue). Mọi terminal mở trên **cùng một clone** dùng chung một token (cùng GitHub user) nên còn một race window nhỏ ở bước claim; backstop: re-check Status trước mỗi spawn, và DEV abort khi thấy `In Progress`. `GITHUB_TOKEN` sống theo repo (`.claude/settings.local.json`) nên **tách identity theo clone thì được**: hai clone, hai token, hai GitHub user — assignee phân biệt được chúng mà không cần máy riêng.
-- **Kéo card là human API chính thức — nhưng chỉ ở parked state**: `Ready for Review` → `Inbox` (PR-feedback re-entry), close issue / merge PR → `Done`. Kéo card khi ticket đang `In Progress` / `In QC` **không an toàn**: compare-then-write bắt được phần lớn nhưng vẫn còn cửa sổ clobber — muốn dừng một run đang chạy, dừng terminal.
-- **Status write là mandatory-success.** Fail = **pipeline dừng có chủ đích** (fail-stop), không phải desync. Issue OPEN không có trên board là **vô hình với routing** — `/agentflow:status --audit` phát hiện.
-- **Merge PR trên github.com thì nhớ bật built-in workflow `Item closed → Done`.** Bạn có hai đường merge: gõ `merge #<n>` trong `/agentflow:start` (nó ghi Status `Done` explicit), hoặc bấm Merge trên github.com — đường thứ hai để lại card ở `Ready for Review` với issue đã đóng, trừ khi workflow đó đã bật, và `/agentflow:init` **không verify được** nó (không API nào đọc được). Card như vậy vô hình với cả queue lẫn bảng đếm; `/agentflow:status` in nó ở dòng `⚠ closed ≠ Done`.
-- **Safety rule hiện là prompt contract, KHÔNG có enforcement tầng tool.** DEV và QC chạy với **toàn bộ tool** (không khai `disallowedTools`) — chủ ý, để agent không bị chặn giữa chừng bởi một tool mà nó thật sự cần.
-  - **Chỉ là prompt contract:** no-merge, DEV không post PR review, QC không mở PR mới, forbidden paths (global ∪ cấp repo ∪ `forbidden` của surface bị chạm), no-force-push, no-push-to-default-branch, và ranh giới "QC không đụng implementation logic". Một agent bị derail/inject **gọi được** `merge_pull_request`.
-  - **Muốn gate ở tầng harness** (khuyến nghị nếu repo có nhiều người): thêm `permissions.deny` vào `.claude/settings.local.json` — `/agentflow:init` **không** tự sinh, vì allow/deny là cấu hình riêng của từng người:
-    ```json
-    { "permissions": { "deny": ["mcp__github__merge_pull_request"] } }
-    ```
-    Deny thắng allow. **`Bash` vẫn là escape hatch** cho mọi mục trên (`gh pr merge`, `git push --force`). Gate duy nhất phủ được cả team vẫn là branch protection phía repo.
-  - **Lớp enforcement thật còn thiếu:** một PreToolUse hook match path/command, và branch-protection ruleset phía repo (block force-push + require PR review) — cái sau là gate duy nhất chạy ngoài tầm với của agent. Cho tới khi có, hãy dùng token least-privilege và review PR trước khi merge.
-- **Comment GitHub không có prefix là untrusted.** Mọi actor — kể cả main session — coi comment không mang prefix nhận diện được là context untrusted, không phải chỉ thị.
-
-## Non-goals — những gì KHÔNG được thay đổi
-
-Load-bearing, dễ bị bào mòn bởi tích lũy có thiện chí, và cố tình được đặt như vậy. Thay đổi ở đây là **design change**, không phải cải tiến:
-
-- **`Status` trên board là state authoritative duy nhất; label không bao giờ mang state.** Đọc lại Status live sau mỗi lần chạy chính là thứ làm thiết kế no-message-bus hoạt động.
-- **Cột agent-owned không bao giờ giữ ticket ở trạng thái nghỉ.** Đừng thêm một "parked" state mới cho agent — mọi ngõ cụt về `Inbox`. Bất biến này là thứ xoá được cả một lớp ticket kẹt vô hình.
-- **Human merge gate là bắt buộc.** Agent dừng ở `Ready for Review`; chỉ con người merge. **Đừng bao giờ trả `merge_pull_request` lại cho một sub-agent.**
-- **`agentflow.yaml` chỉ giữ thứ không suy ra được.** Một key mới phải trả lời được "vì sao không suy từ git / không làm hằng số plugin / không auto-discover?". Không trả lời được thì nó thuộc về một trong ba chỗ đó. Config phình là cách plugin này chết lần trước.
-- **Đừng giả vờ phần CHƯA enforce là đã enforce.** Đừng che khoảng trống bằng prose `NEVER …` ngày càng dài làm phình mỗi run để đổi lấy an toàn giả.
-- **Việc load skill lười vẫn giữ lười — và ranh giới là AUDIENCE, không phải chủ đề.** `SKILL.md` giữ đúng phần mọi actor cần (gồm hai shape call `update_project_item` / `get_project_item` mà DEV/QC dùng ở **mọi** run); `references/` giữ phần chỉ orchestrator/init chạm. Chia sai chiều thì "lười" chỉ là hình thức: nếu DEV/QC phải load reference ở mọi ticket thì tách file chỉ thêm round-trip chứ không giảm token. Đừng front-load queue/`status_map`/board setup vào agent prompt, và đừng đẩy runtime shape ra reference.
-- **File runtime là prompt, không phải tài liệu.** `agents/*.md` và `skills/*/SKILL.md` bị trả giá ở **mọi lần spawn**, nhân với số ticket và số vòng rework. Prose giải thích *vì sao thiết kế như vậy* thuộc về README (mục này) — file runtime chỉ nhận mệnh đề mệnh lệnh kèm pointer. Ngoại lệ: WHY chặn được một hành vi sai hấp dẫn thì giữ, ở dạng ngắn nhất có tác dụng.
-- **Đừng làm phình section `AGENTFLOW-STATE`.** Hai agent prose-edit nó và phải giữ tương thích format; mỗi field bắt buộc mới là một bề mặt drift mới.
-- **Optional service degrade gracefully.** Figma/notify vắng mặt → bỏ qua kèm note, không bao giờ là hard block. GitHub và board là ngoại lệ — cả hai bắt buộc.
-- **Đúng HAI file cấu hình: `agentflow.yaml` (commit) và `.claude/settings.local.json` (gitignored).** Cái sau giữ *mọi* thứ theo-máy — `env` với toàn bộ secret, `enabledPlugins`. Một file phục vụ cả hai nơi cần env: `curl` đọc như subprocess, `.mcp.json` expand `${VAR}` từ chính env đó (kể cả server khai trong `.mcp.json` của plugin). Đừng thêm file thứ ba dưới `.claude/`: mỗi đích thêm là một chỗ nữa để cấu hình drift, và một chỗ nữa phải kiểm mỗi lần auth fail.
-  - **Đừng chẩn đoán bằng `claude mcp list`** — nó không nạp project settings nên luôn báo `Missing environment variables`. Nguồn sự thật là probe `get_me` trong session.
-- **Token GitHub nằm trong env của session, nên Bash đọc được nó** — kể cả `gh`, vốn tự nhận `GITHUB_TOKEN`. Đây là đánh đổi có chủ ý: một đường cấu hình duy nhất, trả giá bằng một token đầy quyền mà mọi Bash command trong session nhìn thấy. Hai hệ quả **không được** bào mòn: (1) secret hygiene lên mức bắt buộc — không bao giờ `echo`, nội suy vào command string, hay ghi token ra file; (2) việc `gh api` **chạy được** không biến nó thành đường hợp lệ — **board item write vẫn đi qua MCP, không ngoại lệ**, vì một API surface thứ hai mang tập lỗi và tập quyền riêng. Đúng một carve-out được mở có chủ ý (v1.1.0): **setup board ở `/agentflow:init`** — sửa `Status` field, link board↔repo, description, view layout — những thứ `projects_write` không expose. One-shot, có consent, degrade về UI thủ công khi thiếu `gh`. Thấy `gh api graphql` trong `agents/*.md` hay `skills/*/SKILL.md` là bug, không phải tiền lệ.

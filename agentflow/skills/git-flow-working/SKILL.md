@@ -31,28 +31,21 @@ Quy tắc:
 
 ## Commits
 
-[Conventional Commits 1.0.0](https://www.conventionalcommits.org/): `<type>(<scope>): <subject>`.
+[Conventional Commits 1.0.0](https://www.conventionalcommits.org/): `<type>(<scope>): <subject>` — `feat` · `fix` · `refactor` · `perf` · `test` · `docs` · `build` · `ci` · `style` · `chore`.
 
-| type | dùng cho |
-|---|---|
-| `feat:` | capability mới (→ MINOR bump) |
-| `fix:` | bug fix (→ PATCH bump) |
-| `refactor:` | restructuring giữ nguyên behavior |
-| `perf:` | cải thiện performance giữ nguyên behavior |
-| `test:` | chỉ thêm hoặc sửa test |
-| `docs:` | chỉ docs / comment |
-| `build:` | build system hoặc dependency (lockfile, packaging) |
-| `ci:` | cấu hình và script CI |
-| `style:` | chỉ formatting — whitespace, semicolon (không đổi logic) |
-| `chore:` | maintenance khác |
-
-- Subject **imperative**, không dấu chấm cuối, ≤ ~72 ký tự: `feat(reports): add CSV export endpoint`.
-- `scope` tùy chọn; nên là tên surface hoặc module (`reports`, `auth`, hoặc một surface key).
-- **Breaking change:** thêm `!` sau type/scope **và/hoặc** footer `BREAKING CHANGE:` — vd `feat(api)!: drop v1 auth header` (→ MAJOR bump). Đừng break API âm thầm.
-- Tham chiếu issue trong **body**, không phải subject: `Refs #42` (PR mới mang `Closes #42`).
+- Subject **imperative**, không dấu chấm cuối, ≤ ~72 ký tự: `feat(reports): add CSV export endpoint`. `scope` nên là tên surface hoặc module.
+- **Breaking change:** `!` sau type/scope và/hoặc footer `BREAKING CHANGE:` — vd `feat(api)!: drop v1 auth header`. Đừng break API âm thầm.
+- Tham chiếu issue trong **body** (`Refs #42`), không phải subject — PR mới mới mang `Closes #42`.
 - Commit **nhỏ và review được** — mỗi commit một thay đổi logic. Đừng gộp refactor với feature.
 
 ## Pull requests
+
+**Push branch lên origin trước** — `create_pull_request` với `head` chưa tồn tại trên origin trả **422**:
+
+```bash
+git push -u origin <branch>     # lần đầu
+git push                        # các lần sau — fast-forward, không bao giờ --force
+```
 
 Mở PR ngay khi có gì đó để review.
 
@@ -99,17 +92,9 @@ Tick các AC checkbox mà rework giờ đã thỏa mãn. DEV **bắt buộc** đ
 - **Đồng bộ branch trước khi sửa:** `git fetch origin` rồi `git pull --rebase origin <branch>` — QC đã có thể push test commit lên chính branch này, và commit rework của bạn phải nằm trên nó.
 - **Một khi QC đã push test commit lên branch, đừng viết lại history của nó.** QC author test ở *mọi* vòng QC, nên điều này đúng ngay từ vòng rework ĐẦU TIÊN — đừng đợi tới vòng thứ hai. Rebase lên default branch (và cú `--force-with-lease` đi kèm) chỉ hợp lệ khi branch **chưa có commit của ai khác**; QC đã đụng vào rồi thì rebase là ghi đè commit của QC — an toàn duy nhất là commit thêm rồi push thường (fast-forward). Vẫn cần sync với default branch (QC reject vì PR `BEHIND`) → `git merge origin/<default_branch>` là **ngoại lệ có chủ đích** của rebase-first ở §Sync: nó là cách sync duy nhất không viết lại commit của QC.
 
-### QC test commits
+### QC test commits trên cùng branch
 
-QC cũng commit vào **PR branch đang tồn tại của DEV** (checkout bằng cách đọc `headRefName` qua `pull_request_read` method=get rồi `git fetch origin <headRefName>` + `git switch <headRefName>`). QC:
-
-- chỉ push lên PR branch **đang tồn tại** — không bao giờ mở branch/PR mới, không bao giờ force-push;
-- chỉ đổi **test code và test identifier** — không bao giờ implementation logic. Một logic bug thật là `[QC] ❌` trả về DEV, không phải fix QC tự áp dụng;
-- commit dưới type `test:` — kể cả cú gắn test identifier vào file implementation, thay đổi vẫn là test scaffolding chứ không phải `feat`/`fix`; tham chiếu issue trong body bằng `Refs #<issue>`, không bao giờ closing keyword (issue chỉ được đóng bởi PR của DEV);
-- tôn trọng cùng forbidden-paths như DEV;
-- **không bao giờ merge.**
-
-Xem `agents/qc.md` §5 cho verdict và cách pin `HEAD_SHA` sau commit.
+QC cũng commit test lên **PR branch đang tồn tại của DEV** (luật đầy đủ: `agents/qc.md` §3a). Hệ quả cho DEV: branch này **có commit của người khác** kể từ vòng QC đầu tiên — xem luật rebase ở §Rework ngay trên.
 
 ## Sync & conflicts
 
@@ -130,8 +115,7 @@ git rebase origin/<default_branch>     # preferred — history tuyến tính
 | Không bao giờ `git push --force` lên shared / PR branch | Chỉ `--force-with-lease` trên agent branch chưa ai khác đụng, và chỉ ngay sau một local rebase. |
 | Không bao giờ push lên default branch | Mọi thay đổi đi qua một PR. |
 | Không bao giờ merge một PR | Chỉ con người merge, sau khi ticket đạt Status `Ready for Review`. Agent dừng ở đó. |
-| Không bao giờ edit global forbidden paths (`**/*.pem`, `**/.env`) | Áp cho mọi surface. |
-| Không bao giờ edit glob trong `forbidden` cấp repo hoặc của một surface | `agentflow.yaml` → key top-level `forbidden` / `surfaces.<key>.forbidden`. |
+| Không bao giờ edit path trong forbidden set | Công thức: `agentflow-protocol` §1. |
 | Không bao giờ commit một secret | Tham chiếu credential bằng TÊN key (`${TELEGRAM_BOT_TOKEN}`, `${GITHUB_TOKEN}`), không bao giờ bằng giá trị. `GITHUB_TOKEN` **có** trong env nên Bash đọc được — vì vậy không bao giờ `echo` nó, không nội suy nó vào command string, không ghi nó vào file. |
 
 Trước khi commit, sanity-check diff so với forbidden glob:
@@ -140,7 +124,7 @@ Trước khi commit, sanity-check diff so với forbidden glob:
 git diff --cached --name-only   # không file nào được khớp tập no-touch hiệu lực
 ```
 
-Tập no-touch hiệu lực = **hợp** của global forbidden paths, `forbidden` cấp repo, và `forbidden` của mọi surface bị chạm (`agentflow.yaml` → key top-level `forbidden` / `surfaces.<key>.forbidden`; không khai báo gì thì chỉ có global).
+Tập no-touch hiệu lực — công thức ở `agentflow-protocol` §1.
 
 Nếu một thay đổi cần thiết rơi vào forbidden path, **dừng và escalate** qua clarification flow (`agents/dev.md`) — đừng work around nó.
 

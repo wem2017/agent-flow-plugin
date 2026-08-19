@@ -38,6 +38,8 @@ Bài học: `$ARGUMENTS` (tách flag `--no-release`/`--release` ra khỏi nội 
 
 **STOP — schema-change class.** Bài học đụng (a) FORMAT của `agentflow.yaml` (thêm/đổi/bỏ key mà agent đọc), (b) semantics Status column / state machine transition, hoặc (c) wire value (tên Status option, comment prefix, format AGENTFLOW-STATE) → cần bump `schema` ở `skills/agentflow-protocol/SKILL.md` §1 (Schema gate) + dòng `schema:` trong `agentflow.yaml` ở plugin root, và mọi repo hiện có sẽ lệch schema cho tới khi re-init. DỪNG, liệt kê chính xác các chỗ phải đổi, chỉ tiếp tục khi user xác nhận làm nó như một thay đổi có chủ đích (bump **minor/major**, không phải patch).
 
+**STOP — non-goal class.** `grep` `DESIGN-NOTES.md` §Non-goals cho bất biến mà bài học này đụng tới. Trúng một cái → xử y như schema-change class: DỪNG, nêu chính xác bất biến nào, chỉ tiếp khi user xác nhận đây là **design change** có chủ đích. Danh sách đó là gate duy nhất chặn việc bào mòn thiết kế qua từng lượt improve.
+
 **Trước khi thêm bất cứ key nào vào `agentflow.yaml`:** file đó cố tình chỉ giữ thứ KHÔNG suy ra được. Key mới phải trả lời được "vì sao không suy từ git / không parse từ URL đã có / không làm hằng số plugin / không auto-discover?" — không trả lời được thì nó thuộc về một trong bốn chỗ đó, không phải config. Key chỉ có nghĩa với một `design.kind` thì sống **dưới** `design`, không lên top-level.
 
 ## 3. Routing table (plugin-level)
@@ -55,9 +57,10 @@ Map bài học tới **một** đích chính dưới `$SRC`:
 | Design source: kind mới, cách fetch, revision pinning, ranh giới design↔AC | `skills/design-handoff/SKILL.md` |
 | Cơ chế **riêng của Figma** (MCP tool, REST, parse node id) | `skills/figma-design/SKILL.md` — provider của `design-handoff`, không giữ discipline riêng |
 | Behavior của một command entry (`/agentflow:task`, `/agentflow:start`, …) | `commands/<lệnh>.md` (kể cả chính `improve.md`) |
+| **Rationale thiết kế, đánh đổi đã chấp nhận, giới hạn đã biết, bất biến không được đổi** | `DESIGN-NOTES.md` — hệ số runtime 0 |
 | **Auto-invoke sai lúc/sai chỗ** | `description:` frontmatter của file tương ứng (đó là cái điều khiển auto-invoke) |
 | Shape config sinh mới | `agentflow.yaml` ở plugin root — đổi key = schema-change class §2. **Comment trong file đó chỉ giải thích từng key**; hướng dẫn sử dụng thuộc về `README.md` (yaml bị copy vào repo user và đóng băng ở đó) |
-| Setup board: tên/màu/description của 6 option Status, built-in workflow, board description, parse URL | `commands/init.md` → Step 6 + `skills/agentflow-protocol/references/projects-v2-board.md` → §"Tạo board" |
+| Setup board: tên/màu/description của 6 option Status, built-in workflow, board description, parse URL | `commands/init.md` → Step 6 (canonical home DUY NHẤT) |
 | Shape `.claude/settings.local.json` sinh cho repo (marketplace, enabledPlugins, merge semantics) | `commands/init.md` → Step 8.2 |
 | MCP server, hoặc biến môi trường user phải cấu hình | `.mcp.json` (+ Step 1a/3 của `commands/init.md`) |
 | Capability restriction của một role | frontmatter `agents/<role>.md` (DEV/QC hiện **không** khai `disallowedTools` — mọi guard là prompt contract) |
@@ -69,7 +72,7 @@ Map bài học tới **một** đích chính dưới `$SRC`:
 
 - Đọc file đích trước. Fold thành **thay đổi nhỏ nhất** có tác dụng: một dòng gotcha, một mục list, sửa một câu — KHÔNG viết lại section, KHÔNG đổi cấu trúc heading.
 - Giữ style file đích: tiếng Việt + thuật ngữ Anh, WHY trong ngoặc cho chỗ không hiển nhiên, cross-ref dạng (skill: `x` → §"section"). Đã có ý tương tự → chỉ làm rõ hơn, không lặp.
-- **Ngân sách context — mỗi dòng thêm vào một file runtime bị trả giá ở MỌI lần spawn.** `agents/*.md`, `skills/*/SKILL.md`, `commands/*.md` là prompt, không phải tài liệu. Trước khi thêm, hỏi: *dòng này có làm agent hành động khác đi không?* Nếu nó chỉ giải thích **vì sao thiết kế như vậy** → đích là **`README.md` §Non-goals**, và file runtime chỉ nhận một mệnh đề mệnh lệnh ("đừng thay bằng `gh` CLI") kèm pointer. Ngoại lệ duy nhất: WHY **chặn được một hành vi sai hấp dẫn** thì giữ, ở dạng ngắn nhất có tác dụng.
+- **Ngân sách context — mỗi dòng thêm vào một file runtime bị trả giá ở MỌI lần spawn.** `agents/*.md`, `skills/*/SKILL.md`, `commands/*.md` là prompt, không phải tài liệu. Trước khi thêm, hỏi: *dòng này có làm agent hành động khác đi không?* Nếu nó chỉ giải thích **vì sao thiết kế như vậy** → đích là **`DESIGN-NOTES.md`**, và file runtime chỉ nhận một mệnh đề mệnh lệnh ("đừng thay bằng `gh` CLI") kèm pointer. Ngoại lệ duy nhất: WHY **chặn được một hành vi sai hấp dẫn** thì giữ, ở dạng ngắn nhất có tác dụng.
 - **Một fact = một canonical home + tối đa một dòng trỏ về.** Trước khi thêm, `grep` xem nó đã ở đâu chưa; đã có thì sửa bản gốc, đừng viết bản thứ hai.
 - Edit đổi behavior user-facing của một command → cập nhật luôn hàng tương ứng trong bảng Commands của `README.md` (cùng diff).
 

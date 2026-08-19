@@ -68,14 +68,7 @@ design: { kind: figma, files: [{ name: "Design System", key: "AbC123xyz" }] }
 
 ## 3. Extract gì cho implementation
 
-| Lấy từ design | Dùng cho |
-|---|---|
-| Cấu trúc layout: direction, gap, padding, alignment | Flex/stack structure và spacing |
-| Sizing + constraint | Hành vi width/height, responsiveness |
-| Màu / fill / effect | Theming — map sang token sẵn có |
-| Typography: family, size, weight, line-height | Text style — map sang token sẵn có |
-| Tên component / layer | Component sẵn có nào để reuse |
-| State: empty / loading / error / disabled | Đủ nhánh state, không chỉ happy path |
+Layout (direction, gap, padding, alignment) · sizing/constraint · màu · typography · tên component để reuse. Cộng một thứ dễ bỏ sót: **`State: empty / loading / error / disabled` — đủ nhánh state, không chỉ happy path.**
 
 **Ưu tiên token và component sẵn có của project thay vì giá trị hardcode.** Design chỉ định `#1A73E8` mà project có token cùng giá trị → tham chiếu token. Chỉ hardcode khi không có token nào, và flag để follow-up.
 

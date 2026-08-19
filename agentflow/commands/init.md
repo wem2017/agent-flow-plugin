@@ -280,7 +280,7 @@ Hai file, hai mối quan tâm (skill `agentflow-protocol` §1):
 
 2. **`.claude/settings.local.json`** — **sinh ra, không copy.** init chỉ ghi **hai** key, cả hai đều phải suy lúc chạy. Đây cũng là file giữ `env` (§1a) — nên **mọi thao tác ghi phải là merge**, xem 2c.
 
-   **init KHÔNG sinh `permissions`.** Allow/deny là cấu hình của riêng từng người, plugin không áp đặt. Hệ quả phải nói thẳng ở Step 11: forbidden paths / no-force-push / no-merge chỉ còn là prompt contract (README §Safety).
+   **init KHÔNG sinh `permissions`.** Allow/deny là cấu hình của riêng từng người, plugin không áp đặt. Hệ quả phải nói thẳng ở Step 11: forbidden paths / no-force-push / no-merge chỉ còn là prompt contract.
 
    **2a. `enabledPlugins` — suy ra plugin id thật, đừng hardcode** (fork hoặc marketplace đổi tên là id đổi theo):
 
@@ -385,7 +385,11 @@ Files       : agentflow.yaml (commit), .claude/settings.local.json (gitignored),
               <repo nhiều người: mỗi teammate tự chạy /agentflow:init — enabledPlugins
                nằm trong file gitignored, không đi theo repo>
 Permissions : init không sinh — forbidden paths / no-force-push / no-merge là prompt
-              contract. Muốn gate tầng harness thì tự thêm permissions.deny.
+              contract. Muốn gate ở tầng harness (khuyến nghị khi repo có nhiều người),
+              tự thêm vào .claude/settings.local.json:
+                { "permissions": { "deny": ["mcp__github__merge_pull_request"] } }
+              deny thắng allow. Bash vẫn là escape hatch (gh pr merge, git push
+              --force) — gate duy nhất phủ được cả team là branch protection phía repo.
 
 Next: /agentflow:task <mô tả> để tạo việc đầu tiên, rồi /agentflow:start để vào team mode.
 ```

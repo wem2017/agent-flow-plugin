@@ -2,8 +2,8 @@
 
 > Reference của skill `agentflow-protocol`. Đọc `../SKILL.md` trước.
 >
-> **Ai cần file này:** `/agentflow:init` (tạo/link board), `/agentflow:start` (queue + `status_map`),
-> `/agentflow:status` (queue + anomalies), và một DEV/QC chạy **standalone** (tự tìm ticket).
+> **Ai cần file này:** `/agentflow:start` (queue + `status_map`), `/agentflow:status` (queue + anomalies),
+> và một DEV/QC chạy **standalone** (tự tìm ticket). Setup board thuộc `commands/init.md` Step 6.
 > **DEV/QC trong orchestrated run KHÔNG cần đọc file này** — hai shape call chúng dùng
 > (`update_project_item`, `get_project_item`) nằm ở `../SKILL.md` §2, và `item_id` đã có sẵn trong
 > spawn prompt. Đừng load nó "cho chắc": đó là ~2.5k token trên mỗi lần spawn.
@@ -35,19 +35,9 @@ Một carve-out duy nhất, **chỉ ở `/agentflow:init`**: setup board — `St
 nó, link board↔repo, short description, view layout. Runtime (transition / queue / verify) thì 100%
 MCP. Xem `commands/init.md` Step 6 cho mutation cụ thể.
 
-> **Ranh giới chính xác, để không ai nới nó ra.** `projects_write` không expose method sửa option của
-> một single-select field sẵn có, cũng không link được board vào repo — GraphQL thì có. (View thì
-> **đã** có trong MCP: `create_project_view` / `update_project_view` nhận `layout: board`.) Carve-out
-> được mở **có chủ ý** (v1.1.0) vì bước UI thủ công là bước dễ sai nhất của init: tên option là wire
-> value resolve by-name, sai một ký tự là hard-error ở ticket thật đầu tiên và user không có cách
-> phát hiện trước đó. Cái giá đã chấp nhận: một API surface thứ hai, với tập lỗi và tập quyền riêng.
-> Cái **không** được đánh đổi thêm:
->
-> - carve-out chỉ sống trong `commands/init.md` — **setup**, one-shot, có consent tường minh của user.
-> - **board item write** (`update_project_item`) **không có ngoại lệ nào**, ở init lẫn runtime.
-> - `gh` vắng → fallback đường UI thủ công, không bao giờ fail init.
->
-> Thấy `gh api graphql` ở `agents/*.md` hoặc trong `SKILL.md` này là bug, không phải tiền lệ.
+> **Ranh giới:** carve-out chỉ sống trong `commands/init.md` — setup, one-shot, có consent, và `gh` vắng thì
+> fallback UI thủ công chứ không bao giờ fail init. **Board item write không có ngoại lệ nào**, ở init lẫn runtime.
+> Thấy `gh api graphql` ở `agents/*.md` hoặc trong `SKILL.md` là bug, không phải tiền lệ. Lý do mở: `DESIGN-NOTES.md`.
 
 `projects` và `labels` là toolset **opt-in**: `github` MCP server phải chạy với header
 `X-MCP-Toolsets: context,issues,pull_requests,users,labels,projects` trong `.mcp.json` (mặc định
@@ -64,68 +54,14 @@ projects_get method=get_project
 
 Không resolve được → dừng và báo user. Không board là không có state machine.
 
-## Tạo board (dùng bởi /agentflow:init)
+## Tạo / link board
 
-0. **Resolve canonical OWNER trước.** `git remote` là seed, không phải sự thật: repo đã transfer thì
-   remote giữ owner cũ và GitHub redirect ngầm (call vẫn `200`). Board tạo dưới owner sai thì bước 3
-   **không link được** và không sửa tại chỗ được — phải tạo lại. Chi tiết: `commands/init.md` Step 2.
+**Canonical home DUY NHẤT: `commands/init.md` Step 6** — resolve owner canonical, tạo project, set 6 option
+`Status` (tên là wire value load-bearing), link board↔repo, description, view layout, và ba built-in workflow.
+One-shot ở init; **runtime không bao giờ chạm nó**. Đừng chép thủ tục đó về đây — một bản sao là một chỗ để drift.
 
-1. **Tạo project rỗng (chỉ title) qua MCP:**
-
-```
-projects_write method=create_project
-  owner: <OWNER canonical>   owner_type: <org|user>   title: <tên repo>
-```
-
-Ghép **URL** rồi lưu vào `board.url`: `https://github.com/<orgs|users>/<OWNER>/projects/<number>`
-(`owner_type: org` → segment `orgs`, `user` → `users`).
-
-2. **Status field 6 option.** Project mới đi kèm `Status` mặc định `Todo / In Progress / Done`.
-   AgentFlow cần **đúng sáu** option, đúng tên, đúng thứ tự:
-
-   `Inbox` · `Ready for Dev` · `In Progress` · `In QC` · `Ready for Review` · `Done`
-
-   Các tên này là **wire value load-bearing** (resolve by-name). **Bảng copy-paste canonical (tên +
-   color + description mỗi option) nằm ở `commands/init.md` Step 6** — dùng đúng bảng đó, đừng soạn
-   lại; agent không đọc description, nhưng người trong team thì có, và đó là thứ giữ họ khỏi kéo card
-   vào cột agent đang giữ. Board rỗng → set cả 6 bằng một `updateProjectV2Field` (Step 6, carve-out
-   init); board đã có card → đường UI thủ công, vì `singleSelectOptions` thay thế cả tập option và
-   xoá value trỏ vào option bị bỏ. Rồi validate:
-
-```
-projects_list method=list_project_fields
-  owner / owner_type / project_number: từ `board.url`
-```
-
-   Assert `Status` (single-select) có đủ 6 option đúng tên; thiếu → liệt kê tên còn thiếu, yêu cầu
-   user thêm trong UI, validate lại. **Thừa option** (vd `Todo` sót lại) → **rename nó thành tên còn
-   thiếu** thay vì xoá (rename giữ card, xoá mất card); card nằm ở option ngoài 6 tên trên là card
-   ngoài state machine.
-
-3. **Link board vào repo, đặt description, đổi view sang BOARD_LAYOUT** — cùng carve-out init, xem
-   `commands/init.md` Step 6. Không link ⇒ board không hiện ở `github.com/<owner>/<repo>/projects`;
-   link fail vì owner lệch ⇒ quay lại bước 0.
-
-4. **Built-in workflows — bước thủ công-UI DUY NHẤT còn lại** (GraphQL chỉ có
-   `deleteProjectV2Workflow`). Project settings → Workflows:
-   - **Item added to project** → Status: `Inbox`
-   - **Item reopened** → Status: `Inbox`
-   - **Item closed** → Status: `Done`
-
-   Project mới **đã bật sẵn** hai workflow đóng-về-`Done` (issue/PR closed · PR merged), nên thực tế
-   chỉ hai cái đầu phải bật tay — vẫn mở tab Workflows kiểm cả ba, vì trạng thái bật/tắt của chúng
-   không đọc được qua API.
-
-   Đây là automation miễn phí phủ các cạnh mà agent không chứng kiến (người tự add card, tự
-   close/reopen issue). Race với agent write vô hại vì intake cũng ghi cùng value `Inbox`
-   (same-value). Nhưng **không verify được workflow đã bật hay chưa**, nên `/agentflow:task` vẫn ghi
-   Status=`Inbox` explicit — không bao giờ dựa vào workflow.
-
-## Link board có sẵn
-
-Validate, không mutate dữ liệu của user: resolve theo number → đọc `Status` field qua
-`list_project_fields` → xác nhận đủ 6 option → thiếu thì **KHÔNG âm thầm ghi đè**, liệt kê và hướng
-dẫn user thêm trong UI → hướng dẫn bật built-in workflows như trên.
+Một hệ quả runtime: **card nằm ở option ngoài 6 tên hằng số là card ngoài state machine.** Thừa option
+(vd `Todo` sót lại) → **rename** thành tên còn thiếu, đừng xoá: rename giữ card, xoá mất card.
 
 ## Status transition + đọc Status của một item
 
@@ -193,8 +129,8 @@ number/content) nằm ngoài state machine — surface cho người convert thà
 
 ## Canonical status_map (routing table)
 
-`/agentflow:start` dùng bảng này làm routing table duy nhất — đọc ở đây, đừng hardcode bảng khác. Sáu tên
-column là hằng số plugin (`../SKILL.md` §1).
+`/agentflow:start` dùng bảng này làm routing table duy nhất — đọc ở đây, đừng hardcode bảng khác. Cột `owner`
+suy từ bảng Ownership ở `../SKILL.md` §2 (canonical); ở đây chỉ thêm `action`.
 
 ```yaml
 status_map:
@@ -238,20 +174,10 @@ chỉ cần bảng tóm tắt ở SKILL.
 
 ### Claim & nhiều terminal song song
 
-Claim là GitHub **assignee** (sống trên issue, không phụ thuộc board):
-
-- `/agentflow:start` scan ticket **OPEN + unassigned + không mang `blocked` + Status ∈ {`Inbox`,
-  `Ready for Dev`, `In QC`}**, rồi self-assign ngay (`get_me` một lần/session lấy login; `issue_write`
-  với `assignees = current ∪ {my_login}` — full-set nên phải đọc current trước), rồi **đọc lại** để xác
-  nhận Status chưa đổi và ticket giờ đã assign cho mình. Race window đẩy nó đi rồi → skip, lấy ticket
-  kế tiếp.
-- **Assignee phải được nhả mỗi khi orchestrator dừng**: tới `Done`, break out ở `Ready for Review` /
-  `Inbox +blocked`, hoặc chạm safety cap giữa chừng. Ticket còn assignee mà không terminal nào chạy là
-  **ticket mồ côi** — vô hình với queue cho tới khi `/agentflow:status --audit` phát hiện.
-- **Shared identity:** mọi terminal mở trên **cùng một clone** dùng chung `GITHUB_TOKEN` nên assignee
-  de-dupe được nhưng không phân biệt được terminal nào; tranh chấp CHỈ tồn tại ở bước claim. Biến sống
-  theo repo (`env` của `.claude/settings.local.json`), nên muốn tách identity thì **clone thêm một bản
-  và đặt token khác** — không cần máy/user profile riêng. **Đừng thêm distributed lock.**
+Thủ tục đầy đủ (self-assign, confirm, nhả claim, race window, shared identity) sống ở **`commands/start.md`** —
+orchestrator là actor duy nhất thực thi nó. Ở đây chỉ cần biết: claim là GitHub **assignee**, queue lọc bỏ item đã
+có assignee, và ticket còn assignee mà không terminal nào chạy là **ticket mồ côi** — `/agentflow:status --audit`
+phát hiện.
 
 ## Scopes
 

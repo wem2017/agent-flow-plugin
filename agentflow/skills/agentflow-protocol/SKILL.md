@@ -13,7 +13,7 @@ Contract mà **DEV**, **QC**, và mọi command của AgentFlow phải tuân the
 
 **Label không mang state.** Label chỉ là classification (`type/*`, `component/*`) và hai aux signal (`rework`, `blocked`).
 
-> **Board mechanics dành cho orchestrator/init** — queue (`list_project_items`, paginate, filter), `status_map`, Missing-Status rule, tạo/link board, scopes — nằm trong `references/projects-v2-board.md`. DEV và QC **không cần** file đó: hai shape call chúng dùng nằm ngay ở §2 bên dưới.
+> **Board mechanics dành cho orchestrator** — queue (`list_project_items`, paginate, filter), `status_map`, Missing-Status rule, scopes — nằm trong `references/projects-v2-board.md`; setup board thuộc `commands/init.md` Step 6. DEV và QC **không cần** cả hai: hai shape call chúng dùng nằm ngay ở §2 bên dưới.
 
 ---
 
@@ -24,13 +24,11 @@ Contract mà **DEV**, **QC**, và mọi command của AgentFlow phải tuân the
 | **`agentflow.yaml`** (root repo) | có | `schema` (số nguyên), `board.url`, `forbidden` (tùy chọn), `surfaces` (tùy chọn), `design`, `notify` |
 | **`.claude/settings.local.json`** (repo) | **không** (gitignored) | `env` (**mọi** secret: `GITHUB_TOKEN`, `TELEGRAM_*`, `FIGMA_TOKEN`), `enabledPlugins`, `extraKnownMarketplaces` |
 
-Quy tắc phân loại khi phân vân: **hành vi agent → yaml · công cụ/harness và mọi secret → settings.local.json.** Một thông tin không bao giờ nằm ở hai chỗ.
-
-`agentflow.yaml` đi theo repo; `.claude/settings.local.json` chỉ sống trên máy này.
+Phân vân thì: **hành vi agent → yaml · công cụ/harness và mọi secret → settings.local.json.** Một thông tin không bao giờ nằm ở hai chỗ. `agentflow.yaml` đi theo repo; `.claude/settings.local.json` chỉ sống trên máy này.
 
 ### Suy ra, đừng đọc từ file
 
-Những thứ sau **không** có trong config vì chúng luôn suy ra được — đọc lại mỗi run, đừng cache vào file (bản sao sẽ stale và nói dối):
+Đọc lại mỗi run, đừng cache vào config — bản sao sẽ stale và nói dối:
 
 ```bash
 git rev-parse --show-toplevel            # repo root — nơi agentflow.yaml phải nằm
@@ -71,8 +69,9 @@ Ba giá trị này (`owner`, `owner_type`, `project_number`) được dùng nguy
 | Aux label | `rework`, `blocked` |
 | Branch prefix | `agent/dev/<kind>/<issue#>-<slug>` (`kind`: feature→`feat`, bug→`fix`, improvement→`chore`) |
 | Global forbidden paths (mọi surface) | `**/*.pem`, `**/.env` |
-| Ngưỡng escalate rework | `2` lần QC ❌ liên tiếp |
-| QC tier | `quick` = lint + unit · `full` = + integration · `regression` = + e2e (cộng dồn) |
+| Ngưỡng escalate rework | escalate khi `consecutive_fail > 2` — tức **lần ❌ thứ 3** |
+| QC tier | `quick` = lint/analyze + unit · `full` = + integration · `regression` = + e2e (cộng dồn) |
+| Sàn tier theo Severity (chỉ `type/bug`) | S1 → `regression` · S2 → `regression` nếu chạm critical path, ngược lại `full` · S3 → `full` · S4 → `quick`. **Nâng được, hạ thì không.** |
 | GitHub MCP | server `github`, auth qua `${GITHUB_TOKEN}`, toolsets `context,issues,pull_requests,users,labels,projects` |
 
 Tên column là **wire value được resolve by-name** trên board. Đổi tên một option trong GitHub UI là break routing — không phải tính năng, là hỏng.
@@ -98,12 +97,11 @@ Tập forbidden hiệu lực cho một thay đổi = **hợp** của global forb
 
 Một file phục vụ cả hai đích: `curl` đọc nó như subprocess, và `.mcp.json` expand `${VAR}` từ chính env đó.
 
-Bốn hệ quả vận hành, cả bốn load-bearing:
+Ba hệ quả vận hành, cả ba load-bearing:
 
-- **Đổi secret không có hiệu lực với session đang chạy** — MCP server connect lúc boot, settings nạp lúc boot. Đổi xong → **thoát Claude Code, mở lại, chạy lại**.
-- **`GITHUB_TOKEN` chưa đặt → server KHÔNG bị drop**, nó vẫn tồn tại và tool `mcp__*github*` vẫn có mặt; header gửi đi nguyên văn `Bearer ${GITHUB_TOKEN}` và mọi call fail **HTTP 400 `Authorization header is badly formatted`**. Token có nhưng sai/thiếu quyền → **401**. Đừng suy "chưa cấu hình" từ việc thiếu tool; suy từ mã lỗi — **đúng một ngoại lệ**: với **classic PAT**, server đọc scope của token rồi **ẩn** tool mà scope không cho phép, nên token thiếu `project` làm `projects_write` biến mất thay vì trả lỗi (fine-grained PAT không bị lọc — nó fail lúc call). Thông điệp STOP đầy đủ cho user: `commands/init.md` §1b.
-- **`claude mcp list` KHÔNG chẩn đoán được ca này** — nó không nạp project settings nên luôn báo `Missing environment variables`. Chẩn đoán bằng probe `get_me` **trong session**.
-- **Token nằm trong env của session, nên Bash ĐỌC ĐƯỢC nó** — kể cả `gh` (nó tự nhận `GITHUB_TOKEN`). Đây **không** phải giấy phép dùng `gh`/`curl` thay MCP cho board write: đường đó vẫn cấm (§2). Và nó nâng mức bắt buộc của secret hygiene ngay dưới đây — một `echo` vô ý là token vào transcript.
+- **Đổi secret không có hiệu lực với session đang chạy** — MCP server connect lúc boot. Đổi xong → **thoát Claude Code, mở lại, chạy lại**.
+- **`projects_write` vắng mặt ≠ chưa cấu hình.** Với **classic PAT**, server ẩn tool mà scope không cho phép, nên token thiếu `project` làm tool **biến mất** thay vì trả lỗi. Đừng suy trạng thái auth từ việc thiếu tool; chẩn đoán bằng probe `get_me`, không bao giờ bằng `claude mcp list`. Bảng mã lỗi đầy đủ + thông điệp STOP cho user: `commands/init.md` §1b.
+- **Token nằm trong env của session, nên Bash ĐỌC ĐƯỢC nó** — kể cả `gh`. Đây **không** phải giấy phép dùng `gh`/`curl` thay MCP cho board write: đường đó vẫn cấm (§2). Và một `echo` vô ý là token vào transcript.
 
 **Gate before use** — một external service chỉ dùng được khi toggle của nó bật VÀ auth của nó thật sự sống:
 
@@ -113,26 +111,18 @@ Bốn hệ quả vận hành, cả bốn load-bearing:
 | `design` | `design.kind` ≠ `none` + access path của kind đó thật sự sống (skill `design-handoff`) | Degrade: build từ AC, note một dòng trong comment `[DEV]` — trừ khi AC tham chiếu một design không lấy được, lúc đó là *missing input* |
 | `notify` | `notify.enabled: true` + `[ -n "${TELEGRAM_BOT_TOKEN:-}" ]` + `[ -n "${TELEGRAM_CHAT_ID:-}" ]` | Bỏ qua im lặng kèm note — **không bao giờ** block |
 
-**Secret hygiene.** Không bao giờ print/echo giá trị token — **kể cả `GITHUB_TOKEN`, dù Bash đọc được nó**; test presence bằng `[ -n "${VAR:-}" ]`. Không bao giờ đặt secret vào `agentflow.yaml` (file này được commit) — phát hiện ở đó thì cảnh báo và bảo rotate. Khi phải ghi một giá trị secret vào file, dùng Read + Write, **không** Bash (tránh shell history). Tham chiếu bằng `${TÊN_KEY}` để shell tự expand lúc chạy.
+**Secret hygiene.** Không bao giờ print/echo giá trị token — test presence bằng `[ -n "${VAR:-}" ]`, tham chiếu bằng `${TÊN_KEY}` để shell tự expand. Ghi một giá trị secret vào file thì dùng Read + Write, **không** Bash (shell history). Secret trong `agentflow.yaml` (file được commit) → cảnh báo và bảo rotate.
 
 ---
 
 ## 2. States — 6 column
 
 ```
-happy path:
-  Inbox → Ready for Dev → In Progress → In QC → Ready for Review → Done
-
-QC ❌ rework loop (consecutive_fail ≤ 2):
-  In QC ──❌──▶ Ready for Dev  (+ aux label rework)  ──▶ … ──▶ In QC
-
-về tay người (mọi ngõ cụt — aux label `blocked`, unassign):
-  In Progress ──DEV thiếu spec/Figma, hoặc blocker môi trường──▶ Inbox +blocked
-  In QC       ──AC mơ hồ · escalate (fail > 2) · infra stop────▶ Inbox +blocked
-  bất kỳ      ──no-progress guard của /agentflow:start────────────────────▶ Inbox +blocked
-
-human PR-review feedback (người chủ động):
-  Ready for Review ──để feedback inline trên PR, rồi KÉO CARD──▶ Inbox
+happy path   Inbox → Ready for Dev → In Progress → In QC → Ready for Review → Done
+rework       In QC ──❌ (fail ≤ 2)──▶ Ready for Dev +rework ──▶ … ──▶ In QC
+ngõ cụt      bất kỳ cột agent ──▶ Inbox +blocked, unassign   (DEV thiếu input · AC mơ hồ ·
+             escalate fail > 2 · infra stop · no-progress guard)
+người chủ động  Ready for Review ──feedback inline trên PR rồi KÉO CARD──▶ Inbox
 ```
 
 ### Bất biến (quan trọng nhất trong protocol này)
@@ -145,14 +135,14 @@ Hệ quả: `/agentflow:start` chỉ cần scan `Inbox + unassigned` là thấy 
 
 | Status | Owner | Hành vi |
 |---|---|---|
-| `Inbox` | **HUMAN + session** | Spec pass tương tác (công thức: `commands/task.md` §Spec pass): shape/re-shape issue, gate DoR → `Ready for Dev`. Ticket mang `blocked` = đã quay lại từ một ngõ cụt, đọc `Resume hints` trước. |
+| `Inbox` | **HUMAN + session** | Spec pass (`commands/task.md` §Spec pass). Mang `blocked` = quay lại từ một ngõ cụt — đọc `Resume hints` trước. |
 | `Ready for Dev` | DEV | Implement — ưu tiên ticket mang `rework`. |
 | `In Progress` | DEV | Đang code (in-flight guard). Không bao giờ là trạng thái nghỉ. |
 | `In QC` | QC | Author test + chạy tier; ✅ / ❌ theo rework loop. |
 | `Ready for Review` | HUMAN | Review + merge, hoặc để PR feedback rồi kéo card về `Inbox`. |
 | `Done` | — | Terminal. |
 
-Routing table canonical cho `/agentflow:start` là `status_map` trong `references/projects-v2-board.md` — sửa lane thì sửa **cả hai** bảng.
+Bảng này là **canonical cho ownership**. `status_map` trong `references/projects-v2-board.md` là routing table của orchestrator và **suy `owner` từ đúng bảng này** — nó chỉ thêm cột `action`.
 
 ### Transition = một Status write
 
@@ -171,11 +161,9 @@ projects_write method=update_project_item
     value: "In QC"                    # tên option, đúng một trong 6 hằng số
 ```
 
-> **`updated_field` BẮT BUỘC dùng by-name shape.** Nó nhận hai shape loại trừ nhau: by-id (`{id: <số>, value: <optionID>}`) và by-name (`{name, value}`). Với single-select, **chỉ by-name mới resolve option theo tên** — trên by-id shape, `value` bị coi là option **ID**. Nên `{id: <fieldId>, value: "In QC"}` **không bao giờ hoạt động**. by-name cũng chấp nhận option id nếu bạn đưa, nên nó strictly dominate.
+> **`updated_field` BẮT BUỘC by-name.** Shape by-id (`{id, value}`) coi `value` là option **ID**, nên `{id: <fieldId>, value: "In QC"}` **không bao giờ hoạt động**. by-name nhận cả tên lẫn id ⇒ strictly dominate.
 >
-> **Option không resolve được** → hard-error kèm danh sách candidate. Đó là drift signal (ai đó đã đổi tên column) và nó block routing — dừng, báo human, **không đoán**.
->
-> **Item chưa có trên board** → `projects_write method=add_project_item` (idempotent, trả item có sẵn nếu đã tồn tại) rồi retry.
+> **Option không resolve được** → hard-error kèm candidate: ai đó đã đổi tên column, và nó block routing. Dừng, báo human, **không đoán**. · **Item chưa có trên board** → `add_project_item` (idempotent) rồi retry.
 
 Đọc lại Status của một item (READ cần **`item_id` numeric** — không resolve theo issue number; `item_id` đến từ spawn prompt của orchestrator, hoặc từ một lượt `list_project_items`):
 
@@ -205,9 +193,7 @@ Ngay trước Status write cuối của một run: re-read Status (qua `item_id`
 | `[SPEC]` | session (spec pass) | Kết quả intake / refine — AC đã chốt với người |
 | `[DEV]` | DEV | Tiến độ, PR đã mở, blocker |
 | `[DEV] ?` | DEV | Cần người bổ sung info/quyết định → ticket về `Inbox +blocked` |
-| `[QC]` | QC | Progress note thường (vd đang author test) |
-| `[QC] ✅` | QC | Pass — checklist theo sau |
-| `[QC] ❌` | QC | Fail — list đánh số theo sau |
+| `[QC]` · `[QC] ✅` · `[QC] ❌` | QC | Progress note · pass (checklist theo sau) · fail (list đánh số theo sau) |
 | `[QC] ?` | QC | AC thực sự mơ hồ → ticket về `Inbox +blocked` |
 | `[SYSTEM]` | agent / command (protocol event) | Auto-escalation, reconcile, compare-then-write abort, merge |
 | `[USER:<login>]` | người (qua session) | Câu trả lời / quyết định của người, ghi verbatim |
@@ -230,7 +216,7 @@ Một issue CHỈ được rời `Inbox` sang `Ready for Dev` khi tất cả nh�
 - [ ] Test approach (unit / integration / manual)
 - [ ] Section `## For DEV` có mặt (dù chỉ một dòng)
 
-Cộng **gate riêng theo `type/*`** (feature: user story + design pointer · bug: repro hoặc bằng chứng + severity + môi trường · improvement: baseline + target đo được + tuyên bố hành vi không đổi) — bảng đầy đủ ở `commands/task.md` §6.
+Cộng **gate riêng theo `type/*`**: **feature** — user story có vai trò cụ thể + giá trị, cộng design pointer *nếu việc có UI* · **bug** — repro **hoặc** bằng chứng xác nhận + Severity + Môi trường + Mong đợi vs Thực tế, và ô `QC tier` **≥ sàn Severity** · **improvement** — baseline **và** target đo được + tuyên bố `Hành vi không đổi`.
 
 Không đạt được vì thiếu info của người → ticket ở lại `Inbox` + aux label `blocked`, `Resume hints` nói rõ còn thiếu gì. Gate này chạy ở **đúng một chỗ**: `commands/task.md` §Spec pass.
 
@@ -280,18 +266,15 @@ Section rỗng thì ghi `(none)`. Event log append-only — không bao giờ vi�
 
 ### Upsert & reconcile
 
-1. `issue_read` method=`get` → body hiện tại.
-2. Tìm block giữa `<!-- AGENTFLOW-STATE -->` và `<!-- /AGENTFLOW-STATE -->`.
-3. Có → thay nội dung block **tại chỗ**. Không có → append block đầy đủ delimiter vào cuối body.
-4. `issue_write` method=`update`, `body = <toàn bộ body mới>`.
+`issue_read` method=`get` → tìm block giữa hai delimiter → thay **tại chỗ** (không có thì append block đầy đủ delimiter vào cuối body) → `issue_write` method=`update` với **toàn bộ** body mới.
 
-**Reconcile lúc pickup: Status thắng.** Bất kỳ ai pickup một issue phải so `Current state` với Status sống; lệch nhau (transition hoàn thành nửa chừng, hoặc người vừa kéo card) → viết lại `Current state` cho khớp Status và append event `[SYSTEM] reconciled state to Status "<column>"`.
+**Reconcile lúc pickup: Status thắng.** So `Current state` với Status sống; lệch (transition hoàn thành nửa chừng, hoặc người vừa kéo card) → viết lại `Current state` cho khớp Status + append event `[SYSTEM] reconciled state to Status "<column>"`.
 
 ---
 
 ## 7. Read order (khi pickup một issue)
 
-Trong orchestrated run, spawn prompt đã mang `issue_number` + `item_id` + Status hiện tại. `issue_read` method=`get` trả body (AC + DoR/DoD + `AGENTFLOW-STATE`) + label + assignee trong một call; comment lấy riêng qua `issue_read` method=`get_comments`.
+Spawn prompt đã mang `issue_number` + `item_id` + Status. `issue_read` method=`get` trả body + label + assignee trong một call; comment lấy riêng qua method=`get_comments`.
 
 1. Status trên board (authoritative — verify qua `get_project_item` với `item_id`) + aux label (`rework`, `blocked`, `type/*`, `component/*`).
 2. Issue body: AC + DoD + DoR, **khối riêng theo `type/*`** (bug: `Tái hiện` / `Mong đợi vs Thực tế` / `Bằng chứng` / Severity · improvement: bảng `Mục tiêu` + `Hành vi không đổi` · feature: `User Story` + `Design`; shape đầy đủ ở `commands/task.md` §5), cộng phần highlight dành cho bạn — `## For DEV` (DEV) hoặc `## For QC` (QC). Highlight **định hướng**; AC vẫn là contract và là cơ sở pass/fail duy nhất.
@@ -314,9 +297,9 @@ Crash trước bước 4 → authority chưa đổi, run lại an toàn.
 
 ## 9. Rework loop và escalation
 
-- QC ❌ → `consecutive_fail += 1`, rồi route theo ngưỡng cố định `2`:
+- QC ❌ → `consecutive_fail += 1`, rồi route:
   - **`consecutive_fail ≤ 2`** → add aux `rework` **TRƯỚC**, rồi Status → `Ready for Dev` (KHÔNG phải `In Progress`).
-  - **`consecutive_fail > 2`** → **escalate**: post `[SYSTEM] auto-escalated to human after <N> consecutive ❌ (threshold=2)`, add aux `blocked`, Status → `Inbox`, unassign.
+  - **`consecutive_fail > 2`** → **escalate**: post `[SYSTEM] auto-escalated to human after <N> consecutive ❌ (threshold: >2)`, add aux `blocked`, Status → `Inbox`, unassign.
 - DEV pickup một `Ready for Dev` mang `rework` **bắt buộc** đọc entry `QC rejections` mới nhất trước bất kỳ thay đổi code nào.
 - **Aux `rework` do QC sở hữu** — QC add khi ❌, gỡ khi ✅. Không actor nào khác được gỡ nó (spec pass cũng không): nó là tín hiệu duy nhất bắt DEV xử lý entry `QC rejections` mới nhất.
 - **`consecutive_fail` chỉ đếm back-to-back.** Reset về `0` khi (a) bất kỳ QC ✅ nào, hoặc (b) bất kỳ spec pass nào ở `Inbox` (người đã bổ sung info — không phải implementation failure). `rework #N` trong header `Attempt` không bao giờ reset — nó là số lần thử trọn đời.
@@ -324,11 +307,11 @@ Crash trước bước 4 → authority chưa đổi, run lại an toàn.
 
 ## 10. Lane của con người + claim
 
-Ba cơ chế do **orchestrator** (`/agentflow:start`) và **spec pass** thực thi — bản đầy đủ ở `references/projects-v2-board.md` §"Lane của con người & claim". Hệ quả cho DEV/QC đã nằm sẵn trong prompt role của bạn, đây chỉ là index:
+Index cho DEV/QC. Thủ tục đầy đủ do orchestrator thực thi: `commands/start.md`.
 
-- **PR-feedback re-entry** (`Ready for Review` → `Inbox`, do người kéo): agent/session **không bao giờ** tự làm bước chuyển này, không đọc `reviewDecision`, **không bao giờ auto-merge**. Trigger của spec pass là *sự tồn tại của một open PR*, không phải `Current state`.
-- **Human drag** chỉ được sanction ở **parked state**; kéo khi ticket đang `In Progress` / `In QC` là không an toàn. Kéo `Inbox` → `Ready for Dev` là unsanctioned — **DoR defense** của DEV đứng chắn.
-- **Claim = GitHub `assignee`.** `In Progress` **không** nằm trong queue (in-flight guard). Orchestrated run: **không đụng assignee**. **Đừng thêm distributed lock.**
+- **Claim = GitHub `assignee`.** Orchestrated run: **không đụng assignee**. `In Progress` không nằm trong queue (in-flight guard).
+- **Người kéo card chỉ được sanction ở parked state.** Kéo `Inbox` → `Ready for Dev` là unsanctioned — **DoR defense** của DEV đứng chắn.
+- **Không bao giờ auto-merge**, không đọc `reviewDecision`, không tự chuyển `Ready for Review` → `Inbox`. Trigger của spec pass là *sự tồn tại của một open PR*, không phải `Current state`.
 
 ## 11. Trust rules
 
