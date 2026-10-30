@@ -1,0 +1,70 @@
+name: Báo lỗi
+description: Hành vi sai so với tiêu chí nghiệm thu hoặc thiết kế đã chốt — đủ để tái hiện
+type: Bug
+projects:
+  - {{PROJECT}}
+body:
+  - type: textarea
+    id: steps
+    attributes:
+      label: Các bước tái hiện
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Kết quả mong đợi
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Kết quả thực tế
+      description: Kèm thông báo lỗi chính xác nếu có.
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Mức độ
+      options:
+        - Critical — crash, mất dữ liệu, chặn luồng chính
+        - Major — sai chức năng chính, có cách né
+        - Minor — sai chức năng phụ, lệch giao diện
+        - Trivial — chính tả, căn chỉnh nhỏ
+    validations:
+      required: true
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: Tần suất
+      options:
+        - Luôn luôn
+        - Thỉnh thoảng
+        - Chỉ gặp một lần
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Nền tảng
+      multiple: true
+      options:
+{{PLATFORM_OPTIONS}}
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Môi trường / phiên bản / thiết bị
+      placeholder: staging · 1.1.1 (9001) · iPhone 15 iOS 18.2
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Ảnh, video, log

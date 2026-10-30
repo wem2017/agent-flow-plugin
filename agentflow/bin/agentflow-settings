@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""Edit the repo's .claude/settings.local.json without ever showing secret values (stdlib only).
+
+The guard hook forbids Read/Edit/Write on that file so tokens never enter the transcript; this
+tool is the sanctioned way to change it. Always merges — existing keys are kept.
+
+  show                         key tree; values under `env` are masked
+  set <dotted.key> <json>      e.g. set enabledPlugins.agentflow@agent-flow-plugins true
+  set-secret <ENV_NAME>        value read from stdin into env.<ENV_NAME> (never echoed)
+  has <ENV_NAME>               exit 0 if env.<ENV_NAME> is set and non-empty
+"""
+
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "scripts"))
+import afconfig  # noqa: E402
+
+
+def path():
+    root = afconfig.repo_root() or os.getcwd()
+    return os.path.join(root, ".claude", "settings.local.json")
+
+
+def load():
+    try:
+        with open(path(), encoding="utf-8") as fh:
+            return json.load(fh) or {}
+    except FileNotFoundError:
+        return {}
+
+
+def save(data):
+    p = path()
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    tmp = p + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False, indent=2)
+        fh.write("\n")
+    os.replace(tmp, p)
+
+
+def masked(node, under_env=False):
+    if isinstance(node, dict):
+        return {k: masked(v, under_env or k == "env") for k, v in node.items()}
+    if under_env:
+        return "<set>" if node else "<empty>"
+    return node
+
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] in ("-h", "--help"):
+        print(__doc__)
+        return
+    data = load()
+    if args[0] == "show":
+        print(json.dumps(masked(data), ensure_ascii=False, indent=2))
+    elif args[0] == "set" and len(args) == 3:
+        if args[1].split(".")[0] == "env":
+            sys.exit("agentflow-settings: dùng set-secret cho key trong env")
+        cur, parts = data, args[1].split(".")
+        # plugin ids contain '.'-free names but '@' — split only on '.'
+        for key in parts[:-1]:
+            cur = cur.setdefault(key, {})
+        try:
+            cur[parts[-1]] = json.loads(args[2])
+        except ValueError:
+            cur[parts[-1]] = args[2]
+        save(data)
+        print("set %s" % args[1])
+    elif args[0] == "set-secret" and len(args) == 2:
+        value = sys.stdin.readline().strip()
+        if not value:
+            sys.exit("agentflow-settings: stdin rỗng — không ghi")
+        data.setdefault("env", {})[args[1]] = value
+        save(data)
+        print("set env.%s (ẩn)" % args[1])
+    elif args[0] == "has" and len(args) == 2:
+        sys.exit(0 if (data.get("env") or {}).get(args[1]) else 1)
+    else:
+        print(__doc__)
+        sys.exit(2)
+
+
+if __name__ == "__main__":
+    main()

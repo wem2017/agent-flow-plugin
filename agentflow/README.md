@@ -1,155 +1,105 @@
-# AgentFlow
+# AgentFlow v2
 
-Một Claude Code plugin biến một coding agent đơn lẻ thành một team nhỏ có trách nhiệm rõ ràng: **bạn là Product Owner**, **DEV** implement, **QC** verify. Bạn chỉ làm hai việc bằng tay — **chốt việc cần làm** và **review/merge PR cuối cùng**.
+Plugin Claude Code biến một repo GitHub thành **team agent có kỷ luật**: **DEV** code, **REVIEWER** (Opus) soát code và giải pháp, **QC** test trên staging — tự chạy ticket trên GitHub Projects board **tới cổng của con người**. Bạn chỉ làm ba việc: **chốt việc** (PO kéo Backlog → Ready), **QC tay** khi cần, và **merge**.
 
-AgentFlow **tech-stack-agnostic**. Cài **một lần**, chạy theo từng repo. Bốn điểm cốt lõi:
+- **Một plugin, nhiều repo** — tên cột, label, nhánh, lệnh check của từng repo nằm trong `agentflow.yaml`; plugin chỉ giữ ngữ nghĩa.
+- **Tối ưu token** — lệnh chỉ load khi gọi, mỗi ticket một subagent (session chính chỉ giữ 3 dòng kết quả), model theo Size, review/QC lặp lại chỉ soát diff mới, chờ pipeline không tốn token, lệnh check lưu sẵn trong config, output dài vào log.
+- **Tự học** — agent tự ghi friction vào journal; `/agentflow:learn` chưng cất thành diff nhỏ vào plugin, bạn duyệt rồi mới phát hành.
 
-- **Con người ở trong vòng lặp, đúng chỗ nó có giá trị.** Intake và refine (viết AC, chọn QC tier, gate Definition of Ready) chạy **tương tác ngay trong session** — hỏi đáp trực tiếp với bạn. Không sub-agent nào tự viết spec rồi tự làm theo spec của chính nó.
-- **Board 6 cột, một bất biến.** `Inbox · Ready for Dev · In Progress · In QC · Ready for Review · Done`. **Cột do agent sở hữu không bao giờ giữ ticket ở trạng thái nghỉ** — agent không đi tiếp được thì ticket về `Inbox` + label `blocked`. Không có ticket nào kẹt vô hình.
-- **Config ~15 dòng.** `agentflow.yaml` ở root repo chỉ giữ thứ **không suy ra được**: URL board, surfaces, design source, notify. Owner/owner_type/number của board parse từ chính URL đó; repo/branch/owner suy từ `git remote` mỗi run; tên column, label, MCP wiring, ngưỡng rework là **hằng số plugin**.
-- **Mọi secret một chỗ, theo từng repo.** `GITHUB_TOKEN` — cùng `TELEGRAM_*` và `FIGMA_TOKEN` — sống trong block `env` của **`.claude/settings.local.json`**, file mà `/agentflow:init` bắt buộc phải thấy đã gitignore *trước khi* nói tới token. Đổi lại rủi ro "secret nằm trong working tree": mỗi clone một token, nên mỗi repo chạy được dưới một GitHub identity riêng.
+## Luồng
 
-Không có message bus. Agent giao tiếp hoàn toàn qua GitHub primitives: **`Status` field trên Projects v2 board** (state authoritative), **issue comment có prefix** (audit trail duy nhất của transition), và **một section `AGENTFLOW-STATE` trong issue body** (memory giữa các lần chạy). Label không mang state.
+```
+Backlog ─PO kéo→ Ready ─DEV→ In Progress ─draft PR→ In Review ─REVIEWER ✅, merge staging→ In QC +deploying
+                                                                                              │ pipeline xong
+                                     Done ←người merge─ Ready to Merge ←✅ undraft─ QC test trên staging
 
----
+Review ❌            → In Progress +changes-requested
+QC ❌                → Ready +qc-failed, kèm bước tái hiện + bằng chứng; DEV sửa trước việc mới, rồi review phần mới → staging → QC lại
+Feedback trên PR    → In Progress +changes-requested, PR về draft
+Còn mục cần test tay → +qc-manual, checklist [AF:QC] 🧪 trên staging; QC người tick + kéo card (pass, agent undraft) hoặc gắn qc-failed (fail)
+Pipeline fail       → QC đọc log: do ticket thì ❌ về Ready; do hạ tầng/ticket khác thì +blocked. Quá staging.timeout_min → +blocked
+Bị chặn ở cột nào   → +blocked / +needs-info, ticket đứng nguyên; người trả lời rồi bỏ label
+Review ❌ liên tiếp > 3 hoặc QC ❌ > 2 → +blocked + [AF:SYS] escalated (round reset); người góp ý rồi bỏ blocked
+```
+
+Nhánh staging (`staging.branch`, bắt buộc) chỉ để build test: REVIEWER merge dồn PR đã ✅ vào đó, không reset, không force-push, không merge ngược về PR hay master. Vì vậy trên staging có thể có code chưa đạt của ticket khác; nhánh lệch nhiều thì bạn tự reset.
+
+Tên cột thật của board được map trong `agentflow.yaml` → `board.status`.
 
 ## Yêu cầu
 
-| Đường | Dùng cho | Authenticate |
-|---|---|---|
-| **GitHub MCP server** (official, hosted tại `https://api.githubcopilot.com/mcp/`) | mọi GitHub-API op: issue, branch, PR, review, comment, label, và board | `${GITHUB_TOKEN}` → header `Authorization: Bearer` |
-| **local `git`** (qua `Bash`) | VCS trên working tree: branch, commit, push, checkout, rebase | remote + credential sẵn có của repo |
-| **Figma MCP server** *(tùy chọn)* (`https://mcp.figma.com/mcp`) | kéo frame spec/token khi làm UI | **OAuth** — `/mcp` → `figma` → Authenticate |
+| Thứ | Ghi chú |
+|---|---|
+| Claude Code bản mới | plugin dùng skills, `bin/`, hooks |
+| `git`, `python3` ≥ 3.9, `jq` | `jq` cho `/agentflow:learn` và init |
+| Nhánh staging + pipeline | Push vào staging phải chạy pipeline và báo check về commit (GitHub Actions hoặc CI ngoài có commit status) |
+| GitHub **classic PAT** | `repo`, `project`, `read:org` (board của org), `workflow` nếu agent được sửa CI. Chỉ cấp đúng chừng đó |
+| Figma (tuỳ chọn) | MCP chính thức, OAuth: `/mcp` → figma → Authenticate |
+| Telegram (tuỳ chọn) | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` |
 
-1. **Một GitHub token cho mỗi repo** — thêm vào block `env` của **`.claude/settings.local.json`** trong repo đó:
+Mọi secret nằm trong block `env` của **`.claude/settings.local.json`** của từng repo (gitignored — init kiểm trước khi nói tới token). Ghi bằng tool đi kèm để value không bao giờ hiện ra (guard chặn agent Read/Edit file này):
 
-   ```json
-   {
-     "env": { "GITHUB_TOKEN": "ghp_…" }
-   }
-   ```
+```bash
+read -s T && printf '%s\n' "$T" | agentflow-settings set-secret GITHUB_TOKEN     # tương tự TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+agentflow-settings show                                                           # cây key, value bị che
+```
 
-   `.mcp.json` của plugin đọc nó qua `${GITHUB_TOKEN}`. **File này phải được gitignore** — `/agentflow:init` §1a tự thêm dòng đó vào `.gitignore` và **từ chối chạy tiếp** nếu vẫn chưa ignore được (vd file đang bị git track).
+GitHub MCP lấy token qua `headersHelper` (`scripts/mcp-headers.py`): đọc file settings → env → `gh auth token`. Đổi token → `/mcp` → `plugin:agentflow:github` → **Reconnect**, không cần restart.
 
-   > **Đừng chẩn đoán bằng `claude mcp list`** — nó không nạp project settings nên báo `Missing environment variables` kể cả khi token đã đặt đúng. Dùng `/agentflow:init`: nó probe `get_me` ngay trong session. Một `export GITHUB_TOKEN=…` còn sót trong shell sẽ **đè** giá trị của file.
-   >
-   > **Restart là bắt buộc khi đổi token.** MCP server connect lúc boot, nên đổi xong phải thoát Claude Code và mở lại.
-
-2. **Token scopes** — `repo` + `project` (+ `read:org` cho org board). Dùng **classic PAT**: fine-grained PAT chưa được verify cho Projects v2 user-owned board; board-write smoke test của init là nơi phát hiện token sai loại. Một classic PAT với `repo` cấp quyền write rộng tới *mọi* repo mà token vươn tới, và cả hai agent dùng chung token này — coi nó là secret.
-
-3. **Một git repo với GitHub remote** — `git remote get-url origin` phải resolve được.
-
-| Giá trị | Bắt buộc | Sống ở đâu | Dùng cho |
-|---|---|---|---|
-| `GITHUB_TOKEN` | **có** | `env` trong `.claude/settings.local.json` (theo repo, gitignored) | GitHub API + board |
-| `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | không | như trên | `notify` — ping khi pipeline dừng chờ bạn |
-| `FIGMA_TOKEN` | không | như trên | chỉ REST/Framelink fallback; official server dùng OAuth |
-
-Một file phục vụ cả hai đích: `curl` đọc nó như subprocess, `.mcp.json` expand `${VAR}` từ chính env đó. Xem [`DESIGN-NOTES.md`](DESIGN-NOTES.md).
-
----
+Tài khoản test của staging cũng để trong `env`; `staging.notes` trong `agentflow.yaml` chỉ ghi tên biến.
 
 ## Cài đặt
 
-Plugin khai báo `defaultEnabled: false`, nên **cài xong nó nằm im — bạn phải tự bật**. Đây là chủ ý: AgentFlow cầm `GITHUB_TOKEN` và ghi lên board thật, nên nó không được tự chạy chỉ vì có mặt trong marketplace. Bước `enable` là chỗ bạn nói "đồng ý, repo này dùng AgentFlow".
-
 ```bash
-# đường dẫn TUYỆT ĐỐI hoặc ./path tới thư mục chứa .claude-plugin/marketplace.json
-# (dấu "." trần bị từ chối). Team dùng chung → dùng dạng owner/repo.
-claude plugin marketplace add /path/to/Plugins
-
-# đứng TRONG repo muốn dùng:
+claude plugin marketplace add /đường/dẫn/tới/agent-flow-plugin     # hoặc <owner>/<repo> trên GitHub
+cd <repo của bạn>
 claude plugin install agentflow@agent-flow-plugins --scope local
 claude plugin enable  agentflow@agent-flow-plugins --scope local
-# rồi đặt GITHUB_TOKEN trong env của .claude/settings.local.json (xem §Yêu cầu)
+# mở Claude Code trong repo, rồi:
+/agentflow:init
 ```
 
-**`--scope local` là mặc định khuyến nghị.** Nó ghi vào `.claude/settings.local.json` của chính repo — gitignored, theo từng repo, không lan sang teammate — tức **cùng một file đang giữ `GITHUB_TOKEN`**. Nhờ vậy "repo nào đã bật AgentFlow" và "repo nào có token" luôn khớp nhau ở đúng một chỗ, thay vì plugin bật toàn máy còn token thì chỉ vài repo có. `--scope user` cài chung cho mọi repo — chỉ chọn khi bạn thực sự muốn mọi project đều thấy plugin. Sau khi enable, **restart Claude Code**.
+`--scope local` để mỗi repo tự bật plugin và giữ token riêng. Plugin khai `defaultEnabled: false` — không tự chạy ở repo chưa đồng ý.
 
-Quy trình dev/release plugin: [`CONTRIBUTING.md`](CONTRIBUTING.md).
+## Lệnh
 
-## Bắt đầu nhanh
-
-Command của plugin **luôn mang namespace `agentflow:`** — gõ `/agentflow` rồi để autocomplete gợi ý. Tên trần (`/task`, `/start`) không tồn tại.
-
-```text
-/agentflow:init                                       # setup một lần cho REPO NÀY
-/agentflow:task thêm nút export CSV vào trang reports # hỏi đáp → AC chốt → lên board
-/agentflow:start                                      # board-driven: drain queue, chain DEV → QC
-```
-
----
-
-## Pipeline
-
-```
-/agentflow:task <mô tả> ──(hỏi đáp → DoR pass)──▶ Ready for Dev
-              └─(bạn hoãn / thiếu quyết định)──▶ Inbox +blocked
-
-happy path:  Inbox ─spec pass─▶ Ready for Dev ─▶ In Progress ─▶ In QC ─▶ Ready for Review ─▶ Done
-QC ❌ (≤2):   In QC ──▶ Ready for Dev +rework
-về tay bạn:  In Progress ─DEV thiếu spec/Figma, blocker môi trường──▶ Inbox +blocked
-             In QC ─AC mơ hồ · escalate (>2 fail) · infra stop─────▶ Inbox +blocked
-PR feedback: Ready for Review ─bạn comment inline trên PR + KÉO CARD──▶ Inbox
-```
-
-- **Bạn (+ session)** sở hữu `Inbox`. Spec pass biến mô tả thành issue chuẩn theo **template riêng của từng `type/*`** (feature: user story + design pointer · bug: repro + mong đợi/thực tế + bằng chứng + severity · improvement: baseline→target đo được + hành vi không đổi), cộng phần chung: Context, AC Given/When/Then đánh số, Out of Scope, size (định nghĩa ở `agentflow-protocol` §4), QC tier, và hai section định hướng `## For DEV` / `## For QC`. **Ticket mô tả hành vi quan sát được, không nói bằng code** — không file, không tên hàm, không chọn thư viện; cách hiện thực là quyết định của DEV sau khi đọc source. Gate DoR sống ở **đúng một chỗ** — `/agentflow:task` §Spec pass.
-- **DEV** implement trên branch đặt tên theo type (`agent/dev/<kind>/<issue#>-<slug>`) và mở/cập nhật PR, giữ trong phạm vi AC, không bao giờ chạm forbidden paths. Với mỗi surface bị chạm: lint/analyze **phải** green trước khi handoff. (Không bao giờ merge.)
-- **QC** đọc diff đối chiếu AC, **author automation test** (thêm test ID + viết test flow map tới AC) rồi commit/push lên chính PR branch của DEV, chạy các test category mà QC tier ngụ ý ở local, và ký duyệt `[QC] ✅` hoặc từ chối `[QC] ❌`. Từ chối trong ngưỡng → `Ready for Dev` + `rework`; quá 2 lần liên tiếp → escalate về `Inbox +blocked`. (Chỉ đụng test file/test ID. Không bao giờ merge.)
-- **Bạn** review và merge — hoặc để **feedback inline trên code của PR** rồi **kéo card về `Inbox`**: spec pass đọc feedback đó, fold vào AC, DEV **amend chính PR đó** (không build lại), QC re-gate.
-
-**`/agentflow:start` bỏ qua ticket mang `blocked`** — nó đang chờ một quyết định của bạn, và chỉ `/agentflow:task #<n>` mới gỡ. Đây là chủ ý: nếu không, mỗi vòng poll (nhất là dưới `/loop`) sẽ hỏi lại bạn cùng một câu.
-
----
-
-## Commands
-
-| Command | Nó làm gì |
+| Lệnh | Việc |
 |---|---|
-| `/agentflow:init` | Bootstrap một lần **theo từng repo**: verify GitHub auth, resolve owner canonical (remote có thể stale sau transfer), detect surfaces, tạo label, tạo/link board — Status field 6 option + link board↔repo + view `Pipeline` set tự động khi có `gh`, fallback UI thủ công — ghi `agentflow.yaml` + `.claude/settings.local.json`, rồi chạy board-write smoke test. Còn đúng một bước tay: 3 built-in workflow. |
-| `/agentflow:task <mô tả>` | **Intake tương tác** — hỏi đáp để chốt AC, tạo issue, lên board. |
-| `/agentflow:task #<n>` | **Gỡ một ticket đang kẹt** (`Inbox +blocked`) hoặc re-spec sau PR feedback. Đây là đường chính thức đưa ticket trở lại pipeline. |
-| `/agentflow:start` | Vào board-driven team mode: claim ticket chưa assign ở `In QC` → `Ready for Dev` → `Inbox` (việc đã bắt đầu trước việc mới), tự chạy spec pass khi đủ dữ kiện, rồi chain DEV → QC. Poll liên tục opt-in qua skill `/loop`. |
-| `/agentflow:status` | Đếm board item theo từng cột (tách riêng số `blocked`, và số ticket đã close mà Status còn kẹt ngoài `Done`). `--audit` chạy membership hai chiều + reconcile + orphan check; `--metrics` tính flow metrics (throughput, cycle time, first-pass yield, rework/escalation/blocked rate, WIP, aging) suy ra từ transition comment. |
-| `/agentflow:improve [bài học]` | Capture bài học từ usage thực tế và fold vào đúng file tri thức trong plugin **SOURCE** — minimal edit có duyệt diff, bump version, chạy release loop. |
+| `/agentflow:init` | Wizard: token + scope, link board có sẵn (map cột, thêm cột thiếu mà **không mất card**) hoặc tạo board theo preset, label, issue type, issue form + PR template, convention git + lệnh check đọc từ repo, Figma, Telegram, people, permission mode; smoke test |
+| `/agentflow:task <mô tả>` | Hỏi đáp chốt AC → tạo issue theo issue form của repo vào **Backlog** (PO kéo Ready). `#n` = hoàn thiện spec một issue ở Backlog |
+| `/agentflow:do #n` | Xử lý **một** ticket qua DEV → REVIEWER → pipeline staging → QC tới cổng của người |
+| `/agentflow:run` | Chạy **cả hàng đợi**: việc dở trước (feedback → QC → review → rework), rồi Ready theo Priority; song song `run.parallel` ticket; dừng khi hết việc hoặc đủ `run.max_tasks`. Chạy định kỳ: `/loop 30m /agentflow:run` |
+| `/agentflow:status` | Đếm theo stage, việc chờ người, bất thường. `--metrics`: cycle time, first-pass yield, số lần fail, aging + thống kê journal |
+| `/agentflow:doctor` | Kiểm config, token/scope, board mapping, label, MCP, hook, Figma, Telegram — chỉ cách sửa từng lỗi |
+| `/agentflow:learn [bài học]` | Gom journal + bài học → diff nhỏ vào source plugin → bạn duyệt → bump version → validate → phát hành |
 
-## Skills
+## Bên trong
 
-Bốn core skill đi kèm plugin, load on demand, không cần đăng ký:
-
-| Skill | Dùng để làm gì |
+| Thành phần | Vai trò |
 |---|---|
-| `agentflow-protocol` | **Contract lõi.** Config, hằng số plugin, 6 state + bất biến, shape của Status write, comment prefix, DoR/DoD, section AGENTFLOW-STATE, read/write order, rework loop, trust rules. Phần **chỉ orchestrator/init cần** — queue, `status_map`, tạo/link board, lane của con người, claim, scopes — nằm trong `references/projects-v2-board.md`, và DEV/QC **không** load nó. |
-| `git-flow-working` | Branching tech-agnostic, Conventional Commits, PR convention, an toàn rebase/merge. |
-| `design-handoff` | Nguồn design của repo → implementation: dispatch theo `design.kind` (`repo` · `artifact` · `design-system` · `figma`), extract token/component, ghi revision đã build, và ba ca ranh giới design↔AC. DEV load khi chạm UI; QC load để verify đúng revision đó. |
-| `figma-design` | Provider Figma của `design-handoff` — MCP tool (REST fallback), parse URL/node id. |
+| `agents/dev.md` · `reviewer.md` · `qc.md` | Ba subagent (REVIEWER Opus, QC Sonnet, DEV Sonnet và Opus cho Size L — `run.models`) |
+| `references/protocol.md` | Contract chung: stage, label, board call, state block, comment `[AF:…]`, thứ tự ghi, git, token hygiene, journal |
+| `references/dispatch.md` | Orchestrator: hàng đợi, bảng hành động, model, song song, no-progress guard |
+| `references/design.md` | Figma / design trong repo — chỉ load khi ticket chạm UI |
+| `skills/*` | 7 lệnh (`disable-model-invocation` — không tốn context khi không gọi) |
+| `hooks/hooks.json` + `scripts/guard.py` | Chặn cứng: merge/approve PR, dispatch workflow, force-push, push nhánh protected/base, đọc/sửa/in path `forbidden` và token |
+| `bin/agentflow-board` | Setup + chẩn đoán qua GraphQL (Status option, field, view, label, issue type, doctor, metrics) + đọc check pipeline staging |
+| `bin/agentflow-journal` · `agentflow-notify` · `agentflow-settings` | Journal tự học (`~/.claude/agentflow/journal.jsonl`) · ping Telegram · sửa settings local không lộ secret |
+| `scripts/mcp-headers.py` | `headersHelper` cấp token cho GitHub MCP lúc connect |
+| `templates/` | Issue form, PR template, README board |
 
-Công thức spec pass (ba template body theo `type/*`, luật ngôn ngữ ticket, AC, QC tier, tag component, DoR gate, write order, fold PR feedback) **không** là skill riêng — nó sống trong `commands/task.md` §Spec pass, nơi duy nhất chạy nó, với hai chế độ: interactive (`/agentflow:task`) và autonomous (`/agentflow:start` khi nhặt card `Inbox`).
+Phối hợp hoàn toàn qua GitHub: **Status** trên board (sự thật), **label** (tín hiệu), **state block ẩn** cuối issue body (`<!-- agentflow:state … -->` — round, PR, branch, sha, deploy), **comment `[AF:ROLE] event`** (audit + phân biệt agent với người vì agent dùng token của bạn).
 
-**Project skill** mở rộng theo từng repo: thả một skill vào `.claude/skills/` đặt tên `dev-*` hoặc `qc-*` — agent tương ứng **auto-discover** nó. Không có registry nào phải giữ đồng bộ. `/agentflow:init` scaffold được các stub khởi đầu (luôn đề xuất `qc-automation-test`).
+## Chạy không cần bạn
 
-## Cấu hình
+`/agentflow:init` đề nghị `permissions.defaultMode: "bypassPermissions"` trong `.claude/settings.local.json` để loop không dừng hỏi quyền. Khi đó lớp chặn là **hook guard** của plugin (luôn chạy, kể cả bypass). Guard so khớp text lệnh — best-effort, không phải ranh giới bảo mật tuyệt đối; branch protection phía GitHub vẫn là lớp chắc nhất nếu gói của bạn có.
 
-`agentflow.yaml` ở **root repo** cố tình chỉ giữ thứ **không suy ra được**:
+## Tự học
 
-```yaml
-schema: 2
-board:   { url: "https://github.com/orgs/passion-ui/projects/11" }   # hoặc /users/<login>/projects/<N>
-surfaces:                       # BỎ HẲN block này nếu repo single-surface
-  api:    { path: "api/" }
-  mobile: { path: "app/", forbidden: ["android/key.properties"] }
-design:  { kind: repo, path: "docs/design", screens: "screens/*.html", tokens: "css/app.css" }
-notify:  { enabled: false, events: ["blocked", "ready_for_review"] }
-```
+1. Agent gặp friction (review/QC fail mà lẽ ra tự bắt được, call phải thử lại, người sửa convention, phải tự dò lệnh check…) → `agentflow-journal add …` một dòng.
+2. `/agentflow:status --metrics` cho thấy chỗ đau (first-pass yield, aging).
+3. `/agentflow:learn` → ≤ 5 bài học, mỗi bài một diff nhỏ vào đúng file (có trần dòng để prompt không phình), gate theo `DESIGN-NOTES.md` §Non-goals, bạn duyệt → bump → `claude plugin validate` → `marketplace update` + `plugin update` → restart.
 
-`board.url` là nguồn duy nhất cho `owner` + `owner_type` + `project_number` của mọi call `projects_*` — dán nguyên URL từ trình duyệt, và board **được phép** thuộc owner khác repo. Mọi thứ khác đến từ ba nguồn còn lại: **suy từ git** (repo, owner, default branch), **hằng số plugin** (6 tên column, label, branch prefix, global forbidden paths `**/*.pem` + `**/.env`, ngưỡng rework `2`, ý nghĩa QC tier), và **auto-discovery** (project skill). Quy tắc khi phân vân: *hành vi agent → yaml · công cụ/harness và mọi secret → `.claude/settings.local.json`.*
+## Từ v1.5
 
-**`forbidden`** (top-level) là tùy chọn — list glob no-touch cấp repo, hợp với global và với `forbidden` của surface bị chạm.
-
-**Surfaces** là tùy chọn — vắng mặt nghĩa là single-surface, DEV/QC gate toàn repo. Có mặt thì mỗi key sinh một label `component/<key>`; spec pass tag issue, DEV/QC chỉ build/lint/test những surface đó theo convention của chính repo (không có command nào trong config).
-
-**Design source** là tùy chọn và có 5 `kind`. `repo` (prototype trong repo) là kind duy nhất **pin được theo commit** — design đổi là một commit, hiện trong PR diff. Ba kind cloud (`artifact`, `design-system`, `figma`) cho phép designer sửa mà không cần push repo, đổi lại design có thể đổi giữa chừng pipeline: DEV bắt buộc ghi `design: <kind> @ <revision>` vào comment handoff, QC verify đúng revision đó. `design-system` lưu **component kit**, không phải screens.
-
-**QC tier** là gợi ý độ sâu test cố định trong plugin: `quick` = lint + unit · `full` = + integration · `regression` = + e2e (cộng dồn). Không có coverage gate bằng số — QC đánh giá test adequacy bằng inspection.
-
----
+v2 là bản viết lại (schema `4` từ 2.1.0): luồng QC-trước-merge 7 cột có map tên, Reviewer agent, label thay cho "về Inbox", state block ẩn, worktree, journal. Không migrate tự động — chạy `/agentflow:init` lại ở mỗi repo. Phát triển plugin: [`CONTRIBUTING.md`](CONTRIBUTING.md). Lý do thiết kế: [`DESIGN-NOTES.md`](DESIGN-NOTES.md).

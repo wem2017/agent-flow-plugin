@@ -1,7 +1,7 @@
 {
   "name": "agentflow",
-  "version": "1.5.0",
-  "description": "Dev workflow tech-stack-agnostic cho một GitHub repo: bạn là Product Owner, agent DEV + QC phối hợp qua Status field của một GitHub Projects v2 board. Con người giữ quyền merge.",
+  "version": "2.1.0",
+  "description": "Agent team cho mọi repo GitHub: DEV · Reviewer (Opus) · QC tự chạy ticket trên GitHub Projects board (Backlog → Ready → In Progress → In Review → staging → In QC → Ready to Merge → Done) tới cổng của người; tối ưu token, song song qua worktree, tự học qua /agentflow:learn. Con người giữ quyền chốt việc, QC tay và merge.",
   "author": {
     "name": "Wem",
     "email": "huynh.developer@gmail.com"
@@ -17,9 +17,9 @@
     "github-projects",
     "figma",
     "mcp",
-    "design-to-code",
-    "project-management",
-    "monorepo",
-    "skills"
+    "code-review",
+    "qa",
+    "self-improving",
+    "project-management"
   ]
 }

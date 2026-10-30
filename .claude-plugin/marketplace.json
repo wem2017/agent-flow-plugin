@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "agentflow",
-      "description": "Dev workflow tech-stack-agnostic cho một GitHub repo: bạn là Product Owner, agent DEV + QC phối hợp qua Status field của một GitHub Projects v2 board. Con người giữ quyền merge.",
+      "description": "Agent team DEV · Reviewer · QC chạy ticket trên GitHub Projects board tới cổng của người (PO chốt việc, QC tay, merge). Cài cho mọi repo, tối ưu token, tự học.",
       "author": {
         "name": "Wem"
       },

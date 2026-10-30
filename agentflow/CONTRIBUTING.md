@@ -1,26 +1,35 @@
-# Phát triển & cập nhật plugin AgentFlow
+# Phát triển AgentFlow
 
-Marketplace ở đây là **`directory` source** trỏ vào chính repo này, nên nó **đọc thẳng working tree** — sửa file trong `agentflow/` là bản nguồn đã đổi ngay, **không cần commit git**. Nhưng lúc `install`/`update`, Claude Code **copy một snapshot** vào cache (`~/.claude/plugins/cache/agent-flow-plugins/agentflow/<version>/`), khoá theo **`version`**: sửa source **không tự** lan sang bản đang chạy, phải update thủ công.
+Marketplace `agent-flow-plugins` là **directory source** trỏ vào repo này: Claude Code đọc thẳng working tree, nhưng lúc `install`/`update` nó **copy snapshot** vào `~/.claude/plugins/cache/agent-flow-plugins/agentflow/<version>/` — khoá theo `version`. Sửa source không tự lan sang bản đang chạy.
 
-> **Quy tắc vàng:** mỗi lần có thay đổi muốn phát hành, **bump `version` trong `agentflow/.claude-plugin/plugin.json`** trước khi update. Không bump thì `claude plugin update` báo *"already at latest"* và **không refresh** cache — update là no-op.
-
-**Vòng lặp cập nhật (dev trên máy này):**
+## Vòng phát hành (đã tự động trong `/agentflow:learn`)
 
 ```bash
-# 1. sửa code trong agentflow/…
-# 2. bump version trong agentflow/.claude-plugin/plugin.json   (vd 0.1.0 → 0.1.1)
-claude plugin validate ./agentflow                    # (khuyến nghị) validate manifest trước
-claude plugin marketplace update agent-flow-plugins   # đọc lại source, nhận version mới
-claude plugin update agentflow@agent-flow-plugins      # kéo version mới vào cache
-# 3. restart Claude Code để load
+# sửa file trong agentflow/ → bump "version" trong agentflow/.claude-plugin/plugin.json → thêm mục CHANGELOG.md
+claude plugin validate ./agentflow
+claude plugin marketplace update agent-flow-plugins
+claude plugin update agentflow@agent-flow-plugins
+# restart Claude Code
 ```
 
-> Vòng lặp này đã được tự động hoá bằng command **`/agentflow:improve`** — capture bài học từ usage thực tế, fold vào đúng file tri thức trong source (duyệt diff trước khi ghi), bump version, rồi chạy đúng các bước trên.
+Không bump version thì `update` báo *already at latest* và không refresh. Lặp nhanh khi dev: `uninstall` rồi `install` lại.
 
-**Mẹo dev nhanh:** đang lặp liên tục và ngại bump version mỗi lần thì `claude plugin uninstall agentflow@agent-flow-plugins` rồi `install` lại — ép copy snapshot mới kể cả cùng version. Bump version vẫn là cách chuẩn cho release thật.
+## Test trước khi phát hành
 
-**Phân phối cho team / máy khác.** `directory` source chỉ chạy trên máy bạn (đường dẫn local). Muốn người khác nhận được update, chuyển sang **`github` source**:
+```bash
+python3 -I agentflow/bin/agentflow-board --help                # parse được
+GITHUB_TOKEN=… python3 -I agentflow/bin/agentflow-board doctor --root <repo đã init>
+AGENTFLOW_JOURNAL=/tmp/j.jsonl python3 -I agentflow/bin/agentflow-journal add other "test"
+```
 
-1. Push repo marketplace này lên GitHub.
-2. Mỗi release: bump `version`, commit, rồi `claude plugin tag ./agentflow` tạo git tag `agentflow--v<version>` (lệnh này verify `plugin.json` khớp với entry trong `marketplace.json`).
-3. Teammate: `claude plugin marketplace add <owner/repo>` một lần; sau đó mỗi lần cập nhật chạy `claude plugin marketplace update agent-flow-plugins` + `claude plugin update agentflow@agent-flow-plugins` + restart.
+Sửa `scripts/guard.py` → `python3 -I agentflow/tests/test_guard.py` phải pass hết; thêm case mới cho mỗi lỗ hổng/chặn nhầm vừa sửa.
+
+## Quy ước
+
+- Prompt runtime (`agents/`, `references/`, `skills/`) là **chi phí token mỗi lần chạy**: mệnh lệnh ngắn, một fact một chỗ, lý do để ở `DESIGN-NOTES.md`. Trần dòng: agent ≤ 110, `protocol.md` ≤ 170, còn lại ≤ 200.
+- Script: Python 3 stdlib, không dependency. Không bao giờ in token; header bí mật đưa qua stdin (`curl -K -`).
+- Đổi key `agentflow.yaml`, ngữ nghĩa stage, dòng đầu `[AF:…]` hay key state block = **schema change**: tăng `schema` (template + `scripts/afconfig.py` + `references/protocol.md`), bump minor/major.
+
+## Phân phối cho team
+
+Push repo lên GitHub; mỗi release `claude plugin tag ./agentflow` (tạo tag `agentflow--v<version>`). Teammate: `claude plugin marketplace add <owner>/<repo>` một lần, sau đó `marketplace update` + `plugin update` + restart. Máy không giữ source thì `/agentflow:learn` dừng và đề nghị gửi bài học qua issue/PR.

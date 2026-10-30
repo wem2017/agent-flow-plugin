@@ -7,3 +7,6 @@
 
 # Rác hệ điều hành
 .DS_Store
+
+# Python bytecode của scripts/ và bin/
+__pycache__/

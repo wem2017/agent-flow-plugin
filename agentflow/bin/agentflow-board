@@ -1,0 +1,652 @@
+#!/usr/bin/env python3
+"""AgentFlow board tool — setup + diagnostics over GitHub GraphQL/REST (stdlib only).
+
+Runtime ticket work goes through GitHub MCP; this tool covers what MCP cannot do (edit Status
+options, create fields/views, link repo) and read-only reports that would be expensive via MCP.
+Auth: $GITHUB_TOKEN, else $GH_TOKEN, else `gh auth token`. Never prints the token.
+
+  whoami                                    login + token scopes (+ warnings)
+  inspect <board-url>                       fields/options/views/repos + item count per Status
+  items <board-url> [--open]                one compact line per item
+  status-plan <board-url> --want A,B,..     show what apply would change (no write)
+       [--rename Old=New ...] [--drop-extra]
+  status-apply <board-url> --want ... --yes apply (option ids preserved — cards keep values)
+  ensure-field <board-url> --name N --options a,b,..   create single-select field if missing
+  create --owner O --owner-type org|user --title T --repo O/R --want A,B,..
+       [--field Name=a,b,..]... [--sprint DAYS] [--description TXT] [--readme FILE]
+  repo <owner/repo>                         canonical name, owner type, default branch
+  labels --repo O/R --label name|color|description ...   create or update
+  issue-types --org O [--ensure Name|description ...]
+  metrics <board-url> [--days N] [--stages k=v,...] [--parked l1,l2,...]
+  checks <owner/repo> --branch B --contains SHA [--wait MIN]   CI of the branch head; one JSON line
+  doctor [--root DIR]                       check agentflow.yaml against GitHub
+"""
+
+import argparse
+import datetime as dt
+import json
+import os
+import statistics
+import subprocess
+import sys
+import time
+import urllib.parse
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "scripts"))
+import afconfig  # noqa: E402
+
+API = "https://api.github.com"
+STATUS_COLORS = {"backlog": "GRAY", "ready": "BLUE", "in_progress": "YELLOW", "in_review": "ORANGE",
+                 "in_qc": "PINK", "ready_to_merge": "PURPLE", "done": "GREEN"}
+STATUS_DESC = {
+    "backlog": "Ý tưởng, yêu cầu, bug mới. PO viết tiêu chí nghiệm thu, đặt Priority/Size rồi kéo sang Ready.",
+    "ready": "Đủ tiêu chí nghiệm thu, có Priority + Size: DEV agent nhặt từ đây, chỉ PO kéo việc mới vào. Nhãn qc-failed = QC trả về.",
+    "in_progress": "DEV đang làm, hoặc đang sửa theo review/QC (nhãn changes-requested / qc-failed).",
+    "in_review": "Draft PR đã mở — agent review (Opus) độ đúng, đủ và chất lượng giải pháp; ✅ thì merge vào staging.",
+    "in_qc": "Nhãn deploying = chờ pipeline staging. Sau đó QC agent test trên staging. Nhãn qc-manual = chờ QC người.",
+    "ready_to_merge": "Review + QC đã pass, PR đã undraft. Người approve + merge. Muốn sửa: Request changes trên PR.",
+    "done": "PR đã merge, issue đã đóng.",
+}
+BROAD_SCOPES = ("admin:enterprise", "admin:org", "delete_repo", "delete:packages", "admin:gpg_key",
+                "admin:public_key", "admin:ssh_signing_key", "admin:org_hook", "audit_log")
+_TOKEN = None
+
+
+def die(msg, code=1):
+    sys.stderr.write("agentflow-board: %s\n" % msg)
+    sys.exit(code)
+
+
+def token():
+    global _TOKEN
+    if _TOKEN is None:
+        _TOKEN = afconfig.github_token()
+        if not _TOKEN:
+            die("không có token — agentflow-settings set-secret GITHUB_TOKEN (hoặc gh auth login)", 3)
+    return _TOKEN
+
+
+def http(method, path, body=None, want_headers=False):
+    url = path if path.startswith("http") else API + path
+    data = json.dumps(body).encode() if body is not None else None
+    headers = {"Authorization": "Bearer " + token(), "Accept": "application/vnd.github+json",
+               "X-GitHub-Api-Version": "2022-11-28"}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    status, res_headers, raw = afconfig.request(method, url, headers, data)
+    if status >= 400 or status == 0:
+        raise RuntimeError("HTTP %s %s %s: %s" % (status, method, path, raw.decode(errors="replace")[:300]))
+    payload = json.loads(raw) if raw else None
+    return (payload, res_headers) if want_headers else payload
+
+
+def gql(query, **variables):
+    res = http("POST", "/graphql", {"query": query, "variables": variables})
+    if res.get("errors"):
+        raise RuntimeError("; ".join(e.get("message", "?") for e in res["errors"]))
+    return res["data"]
+
+
+def board_ref(url):
+    ref = afconfig.parse_board_url(url)
+    if not ref:
+        die("board url không hợp lệ: %r" % url)
+    ref["kind"] = "organization" if ref["owner_type"] == "org" else "user"
+    return ref
+
+
+FIELDS_Q = """
+fields(first:50){ nodes{ __typename
+  ... on ProjectV2FieldCommon{ id name dataType }
+  ... on ProjectV2SingleSelectField{ options{ id name color description } } } }"""
+
+
+def get_project(url):
+    ref = board_ref(url)
+    q = "query($l:String!,$n:Int!){ %s(login:$l){ projectV2(number:$n){ id title url shortDescription closed" \
+        " items(first:1){ totalCount } repositories(first:20){ nodes{ nameWithOwner } }" \
+        " views(first:20){ nodes{ id name layout filter } } %s } } }" % (ref["kind"], FIELDS_Q)
+    proj = (gql(q, l=ref["owner"], n=ref["number"]).get(ref["kind"]) or {}).get("projectV2")
+    if not proj:
+        die("không resolve được board %s (sai URL, hoặc token thiếu scope project/read:org)" % url, 4)
+    proj["ref"] = ref
+    return proj
+
+
+def field(proj, name):
+    for f in proj["fields"]["nodes"]:
+        if f.get("name") == name:
+            return f
+    return None
+
+
+def iter_items(url, field_names):
+    ref = board_ref(url)
+    fv = " ".join('f%d: fieldValueByName(name:%s){ ... on ProjectV2ItemFieldSingleSelectValue{ name } }'
+                  % (i, json.dumps(n)) for i, n in enumerate(field_names))
+    q = ("query($l:String!,$n:Int!,$a:String){ %s(login:$l){ projectV2(number:$n){ items(first:100, after:$a){"
+         " pageInfo{ hasNextPage endCursor } nodes{ id type %s content{ __typename"
+         " ... on Issue{ number title state closedAt repository{ nameWithOwner }"
+         " labels(first:20){ nodes{ name } } assignees(first:5){ nodes{ login } } }"
+         " ... on PullRequest{ number title state } ... on DraftIssue{ title } } } } } } }") % (ref["kind"], fv)
+    after = None
+    while True:
+        page = gql(q, l=ref["owner"], n=ref["number"], a=after)[ref["kind"]]["projectV2"]["items"]
+        for node in page["nodes"]:
+            c = node.get("content") or {}
+            yield {
+                "item_id": node["id"], "type": node["type"], "number": c.get("number"), "title": c.get("title"),
+                "state": c.get("state"), "closed_at": c.get("closedAt"),
+                "repo": (c.get("repository") or {}).get("nameWithOwner"),
+                "labels": [x["name"] for x in (c.get("labels") or {}).get("nodes", [])],
+                "assignees": [x["login"] for x in (c.get("assignees") or {}).get("nodes", [])],
+                "fields": {n: (node.get("f%d" % i) or {}).get("name") for i, n in enumerate(field_names)},
+            }
+        if not page["pageInfo"]["hasNextPage"]:
+            return
+        after = page["pageInfo"]["endCursor"]
+
+
+# ── commands ──────────────────────────────────────────────────────────────────
+
+def cmd_whoami(_):
+    user, headers = http("GET", "/user", want_headers=True)
+    scopes = [s.strip() for s in (headers.get("x-oauth-scopes") or "").split(",") if s.strip()]
+    print("login: %s" % user["login"])
+    print("scopes: %s" % (", ".join(scopes) or "(fine-grained token — không liệt kê scope)"))
+    broad = [s for s in scopes if s in BROAD_SCOPES]
+    if broad:
+        print("WARN token quá rộng (%s) — plugin chỉ cần repo, project, read:org (+workflow nếu sửa CI)" % ", ".join(broad))
+
+
+def cmd_inspect(a):
+    proj = get_project(a.url)
+    status = field(proj, "Status") or {}
+    counts, closed_not_done, drafts, done_total = {}, [], 0, 0
+    done_name = a.done
+    for it in iter_items(a.url, ["Status"]):
+        st = it["fields"]["Status"]
+        if it["type"] == "DRAFT_ISSUE":
+            drafts += 1
+        elif st == done_name:
+            done_total += 1
+        elif it["state"] == "OPEN":
+            counts[st or "(trống)"] = counts.get(st or "(trống)", 0) + 1
+        elif it["number"]:
+            closed_not_done.append(it["number"])
+    out = {
+        "id": proj["id"], "title": proj["title"], "url": proj["url"], "items": proj["items"]["totalCount"],
+        "repos": [r["nameWithOwner"] for r in proj["repositories"]["nodes"]],
+        "views": [{"name": v["name"], "layout": v["layout"], "filter": v["filter"]} for v in proj["views"]["nodes"]],
+        "fields": {f["name"]: ([o["name"] for o in f["options"]] if "options" in f else f.get("dataType"))
+                   for f in proj["fields"]["nodes"] if f.get("name")},
+        "open_by_status": {o["name"]: counts.get(o["name"], 0) for o in status.get("options", []) if o["name"] != done_name},
+        "done_total": done_total, "closed_not_done": closed_not_done, "drafts": drafts,
+    }
+    if counts.get("(trống)"):
+        out["open_by_status"]["(trống)"] = counts["(trống)"]
+    print(json.dumps(out, ensure_ascii=False))
+
+
+def cmd_items(a):
+    names = a.fields.split(",") if a.fields else ["Status"]
+    for it in iter_items(a.url, names):
+        if a.open and it["state"] != "OPEN":
+            continue
+        vals = " ".join("%s=%s" % (k, json.dumps(v, ensure_ascii=False)) for k, v in it["fields"].items() if v)
+        print("#%s %s %s %s labels=%s assignees=%s | %s" % (
+            it["number"] or "-", it["type"], it["state"] or "-", vals, ",".join(it["labels"]) or "-",
+            ",".join(it["assignees"]) or "-", (it["title"] or "")[:70]))
+
+
+def plan_options(current, want, renames, drop_extra, color_for, desc_for, describe=False):
+    by_name = {o["name"]: o for o in current}
+    renamed = {}
+    for spec in renames or []:
+        old, _, new = spec.partition("=")
+        if old not in by_name:
+            die("--rename: không có option %r trên board" % old)
+        renamed[new] = by_name[old]
+    result, used = [], set()
+    for idx, name in enumerate(want):
+        src = by_name.get(name) or renamed.get(name)
+        if src:
+            used.add(src["id"])
+            keep = src.get("description") if src["name"] == name and not describe else None
+            result.append({"id": src["id"], "name": name, "color": src["color"], "description": keep or desc_for(idx, name)})
+        else:
+            result.append({"name": name, "color": color_for(idx, name), "description": desc_for(idx, name)})
+    extra = [o for o in current if o["id"] not in used]
+    if not drop_extra:
+        result += [{"id": o["id"], "name": o["name"], "color": o["color"], "description": o.get("description") or ""} for o in extra]
+    return result, extra
+
+
+def _status_defaults(want):
+    stages = afconfig.STAGES if len(want) == len(afconfig.STAGES) else None
+
+    def color(i, _n):
+        return STATUS_COLORS[stages[i]] if stages else "GRAY"
+
+    def desc(i, _n):
+        return STATUS_DESC[stages[i]] if stages else ""
+    return color, desc
+
+
+def _status_plan(a):
+    proj = get_project(a.url)
+    st = field(proj, "Status")
+    if not st:
+        die("board không có field Status")
+    want = [w.strip() for w in a.want.split(",") if w.strip()]
+    color, desc = _status_defaults(want)
+    result, extra = plan_options(st["options"], want, a.rename, a.drop_extra, color, desc, a.describe)
+    counts = {}
+    for it in iter_items(a.url, ["Status"]):
+        counts[it["fields"]["Status"]] = counts.get(it["fields"]["Status"], 0) + 1
+    return proj, st, result, extra, counts
+
+
+def cmd_status_plan(a, apply=False):
+    proj, st, result, extra, counts = _status_plan(a)
+    current = [o["name"] for o in st["options"]]
+    print("hiện tại : %s" % " · ".join(current))
+    print("sau apply: %s" % " · ".join(o["name"] for o in result))
+    for o in result:
+        if "id" not in o:
+            print("  + thêm   %s" % o["name"])
+        elif o["name"] not in current:
+            old = next(x["name"] for x in st["options"] if x["id"] == o["id"])
+            print("  ~ đổi tên %s → %s (giữ %d card)" % (old, o["name"], counts.get(old, 0)))
+    lost = 0
+    for o in extra:
+        n = counts.get(o["name"], 0)
+        if a.drop_extra:
+            lost += n
+            print("  - xoá    %s (%d card sẽ mất Status)" % (o["name"], n))
+        else:
+            print("  = giữ    %s (option ngoài mapping — card ở đây vô hình với agent)" % o["name"])
+    if not apply:
+        print("(dry-run — chạy status-apply ... --yes để ghi)")
+        return
+    if lost and not a.allow_drop:
+        die("%d card sẽ mất Status — chuyển card đi trước, hoặc thêm --allow-drop" % lost)
+    gql("mutation($f:ID!,$o:[ProjectV2SingleSelectFieldOptionInput!]){ updateProjectV2Field(input:{fieldId:$f,"
+        " singleSelectOptions:$o}){ projectV2Field{ ... on ProjectV2SingleSelectField{ options{ name } } } } }",
+        f=st["id"], o=result)
+    after = [o["name"] for o in field(get_project(a.url), "Status")["options"]]
+    print("OK Status: %s" % " · ".join(after))
+
+
+def cmd_status_apply(a):
+    if not a.yes:
+        die("thiếu --yes (chạy status-plan trước để xem thay đổi)")
+    cmd_status_plan(a, apply=True)
+
+
+def _create_field(project_id, name, options):
+    opts = [{"name": o, "color": "GRAY", "description": ""} for o in options]
+    gql("mutation($p:ID!,$n:String!,$o:[ProjectV2SingleSelectFieldOptionInput!]){ createProjectV2Field(input:{"
+        "projectId:$p, dataType:SINGLE_SELECT, name:$n, singleSelectOptions:$o}){ projectV2Field{ ... on"
+        " ProjectV2SingleSelectField{ id } } } }", p=project_id, n=name, o=opts)
+
+
+def cmd_ensure_field(a):
+    proj = get_project(a.url)
+    if field(proj, a.name):
+        print("OK field %s đã có" % a.name)
+        return
+    _create_field(proj["id"], a.name, [x.strip() for x in a.options.split(",") if x.strip()])
+    print("OK đã tạo field %s" % a.name)
+
+
+def cmd_create(a):
+    kind = "organization" if a.owner_type == "org" else "user"
+    owner_id = gql("query($l:String!){ %s(login:$l){ id } }" % kind, l=a.owner)[kind]["id"]
+    repo_id = http("GET", "/repos/%s" % a.repo)["node_id"]
+    proj = gql("mutation($o:ID!,$t:String!,$r:ID){ createProjectV2(input:{ownerId:$o, title:$t, repositoryId:$r}){"
+               " projectV2{ id number url } } }", o=owner_id, t=a.title, r=repo_id)["createProjectV2"]["projectV2"]
+    url = proj["url"]
+    print("OK board %s" % url)
+    a.url, a.rename, a.drop_extra, a.allow_drop, a.describe = url, [], True, True, True
+    cmd_status_plan(a, apply=True)
+    for spec in a.field or []:
+        name, _, opts = spec.partition("=")
+        try:
+            _create_field(proj["id"], name, [x.strip() for x in opts.split(",") if x.strip()])
+            print("OK field %s" % name)
+        except RuntimeError as err:
+            print("WARN field %s: %s" % (name, err))
+    if a.sprint:
+        start = dt.date.today() + dt.timedelta(days=(7 - dt.date.today().weekday()) % 7)
+        try:
+            gql("mutation($p:ID!,$c:ProjectV2IterationFieldConfigurationInput!){ createProjectV2Field(input:{projectId:$p,"
+                " dataType:ITERATION, name:\"Sprint\", iterationConfiguration:$c}){ projectV2Field{ ... on"
+                " ProjectV2IterationField{ id } } } }", p=proj["id"],
+                c={"startDate": start.isoformat(), "duration": a.sprint, "iterations": []})
+            print("OK field Sprint (%d ngày, bắt đầu %s)" % (a.sprint, start))
+        except RuntimeError as err:
+            print("WARN Sprint: %s — tạo tay trong Settings của board" % err)
+    readme = open(a.readme, encoding="utf-8").read() if a.readme else None
+    gql("mutation($p:ID!,$d:String,$r:String){ updateProjectV2(input:{projectId:$p, shortDescription:$d, readme:$r}){"
+        " projectV2{ id } } }", p=proj["id"], d=a.description, r=readme)
+    try:
+        gql("mutation($p:ID!,$r:ID!){ linkProjectV2ToRepository(input:{projectId:$p, repositoryId:$r}){ repository{ id } } }",
+            p=proj["id"], r=repo_id)
+    except RuntimeError as err:
+        if "already" not in str(err).lower():
+            print("WARN link repo: %s" % err)
+    view = get_project(url)["views"]["nodes"][0]
+    try:
+        gql("mutation($v:ID!){ updateProjectV2View(input:{viewId:$v, name:\"Board\", layout:BOARD_LAYOUT}){ projectV2View{ id } } }", v=view["id"])
+        print("OK view Board")
+    except RuntimeError as err:
+        print("WARN view: %s" % err)
+    print("URL %s" % url)
+
+
+def cmd_labels(a):
+    for spec in a.label:
+        name, color, desc = (spec.split("|") + ["", ""])[:3]
+        body = {"name": name, "color": color.lstrip("#") or "ededed", "description": desc[:100]}
+        try:
+            http("PATCH", "/repos/%s/labels/%s" % (a.repo, urllib.parse.quote(name, safe="")), {"color": body["color"], "description": body["description"]})
+            print("= %s" % name)
+        except RuntimeError as err:
+            if "HTTP 404" not in str(err):
+                raise
+            http("POST", "/repos/%s/labels" % a.repo, body)
+            print("+ %s" % name)
+
+
+def cmd_issue_types(a):
+    nodes = gql("query($l:String!){ organization(login:$l){ id issueTypes(first:25){ nodes{ id name isEnabled } } } }", l=a.org)["organization"]
+    have = {n["name"]: n for n in nodes["issueTypes"]["nodes"]}
+    for name, n in have.items():
+        print("%s %s" % ("=" if n["isEnabled"] else "x", name))
+    for spec in a.ensure or []:
+        name, _, desc = spec.partition("|")
+        if name in have:
+            continue
+        gql("mutation($o:ID!,$n:String!,$d:String){ createIssueType(input:{ownerId:$o, name:$n, description:$d, isEnabled:true}){ issueType{ id } } }",
+            o=nodes["id"], n=name, d=desc)
+        print("+ %s" % name)
+
+
+def cmd_repo(a):
+    r = http("GET", "/repos/%s" % a.slug)
+    print(json.dumps({"full_name": r["full_name"], "owner_type": "org" if r["owner"]["type"] == "Organization" else "user",
+                      "default_branch": r["default_branch"], "private": r["private"], "redirected": r["full_name"].lower() != a.slug.lower(),
+                      "permissions": r.get("permissions")}, ensure_ascii=False))
+
+
+def _iso(ts):
+    return dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+
+def _fmt_h(hours):
+    return "%dd %dh" % (hours // 24, hours % 24) if hours >= 24 else "%.1fh" % hours
+
+
+def cmd_metrics(a):
+    stages = dict(kv.split("=", 1) for kv in (a.stages or "").split(",") if "=" in kv)
+    ref = board_ref(a.url)
+    since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=a.days)
+    q = ("query($l:String!,$n:Int!,$a:String){ %s(login:$l){ projectV2(number:$n){ items(first:25, after:$a){"
+         " pageInfo{ hasNextPage endCursor } nodes{ st: fieldValueByName(name:\"Status\"){ ... on ProjectV2ItemFieldSingleSelectValue{ name } }"
+         " content{ ... on Issue{ number state closedAt labels(first:20){ nodes{ name } }"
+         " comments(last:60){ nodes{ createdAt body } } } } } } } } }") % ref["kind"]
+    after, rows = None, []
+    while True:
+        page = gql(q, l=ref["owner"], n=ref["number"], a=after)[ref["kind"]]["projectV2"]["items"]
+        for node in page["nodes"]:
+            c = node.get("content") or {}
+            if not c.get("number"):
+                continue
+            if c["state"] == "CLOSED" and (not c.get("closedAt") or _iso(c["closedAt"]) < since):
+                continue
+            events = []
+            for cm in c["comments"]["nodes"]:
+                head = (cm["body"] or "").lstrip().split("\n", 1)[0]
+                if head.startswith("[AF:"):
+                    events.append((_iso(cm["createdAt"]), head))
+            rows.append({"n": c["number"], "state": c["state"], "closed": c.get("closedAt"), "status": (node.get("st") or {}).get("name"),
+                         "labels": [x["name"] for x in c["labels"]["nodes"]], "events": events})
+        if not page["pageInfo"]["hasNextPage"]:
+            break
+        after = page["pageInfo"]["endCursor"]
+    now = dt.datetime.now(dt.timezone.utc)
+    cycle, first_pr, passed, fpy, rev_fail, qc_fail, esc, info = [], [], 0, 0, 0, 0, 0, 0
+    for r in rows:
+        ev = r["events"]
+        start = next((t for t, h in ev if h.startswith("[AF:DEV] start")), None)
+        pr = next((t for t, h in ev if h.startswith("[AF:DEV] pr")), None)
+        if start and pr:
+            first_pr.append((pr - start).total_seconds() / 3600)
+        if start and r["closed"]:
+            cycle.append((_iso(r["closed"]) - start).total_seconds() / 3600)
+        rf = sum(1 for _, h in ev if h.startswith("[AF:REVIEW] ❌"))
+        qf = sum(1 for _, h in ev if h.startswith("[AF:QC] ❌") or h.startswith("[AF:SYS] qc-failed"))
+        rev_fail, qc_fail = rev_fail + rf, qc_fail + qf
+        esc += any(h.startswith("[AF:SYS] escalated") for _, h in ev)
+        info += any(h.startswith("[AF:DEV] ?") or h.startswith("[AF:QC] ?") for _, h in ev)
+        if any(h.startswith("[AF:QC] ✅") or h.startswith("[AF:SYS] qc-manual-pass") for _, h in ev):
+            passed += 1
+            fpy += (rf + qf) == 0
+    done = sum(1 for r in rows if r["closed"])
+    agent_rows = [r for r in rows if r["events"]]
+    print("BOARD %s   window %dd   tickets có [AF:] %d" % (a.url, a.days, len(agent_rows)))
+    print("FLOW     done %d · cycle median %s · p90 %s · time-to-PR median %s" % (
+        done, _fmt_h(statistics.median(cycle)) if cycle else "-",
+        _fmt_h(sorted(cycle)[int(0.9 * (len(cycle) - 1))]) if cycle else "-",
+        _fmt_h(statistics.median(first_pr)) if first_pr else "-"))
+    print("QUALITY  first-pass yield %s (%d/%d) · review ❌ %d · QC ❌ %d · escalated %d · cần hỏi người %d" % (
+        "%d%%" % (100 * fpy // passed) if passed else "-", fpy, passed, rev_fail, qc_fail, esc, info))
+    waiting = set(filter(None, [stages.get("ready_to_merge")]))
+    parked = tuple(x for x in (a.parked or "blocked,needs-info,qc-manual").split(",") if x)
+    print("AGING (chờ người > 3 ngày)")
+    for r in rows:
+        if r["state"] != "OPEN" or not r["events"]:
+            continue
+        if r["status"] in waiting or set(r["labels"]) & set(parked):
+            age = (now - r["events"][-1][0]).days
+            if age > 3:
+                print("  #%s %s %s %dd" % (r["n"], r["status"], ",".join(set(r["labels"]) & set(parked)) or "", age))
+
+
+CHECK_OK = {"success", "neutral", "skipped"}
+
+
+def _head_checks(slug, branch):
+    """(head sha, state, failed names) over check runs + commit statuses of the branch head. state: success | failure | pending;
+    a head without any check yet is pending — the pipeline may not have registered."""
+    sha = http("GET", "/repos/%s/commits/%s" % (slug, urllib.parse.quote(branch, safe="")))["sha"]
+    runs, page = [], 1
+    while True:
+        batch = http("GET", "/repos/%s/commits/%s/check-runs?per_page=100&page=%d" % (slug, sha, page))["check_runs"]
+        runs += batch
+        if len(batch) < 100:
+            break
+        page += 1
+    statuses = http("GET", "/repos/%s/commits/%s/status" % (slug, sha)).get("statuses") or []
+    failed = [{"name": r["name"], "url": r.get("html_url")} for r in runs if r["status"] == "completed" and r["conclusion"] not in CHECK_OK]
+    failed += [{"name": s["context"], "url": s.get("target_url")} for s in statuses if s["state"] in ("failure", "error")]
+    pending = any(r["status"] != "completed" for r in runs) or any(s["state"] == "pending" for s in statuses) or not (runs or statuses)
+    return sha, "failure" if failed else "pending" if pending else "success", failed
+
+
+def cmd_checks(a):
+    deadline = time.time() + a.wait * 60
+    while True:
+        sha, state, failed = _head_checks(a.slug, a.branch)
+        cmp = http("GET", "/repos/%s/compare/%s...%s" % (a.slug, a.contains, sha))["status"]
+        contains = cmp in ("ahead", "identical")
+        if state != "pending" or not contains or time.time() >= deadline:
+            break
+        time.sleep(30)
+    print(json.dumps({"state": state, "sha": sha, "contains": contains, "failed": failed}, ensure_ascii=False))
+
+
+def cmd_doctor(a):
+    root = a.root or afconfig.repo_root() or "."
+    ok = lambda m: print("✓ " + m)  # noqa: E731
+    warn = lambda m: print("⚠ " + m)  # noqa: E731
+    bad = []
+
+    def fail(m):
+        bad.append(m)
+        print("✗ " + m)
+    try:
+        cfg = afconfig.load_config(root)
+    except ValueError as err:
+        fail("agentflow.yaml không parse được: %s" % err)
+        sys.exit(1)
+    if cfg is None:
+        fail("không có agentflow.yaml ở %s — chạy /agentflow:init" % root)
+        sys.exit(1)
+    (ok if cfg.get("schema") == afconfig.SCHEMA else fail)("schema %s (plugin đọc %d)" % (cfg.get("schema"), afconfig.SCHEMA))
+    ignored = subprocess.run(["git", "check-ignore", "-q", ".claude/settings.local.json"], cwd=root).returncode == 0
+    tracked = subprocess.run(["git", "ls-files", "--error-unmatch", ".claude/settings.local.json"], cwd=root, capture_output=True).returncode == 0
+    (ok if ignored and not tracked else fail)(".claude/settings.local.json gitignored%s" % (" nhưng đang bị TRACK" if tracked else ""))
+    if subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.realpath(__file__)), "agentflow-settings"), "has", "GITHUB_TOKEN"], cwd=root).returncode != 0:
+        warn("env.GITHUB_TOKEN chưa có trong .claude/settings.local.json — đang dùng token từ env/gh (agentflow-settings set-secret GITHUB_TOKEN để cố định theo repo)")
+    try:
+        user, headers = http("GET", "/user", want_headers=True)
+    except (RuntimeError, SystemExit) as err:
+        fail("token không dùng được: %s" % err)
+        sys.exit(1)
+    scopes = [s.strip() for s in (headers.get("x-oauth-scopes") or "").split(",") if s.strip()]
+    ok("login %s" % user["login"])
+    board = cfg.get("board") or {}
+    ref = afconfig.parse_board_url(board.get("url"))
+    if not ref:
+        fail("board.url không hợp lệ: %r" % board.get("url"))
+        sys.exit(1)
+    need = {"repo", "project"} | ({"read:org"} if ref["owner_type"] == "org" else set())
+    if scopes:
+        missing = [s for s in need if s not in scopes and not (s == "read:org" and "admin:org" in scopes)]
+        (fail if missing else ok)("scopes cần %s%s" % (", ".join(sorted(need)), (" — thiếu " + ", ".join(missing)) if missing else ""))
+        broad = [s for s in scopes if s in BROAD_SCOPES]
+        if broad:
+            warn("token có scope quá rộng: %s — nên tạo token mới chỉ với %s" % (", ".join(broad), ", ".join(sorted(need))))
+    proj = get_project(board["url"])
+    ok("board %s (%d item)" % (proj["title"], proj["items"]["totalCount"]))
+    st = field(proj, "Status") or {"options": []}
+    names = [o["name"] for o in st["options"]]
+    mapping = board.get("status") or {}
+    for stage in afconfig.STAGES:
+        name = mapping.get(stage)
+        if not name:
+            fail("board.status.%s chưa map" % stage)
+        elif name not in names:
+            fail("board.status.%s = %r không có trên board (có: %s)" % (stage, name, " · ".join(names)))
+    unmapped = [n for n in names if n not in mapping.values()]
+    if unmapped:
+        warn("option Status ngoài mapping: %s — card ở đó agent không thấy" % ", ".join(unmapped))
+    elif all(mapping.get(s) in names for s in afconfig.STAGES):
+        ok("Status map đủ 7 stage")
+    for key, fname in (board.get("fields") or {}).items():
+        (ok if field(proj, fname) else fail)("field %s = %r" % (key, fname))
+    try:
+        wf = gql("query($i:ID!){ node(id:$i){ ... on ProjectV2{ workflows(first:20){ nodes{ name enabled } } } } }", i=proj["id"])
+        flows = {w["name"]: w["enabled"] for w in wf["node"]["workflows"]["nodes"]}
+        (ok if flows.get("Item closed") else warn)("workflow \"Item closed\" %s" % ("bật" if flows.get("Item closed") else "CHƯA bật — merge xong card không tự sang done (Board → ⋯ → Workflows)"))
+    except RuntimeError:
+        pass
+    remote = afconfig.git(["remote", "get-url", "origin"], cwd=root) or ""
+    slug = remote.rstrip("/").removesuffix(".git").replace("git@github.com:", "").split("github.com/")[-1]
+    if slug.count("/") == 1:
+        canonical = http("GET", "/repos/%s" % slug)["full_name"]
+        if canonical.lower() != slug.lower():
+            warn("remote trỏ %s, canonical là %s" % (slug, canonical))
+        repos = [r["nameWithOwner"] for r in proj["repositories"]["nodes"]]
+        (ok if canonical in repos else warn)("board %slink với %s" % ("" if canonical in repos else "chưa ", canonical))
+        labels = [x for x in (cfg.get("labels") or {}).values() if x]
+        have, page = set(), 1
+        while True:
+            batch = http("GET", "/repos/%s/labels?per_page=100&page=%d" % (canonical, page))
+            have |= {x["name"] for x in batch}
+            if len(batch) < 100:
+                break
+            page += 1
+        miss = [x for x in labels if x not in have]
+        (fail if miss else ok)("labels%s" % (" thiếu: " + ", ".join(miss) if miss else " đủ"))
+        gitc = cfg.get("git") or {}
+        base = gitc.get("base") or afconfig.default_branch(root)
+        if base and afconfig.git(["ls-remote", "--exit-code", "--heads", "origin", base], cwd=root, timeout=20) is not None:
+            ok("base branch %s · protected %s" % (base, sorted(afconfig.protected_branches(cfg, root))))
+        else:
+            fail("base branch %r không có trên origin" % base)
+        stag = afconfig.staging_branch(cfg)
+        if not stag:
+            fail("staging.branch chưa khai báo — bắt buộc từ schema 4")
+        elif stag == base:
+            fail("staging.branch = %r trùng base — staging chỉ để build test, PR phải nhắm nhánh khác" % stag)
+        elif afconfig.git(["ls-remote", "--exit-code", "--heads", "origin", stag], cwd=root, timeout=20) is None:
+            fail("staging.branch %r không có trên origin" % stag)
+        else:
+            ok("staging branch %s" % stag)
+        if not (cfg.get("staging") or {}).get("url"):
+            warn("staging.url trống — QC agent không test được API/web trên staging, các AC đó sẽ thành checklist cho QC người")
+        repo_owner_is_org = http("GET", "/repos/%s" % canonical)["owner"]["type"] == "Organization"
+        if cfg.get("classify") == "issue-type" and not repo_owner_is_org:
+            fail("classify: issue-type nhưng repo thuộc user — issue type chỉ có ở org; đổi sang classify: label")
+        elif cfg.get("classify") == "issue-type":
+            types = {n["name"] for n in gql("query($l:String!){ organization(login:$l){ issueTypes(first:25){ nodes{ name } } } }", l=canonical.split("/")[0])["organization"]["issueTypes"]["nodes"]}
+            miss = [t for t in (cfg.get("types") or {}) if t not in types]
+            (fail if miss else ok)("issue types%s" % (" thiếu: " + ", ".join(miss) if miss else " đủ"))
+    for key, s in (cfg.get("surfaces") or {}).items():
+        s = s or {}
+        path = os.path.join(root, s.get("path") or "")
+        if not os.path.isdir(path):
+            fail("surface %s: path %r không tồn tại" % (key, s.get("path")))
+        elif not s.get("check"):
+            warn("surface %s chưa có lệnh check — DEV phải tự tìm (tốn token)" % key)
+        else:
+            ok("surface %s (%s)" % (key, s.get("path")))
+    notify = cfg.get("notify") or {}
+    if notify.get("telegram"):
+        has = os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID")
+        (ok if has else warn)("telegram %s" % ("sẵn sàng" if has else "bật nhưng thiếu TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID — tự tắt"))
+    print("KẾT QUẢ: %s" % ("OK" if not bad else "%d lỗi" % len(bad)))
+    sys.exit(1 if bad else 0)
+
+
+def main():
+    p = argparse.ArgumentParser(prog="agentflow-board", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("whoami")
+    s = sub.add_parser("inspect"); s.add_argument("url"); s.add_argument("--done", default="Done")
+    s = sub.add_parser("items"); s.add_argument("url"); s.add_argument("--open", action="store_true"); s.add_argument("--fields")
+    for name in ("status-plan", "status-apply"):
+        s = sub.add_parser(name); s.add_argument("url"); s.add_argument("--want", required=True)
+        s.add_argument("--rename", action="append"); s.add_argument("--drop-extra", action="store_true")
+        s.add_argument("--allow-drop", action="store_true"); s.add_argument("--yes", action="store_true")
+        s.add_argument("--describe", action="store_true", help="ghi đè description bằng mô tả của plugin")
+    s = sub.add_parser("ensure-field"); s.add_argument("url"); s.add_argument("--name", required=True); s.add_argument("--options", required=True)
+    s = sub.add_parser("create")
+    for flag in ("--owner", "--title", "--repo", "--want"):
+        s.add_argument(flag, required=True)
+    s.add_argument("--owner-type", choices=["org", "user"], required=True)
+    s.add_argument("--field", action="append"); s.add_argument("--sprint", type=int)
+    s.add_argument("--description"); s.add_argument("--readme")
+    s = sub.add_parser("repo"); s.add_argument("slug")
+    s = sub.add_parser("labels"); s.add_argument("--repo", required=True); s.add_argument("--label", action="append", required=True)
+    s = sub.add_parser("issue-types"); s.add_argument("--org", required=True); s.add_argument("--ensure", action="append")
+    s = sub.add_parser("metrics"); s.add_argument("url"); s.add_argument("--days", type=int, default=30); s.add_argument("--stages")
+    s.add_argument("--parked", help="tên label chờ người, phân tách bằng dấu phẩy")
+    s = sub.add_parser("checks"); s.add_argument("slug"); s.add_argument("--branch", required=True); s.add_argument("--contains", required=True)
+    s.add_argument("--wait", type=float, default=0, help="số phút chờ thêm khi còn pending")
+    s = sub.add_parser("doctor"); s.add_argument("--root")
+    a = p.parse_args()
+    handler = {"whoami": cmd_whoami, "inspect": cmd_inspect, "items": cmd_items, "status-plan": cmd_status_plan,
+               "status-apply": cmd_status_apply, "ensure-field": cmd_ensure_field, "create": cmd_create,
+               "labels": cmd_labels, "repo": cmd_repo, "issue-types": cmd_issue_types, "metrics": cmd_metrics, "checks": cmd_checks, "doctor": cmd_doctor}[a.cmd]
+    try:
+        handler(a)
+    except RuntimeError as err:
+        die(str(err), 2)
+
+
+if __name__ == "__main__":
+    main()

@@ -3,10 +3,7 @@
     "github": {
       "type": "http",
       "url": "https://api.githubcopilot.com/mcp/",
-      "headers": {
-        "Authorization": "Bearer ${GITHUB_TOKEN}",
-        "X-MCP-Toolsets": "context,issues,pull_requests,users,labels,projects"
-      }
+      "headersHelper": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/mcp-headers.py\""
     },
     "figma": {
       "type": "http",
