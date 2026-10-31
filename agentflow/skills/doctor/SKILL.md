@@ -1,7 +1,8 @@
 ---
 name: doctor
-description: Kiểm tra nhanh AgentFlow trên repo này — config, token + scope, board + mapping cột, field, label, issue type, base branch, nhánh staging, surfaces, workflow board, GitHub MCP, Figma MCP, hook guard, Telegram — và nói đúng cách sửa từng lỗi. Chỉ đọc; gọn hơn chạy lại /agentflow:init.
+description: Kiểm tra nhanh AgentFlow trên repo này — config, token + scope, board + mapping cột, field, label, issue type, base branch + branch protection, nhánh staging + pipeline, surfaces, workflow board, GitHub MCP, Figma MCP, hook guard, Telegram — và nói đúng cách sửa từng lỗi. Chỉ đọc; gọn hơn chạy lại /agentflow:init.
 disable-model-invocation: true
+allowed-tools: Bash(agentflow-board doctor*) Bash(agentflow-journal stats*) Bash(agentflow-settings show*) Bash(git check-ignore*)
 ---
 
 Chỉ đọc. Chạy lần lượt, gom kết quả thành **một** bảng ✓ / ⚠ / ✗ (≤ 25 dòng), mỗi ✗ kèm đúng một cách sửa.

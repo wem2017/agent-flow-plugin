@@ -19,7 +19,7 @@ SRC="$ROOT/${SUB#./}"; test -f "$SRC/.claude-plugin/plugin.json" && echo "SRC=$S
 
 `NO_SOURCE` (marketplace dạng github, máy không giữ source) → **dừng**: đề nghị mở issue/PR trên repo của plugin, kèm bài học đã soạn. Version cache ≠ version source → báo một dòng (lần release này ship cả backlog).
 
-`--release` → bỏ qua §1–§5, nhảy §6.
+`--release` → bỏ qua §1–§5, nhảy §6 từ bước 2 (không có diff mới để áp, version đã bump).
 
 ## 1. Gom
 
@@ -46,19 +46,19 @@ Gộp entry cùng gốc thành **≤ 5 bài học**, mỗi bài một dòng: `ag
 |---|---|
 | Cách implement, branch, PR, rework, DoR defense | `agents/dev.md` |
 | Tiêu chí review, mức chặn vs gợi ý | `agents/reviewer.md` |
-| Cách verify AC, viết test, checklist test tay | `agents/qc.md` |
+| Cách verify AC, phân định lỗi, checklist test tay | `agents/qc.md` |
 | Stage, label, board call, state block, comment, thứ tự ghi, escalation, git, token hygiene, journal | `references/protocol.md` |
 | Hàng đợi, thứ tự, model, song song, guard, SYS transition | `references/dispatch.md` |
 | Figma / design | `references/design.md` |
 | Hành vi một lệnh | `skills/<lệnh>/SKILL.md` |
-| Lệnh nguy hiểm lọt qua / chặn nhầm | `scripts/guard.py` (+ test lại các case) |
+| Lệnh nguy hiểm lọt qua / chặn nhầm | `scripts/guard.py`, `scripts/shellparse.py` (+ thêm case vào `tests/test_guard.py`) |
 | Setup / chẩn đoán board | `bin/agentflow-board`, `skills/init/…` |
 | Vì sao thiết kế như vậy | `DESIGN-NOTES.md` (không phải file runtime) |
 
 ## 5. Soạn diff — ngân sách token là luật
 
 - Đọc file đích trước. Sửa **ít nhất có thể**: một dòng, một mục list, sửa một câu. Đã có ý tương tự → làm rõ câu đó, không thêm câu mới.
-- Mỗi dòng thêm vào `agents/*`, `references/*`, `skills/*` bị trả giá ở **mọi** lần chạy. Trần: `agents/*.md` ≤ 110 dòng, `references/protocol.md` ≤ 170, file khác ≤ 200 (`wc -l`). Vượt → phải gộp/xoá câu khác trong cùng lượt.
+- Mỗi dòng thêm vào `agents/*`, `references/*`, `skills/*` bị trả giá ở **mọi** lần chạy. Trần theo **ký tự** nằm ở `tests/test_contract.py` (`BUDGETS`), không theo dòng vì một dòng có thể dài vài trăm ký tự. Vượt → phải gộp/xoá câu khác trong cùng lượt, không nâng trần.
 - Dòng chỉ giải thích *vì sao* → `DESIGN-NOTES.md`; file runtime chỉ giữ mệnh lệnh.
 - Một fact một chỗ: `grep -rn` trước khi thêm.
 
@@ -66,9 +66,9 @@ Trình **một lần**: danh sách bài học → file → diff → mức bump (
 
 ## 6. Ghi, phát hành, đóng journal
 
-1. Áp diff vào `$SRC`. Bump `version` trong `$SRC/.claude-plugin/plugin.json` (một lần cho cả lượt). Thêm mục vào `$SRC/CHANGELOG.md`: version · ngày · một dòng mỗi bài học.
+1. Áp diff vào `$SRC`. Bump `version` trong `$SRC/.claude-plugin/plugin.json` (một lần cho cả lượt).
 2. `claude plugin validate "$SRC"` — fail → giữ edit, in lỗi, dừng.
-3. Sửa `scripts/guard.py` → thêm case vào `tests/test_guard.py` và chạy `python3 -I "$SRC/tests/test_guard.py"` — phải pass hết trước khi phát hành.
+3. `python3 -I -m unittest discover -s "$SRC/tests"` phải pass hết trước khi phát hành. Sửa guard hoặc script → thêm case mới vào đúng file test.
 4. `agentflow-journal mark <id…> --as applied --ref v<NEW>` (và `--as dismissed` cho entry bị loại).
 5. Trừ khi `--no-release`: kiểm `git -C "$SRC" status --porcelain` (file bẩn ngoài lượt này → liệt kê, hỏi), rồi hỏi một lần và chạy `claude plugin marketplace update "$MKT" && claude plugin update "$ID"`; xác nhận version mới trong `~/.claude/plugins/installed_plugins.json`.
 6. Báo: version cũ → mới, file đổi, bài học đã áp. Nhắc **restart Claude Code**. Schema đổi → nhắc chạy lại `/agentflow:init` ở mỗi repo. Hỏi (không tự làm) có commit `$SRC` với message `learn: <tóm tắt> (v<NEW>)` không. Không bao giờ push.

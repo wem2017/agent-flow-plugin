@@ -59,7 +59,7 @@ git:
 #     test: "pnpm test"
 #     e2e: ""                  # tuỳ chọn — QC chạy nhắm vào staging, có env STAGING_URL, vd "BASE_URL=$STAGING_URL pnpm e2e"
 
-# Glob agent KHÔNG được sửa hay in nội dung (hợp với mặc định của plugin: .env*, *.pem, *.key, *.p12, *.jks, *.keystore).
+# Glob agent KHÔNG được sửa hay in nội dung (hợp với mặc định của plugin: .env*, *.pem, *.key, *.p12, *.pfx, *.jks, *.keystore, .netrc, .git-credentials, id_rsa, id_ed25519).
 forbidden: []
 
 # ── DESIGN (tuỳ chọn) ────────────────────────────────────────────────────────
@@ -89,7 +89,7 @@ run:
   max_review_rounds: 3         # số ❌ review liên tiếp; lần kế tiếp → escalate
   max_qc_rounds: 2             # số ❌ QC + QC người cho đến khi pass; lần kế tiếp → escalate
   models:
-    dev: { default: sonnet, L: opus }
+    dev: { default: opus }        # thêm key theo Size để đổi model, vd L: fable. Effort nằm ở frontmatter của agent
     reviewer: opus
     qc: sonnet
 

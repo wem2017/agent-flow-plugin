@@ -3,6 +3,7 @@ name: status
 description: Tổng quan AgentFlow của repo này — số ticket theo stage, việc đang chờ người (merge, QC tay, cần thông tin, bị chặn), bất thường (issue đã đóng mà chưa Done, ticket agent bị người khác giữ, cột ngoài mapping). --metrics thêm flow metrics (cycle time, first-pass yield, số lần review/QC fail) và thống kê journal. Chỉ đọc.
 argument-hint: "[--metrics] [--days N]"
 disable-model-invocation: true
+allowed-tools: Bash(agentflow-board inspect*) Bash(agentflow-board items*) Bash(agentflow-board metrics*) Bash(agentflow-journal stats*)
 ---
 
 **Chỉ đọc — không ghi gì lên GitHub.** Dùng `agentflow-board` (một lệnh trả kết quả đã gom, rẻ token hơn nhiều so với đọc từng issue qua MCP).
@@ -12,8 +13,8 @@ disable-model-invocation: true
 Đọc `agentflow.yaml` (schema gate). Chạy:
 
 ```bash
-agentflow-board inspect "<board.url>" --done "<board.status.done>"
-agentflow-board items "<board.url>" --open --fields "Status,<fields.priority>"
+agentflow-board inspect "<board.url>" --done "<board.status.done>" --repo <owner/repo>
+agentflow-board items "<board.url>" --open --fields "Status,<fields.priority>" --repo <owner/repo>
 ```
 
 In bảng theo **stage** (dùng `board.status` để đổi tên cột → stage), không in từng card trừ các dòng chờ người:
@@ -35,9 +36,9 @@ Chờ người: needs-info #… · blocked #… · qc-manual #…
 - `closed_not_done` khác rỗng → issue đã đóng mà card chưa sang done: kéo card, bật workflow *Item closed*.
 - Option Status ngoài mapping có card (inspect `open_by_status` có tên không thuộc `board.status`) → card vô hình với agent.
 - Status trống `(trống)` → card chưa vào luồng.
-- Ticket mang `labels.agent` mà assign cho người khác → agent sẽ bỏ qua; người đó giữ hay trả lại?
+- Ticket **không** mang `labels.agent` nhưng đang ở `in_progress`…`in_qc` → người làm tay hoặc thiếu label, agent sẽ bỏ qua; muốn agent tiếp quản: `/agentflow:do #n`.
 - Ticket mang `labels.agent` ở `in_progress` không có rework label → DEV run trước có thể đã chết giữa chừng; `/agentflow:do #n` sẽ resume.
-- Ticket mang `labels.deploying` đã quá `staging.timeout_min` theo `deploy_at` trong state → `/agentflow:run` sẽ gắn `blocked`.
+- Ticket mang `labels.deploying` → liệt kê; quá `staging.timeout_min` thì `/agentflow:run` tự gắn `blocked`.
 - `.claude/worktrees/af-*` của issue đã đóng → `/agentflow:run` sẽ dọn, hoặc `git worktree remove`.
 
 Sạch → `✓ không có bất thường`.

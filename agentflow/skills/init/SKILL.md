@@ -75,8 +75,8 @@ Chi tiết + lệnh: `${CLAUDE_PLUGIN_ROOT}/skills/init/references/board-setup.m
 - **Figma**: dùng không? Có → `design.figma: true`; kiểm tool MCP `figma` có trong session; chưa authenticate → "chạy `/mcp` → figma → Authenticate". Thấy prototype trong repo (`docs/design`, `*.html` thiết kế…) → đề xuất `design.repo`.
 - **people**: `po`, `qc`, `reviewers` (GitHub login) — gợi ý từ assignee trên board/collaborator. Mention chính token owner không tạo notification — nói rõ.
 - **Telegram**: dùng không? Có → `notify.telegram: true`; kiểm presence `[ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]`; thiếu → hướng dẫn thêm vào env cùng file (có hiệu lực sau restart).
-- **staging**: `url` (API/web), `build` (cách lấy bản build cho mobile/QC người), `notes` (chỉ **tên** biến env của tài khoản test; value ghi bằng `agentflow-settings set-secret`), `timeout_min`. Kiểm trong `.github/workflows/`: có pipeline chạy khi push vào nhánh staging và báo check về commit, không có → nói rõ ticket sẽ `blocked` khi hết timeout. Nhánh staging phải cho push trực tiếp, không bật rule bắt buộc PR hay status check trước khi push.
-- **run**: giữ mặc định (`parallel 2`, `max_tasks 5`, `max_review_rounds 3`, `max_qc_rounds 2`, DEV sonnet / L opus, REVIEWER opus, QC sonnet) trừ khi người muốn đổi.
+- **staging**: `url` (API/web), `build` (cách lấy bản build cho mobile/QC người), `notes` (chỉ **tên** biến env của tài khoản test; value ghi bằng `agentflow-settings set-secret`), `timeout_min`. Kiểm trong `.github/workflows/`: có pipeline chạy khi push vào nhánh staging và báo check về commit, không có → nói rõ ticket sẽ `blocked` khi hết timeout. Check phải bao trùm cả bước deploy: check xanh trước khi deploy xong thì QC test nhầm bản cũ. Nhánh staging phải cho push trực tiếp, không bật rule bắt buộc PR hay status check trước khi push.
+- **run**: giữ mặc định (`parallel 2`, `max_tasks 5`, `max_review_rounds 3`, `max_qc_rounds 2`, DEV opus, REVIEWER opus, QC sonnet) trừ khi người muốn đổi.
 
 ## 9. Ghi file
 
@@ -84,7 +84,7 @@ Chi tiết + lệnh: `${CLAUDE_PLUGIN_ROOT}/skills/init/references/board-setup.m
 2. **`.claude/settings.local.json`** — chỉ qua `agentflow-settings` (merge, giữ mọi key; `agentflow-settings show` xem cây key, value trong `env` bị che):
    - `agentflow-settings set enabledPlugins.<id> true` — id: `jq -r '.plugins|keys[]|select(startswith("agentflow@"))' ~/.claude/plugins/installed_plugins.json`.
    - `agentflow-settings set extraKnownMarketplaces.<marketplace>.source '<json>'` = source đang đăng ký trong `~/.claude/plugins/known_marketplaces.json` (không đọc được → bỏ, đừng bịa).
-   - `agentflow-settings set permissions.defaultMode '"bypassPermissions"'` **chỉ khi người đồng ý** chạy loop không hỏi quyền. Nói rõ: lớp chặn khi đó là hook của plugin (merge/approve PR, force-push, push nhánh protected, đọc/sửa `forbidden`) — chặn theo text lệnh, không tuyệt đối.
+   - `agentflow-settings set permissions.defaultMode '"bypassPermissions"'` **chỉ khi người đồng ý** chạy loop không hỏi quyền. Nói rõ: lớp chặn khi đó là hook của plugin (merge/approve PR, force-push, push nhánh protected, đọc/sửa `forbidden`). Hook đọc cấu trúc lệnh và mở lệnh bọc, nhưng không thấy được thứ chỉ lộ ra lúc chạy (script sinh sau, `make deploy`) — không tuyệt đối. Branch protection trên GitHub vẫn là lớp chắc nhất, doctor báo nếu base chưa có.
 3. Repo nhiều người: `agentflow.yaml` commit được; mỗi người tự chạy `/agentflow:init` để có settings local + token riêng.
 
 ## 10. Verify

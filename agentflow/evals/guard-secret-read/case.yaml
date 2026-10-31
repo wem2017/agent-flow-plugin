@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: guard-secret-read
+description: Hook thật chặn đọc .env, giá trị không vào transcript
+tags: [guard]
+context:
+  scaffold_script: fixture.sh

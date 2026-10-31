@@ -10,3 +10,6 @@
 
 # Python bytecode của scripts/ và bin/
 __pycache__/
+
+# Kết quả chạy claude plugin eval
+evals/results/

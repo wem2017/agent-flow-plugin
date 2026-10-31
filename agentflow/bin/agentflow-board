@@ -3,14 +3,16 @@
 
 Runtime ticket work goes through GitHub MCP; this tool covers what MCP cannot do (edit Status
 options, create fields/views, link repo) and read-only reports that would be expensive via MCP.
-Auth: $GITHUB_TOKEN, else $GH_TOKEN, else `gh auth token`. Never prints the token.
+Auth: env.GITHUB_TOKEN of .claude/settings.local.json, else $GITHUB_TOKEN, else $GH_TOKEN, else
+`gh auth token`. Never prints the token.
 
   whoami                                    login + token scopes (+ warnings)
-  inspect <board-url>                       fields/options/views/repos + item count per Status
-  items <board-url> [--open]                one compact line per item
+  inspect <board-url> [--done NAME] [--repo O/R]   fields/options/views/repos + item count per Status
+  items <board-url> [--open] [--fields A,B] [--repo O/R]  one compact line per item
   status-plan <board-url> --want A,B,..     show what apply would change (no write)
-       [--rename Old=New ...] [--drop-extra]
+       [--rename Old=New ...] [--drop-extra] [--describe]
   status-apply <board-url> --want ... --yes apply (option ids preserved — cards keep values)
+       [--allow-drop]                       needed to remove an option that still holds cards
   ensure-field <board-url> --name N --options a,b,..   create single-select field if missing
   create --owner O --owner-type org|user --title T --repo O/R --want A,B,..
        [--field Name=a,b,..]... [--sprint DAYS] [--description TXT] [--readme FILE]
@@ -18,7 +20,7 @@ Auth: $GITHUB_TOKEN, else $GH_TOKEN, else `gh auth token`. Never prints the toke
   labels --repo O/R --label name|color|description ...   create or update
   issue-types --org O [--ensure Name|description ...]
   metrics <board-url> [--days N] [--stages k=v,...] [--parked l1,l2,...]
-  checks <owner/repo> --branch B --contains SHA [--wait MIN]   CI of the branch head; one JSON line
+  checks <owner/repo> --branch B --contains SHA [--since ISO] [--wait MIN]   CI of the branch head; one JSON line
   doctor [--root DIR]                       check agentflow.yaml against GitHub
 """
 
@@ -35,7 +37,7 @@ import urllib.parse
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "scripts"))
 import afconfig  # noqa: E402
 
-API = "https://api.github.com"
+API = os.environ.get("AGENTFLOW_GITHUB_API") or "https://api.github.com"  # GitHub Enterprise, or the fake one of tests/e2e
 STATUS_COLORS = {"backlog": "GRAY", "ready": "BLUE", "in_progress": "YELLOW", "in_review": "ORANGE",
                  "in_qc": "PINK", "ready_to_merge": "PURPLE", "done": "GREEN"}
 STATUS_DESC = {
@@ -49,6 +51,7 @@ STATUS_DESC = {
 }
 BROAD_SCOPES = ("admin:enterprise", "admin:org", "delete_repo", "delete:packages", "admin:gpg_key",
                 "admin:public_key", "admin:ssh_signing_key", "admin:org_hook", "audit_log")
+RETRY_STATUS = (429, 502, 503, 504)
 _TOKEN = None
 
 
@@ -73,7 +76,11 @@ def http(method, path, body=None, want_headers=False):
                "X-GitHub-Api-Version": "2022-11-28"}
     if data is not None:
         headers["Content-Type"] = "application/json"
-    status, res_headers, raw = afconfig.request(method, url, headers, data)
+    for attempt in range(3):  # transient upstream errors must not end a long --wait or a doctor run
+        status, res_headers, raw = afconfig.request(method, url, headers, data)
+        if status not in RETRY_STATUS or attempt == 2:
+            break
+        time.sleep(min(int(res_headers.get("retry-after") or 0) or 2 ** (attempt + 1), 30))
     if status >= 400 or status == 0:
         raise RuntimeError("HTTP %s %s %s: %s" % (status, method, path, raw.decode(errors="replace")[:300]))
     payload = json.loads(raw) if raw else None
@@ -166,6 +173,8 @@ def cmd_inspect(a):
     done_name = a.done
     for it in iter_items(a.url, ["Status"]):
         st = it["fields"]["Status"]
+        if a.repo and it["repo"] and it["repo"].lower() != a.repo.lower():
+            continue
         if it["type"] == "DRAFT_ISSUE":
             drafts += 1
         elif st == done_name:
@@ -192,6 +201,8 @@ def cmd_items(a):
     names = a.fields.split(",") if a.fields else ["Status"]
     for it in iter_items(a.url, names):
         if a.open and it["state"] != "OPEN":
+            continue
+        if a.repo and it["repo"] and it["repo"].lower() != a.repo.lower():
             continue
         vals = " ".join("%s=%s" % (k, json.dumps(v, ensure_ascii=False)) for k, v in it["fields"].items() if v)
         print("#%s %s %s %s labels=%s assignees=%s | %s" % (
@@ -455,6 +466,7 @@ def cmd_metrics(a):
 
 
 CHECK_OK = {"success", "neutral", "skipped"}
+SETTLE_SECONDS = 120
 
 
 def _head_checks(slug, branch):
@@ -468,23 +480,72 @@ def _head_checks(slug, branch):
         if len(batch) < 100:
             break
         page += 1
-    statuses = http("GET", "/repos/%s/commits/%s/status" % (slug, sha)).get("statuses") or []
+    statuses = http("GET", "/repos/%s/commits/%s/status?per_page=100" % (slug, sha)).get("statuses") or []
     failed = [{"name": r["name"], "url": r.get("html_url")} for r in runs if r["status"] == "completed" and r["conclusion"] not in CHECK_OK]
     failed += [{"name": s["context"], "url": s.get("target_url")} for s in statuses if s["state"] in ("failure", "error")]
     pending = any(r["status"] != "completed" for r in runs) or any(s["state"] == "pending" for s in statuses) or not (runs or statuses)
     return sha, "failure" if failed else "pending" if pending else "success", failed
 
 
+def _contains(slug, deploy_sha, head):
+    """A rewritten staging can leave deploy_sha unreachable: GitHub then answers 404 instead of a comparison."""
+    try:
+        return http("GET", "/repos/%s/compare/%s...%s" % (slug, deploy_sha, head))["status"] in ("ahead", "identical")
+    except RuntimeError as err:
+        if "HTTP 404" not in str(err):
+            raise
+        return False
+
+
+def _too_fresh(since):
+    """Green right after the push may only mean the pipeline has not registered all its checks yet."""
+    return bool(since) and (dt.datetime.now(dt.timezone.utc) - _iso(since)).total_seconds() < SETTLE_SECONDS
+
+
 def cmd_checks(a):
     deadline = time.time() + a.wait * 60
     while True:
         sha, state, failed = _head_checks(a.slug, a.branch)
-        cmp = http("GET", "/repos/%s/compare/%s...%s" % (a.slug, a.contains, sha))["status"]
-        contains = cmp in ("ahead", "identical")
+        if state == "success" and _too_fresh(a.since):
+            state = "pending"
+        contains = _contains(a.slug, a.contains, sha)
         if state != "pending" or not contains or time.time() >= deadline:
             break
         time.sleep(30)
     print(json.dumps({"state": state, "sha": sha, "contains": contains, "failed": failed}, ensure_ascii=False))
+
+
+def _branch_rules(slug, branch):
+    try:
+        return {r.get("type") for r in http("GET", "/repos/%s/rules/branches/%s" % (slug, urllib.parse.quote(branch, safe="")))}
+    except RuntimeError:
+        return set()
+
+
+def _doctor_staging(slug, branch, ok, warn):
+    sha, state, _ = _head_checks(slug, branch)
+    runs = http("GET", "/repos/%s/commits/%s/check-runs?per_page=1" % (slug, sha)).get("total_count")
+    statuses = http("GET", "/repos/%s/commits/%s/status" % (slug, sha)).get("total_count")
+    if runs or statuses:
+        ok("pipeline staging báo check về commit (head đang %s)" % state)
+    else:
+        warn("head staging không có check nào — chưa có pipeline thì mỗi ticket mất trọn staging.timeout_min rồi blocked")
+    rules = _branch_rules(slug, branch) & {"pull_request", "required_status_checks", "update"}
+    if rules:
+        warn("ruleset trên %s (%s) có thể chặn REVIEWER push trực tiếp" % (branch, ", ".join(sorted(rules))))
+
+
+def _doctor_base(slug, base, ok, warn):
+    protected = bool(_branch_rules(slug, base))
+    if not protected:
+        try:
+            protected = bool(http("GET", "/repos/%s/branches/%s" % (slug, urllib.parse.quote(base, safe=""))).get("protected"))
+        except RuntimeError:
+            pass
+    if protected:
+        ok("%s có branch protection" % base)
+    else:
+        warn("%s không có branch protection — guard là lớp chặn duy nhất, mà guard chỉ là best-effort. Nên bật nếu gói GitHub cho phép" % base)
 
 
 def cmd_doctor(a):
@@ -505,6 +566,17 @@ def cmd_doctor(a):
         fail("không có agentflow.yaml ở %s — chạy /agentflow:init" % root)
         sys.exit(1)
     (ok if cfg.get("schema") == afconfig.SCHEMA else fail)("schema %s (plugin đọc %d)" % (cfg.get("schema"), afconfig.SCHEMA))
+    for level, msg in afconfig.validate_config(cfg):
+        if not msg.startswith(("board.status.", "staging.branch")):  # the checks below report these with board context
+            (fail if level == "fail" else warn)(msg)
+    if os.path.isfile(os.path.join(root, ".mcp.json")):
+        try:
+            with open(os.path.join(root, ".mcp.json"), encoding="utf-8") as fh:
+                dup = "api.githubcopilot.com/mcp" in fh.read()
+        except OSError:
+            dup = False
+        if dup:
+            warn(".mcp.json của repo khai GitHub MCP trùng URL với plugin — server của plugin bị loại trùng, tool mất tiền tố mcp__plugin_agentflow_github__ và subagent không gọi được. Bỏ server đó khỏi .mcp.json")
     ignored = subprocess.run(["git", "check-ignore", "-q", ".claude/settings.local.json"], cwd=root).returncode == 0
     tracked = subprocess.run(["git", "ls-files", "--error-unmatch", ".claude/settings.local.json"], cwd=root, capture_output=True).returncode == 0
     (ok if ignored and not tracked else fail)(".claude/settings.local.json gitignored%s" % (" nhưng đang bị TRACK" if tracked else ""))
@@ -579,13 +651,16 @@ def cmd_doctor(a):
             fail("base branch %r không có trên origin" % base)
         stag = afconfig.staging_branch(cfg)
         if not stag:
-            fail("staging.branch chưa khai báo — bắt buộc từ schema 4")
+            fail("staging.branch chưa khai báo — bắt buộc")
         elif stag == base:
             fail("staging.branch = %r trùng base — staging chỉ để build test, PR phải nhắm nhánh khác" % stag)
         elif afconfig.git(["ls-remote", "--exit-code", "--heads", "origin", stag], cwd=root, timeout=20) is None:
             fail("staging.branch %r không có trên origin" % stag)
         else:
             ok("staging branch %s" % stag)
+            _doctor_staging(canonical, stag, ok, warn)
+        if base:
+            _doctor_base(canonical, base, ok, warn)
         if not (cfg.get("staging") or {}).get("url"):
             warn("staging.url trống — QC agent không test được API/web trên staging, các AC đó sẽ thành checklist cho QC người")
         repo_owner_is_org = http("GET", "/repos/%s" % canonical)["owner"]["type"] == "Organization"
@@ -616,8 +691,8 @@ def main():
     p = argparse.ArgumentParser(prog="agentflow-board", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("whoami")
-    s = sub.add_parser("inspect"); s.add_argument("url"); s.add_argument("--done", default="Done")
-    s = sub.add_parser("items"); s.add_argument("url"); s.add_argument("--open", action="store_true"); s.add_argument("--fields")
+    s = sub.add_parser("inspect"); s.add_argument("url"); s.add_argument("--done", default="Done"); s.add_argument("--repo", help="board dùng chung: chỉ đếm repo này")
+    s = sub.add_parser("items"); s.add_argument("url"); s.add_argument("--open", action="store_true"); s.add_argument("--fields"); s.add_argument("--repo")
     for name in ("status-plan", "status-apply"):
         s = sub.add_parser(name); s.add_argument("url"); s.add_argument("--want", required=True)
         s.add_argument("--rename", action="append"); s.add_argument("--drop-extra", action="store_true")
@@ -637,6 +712,7 @@ def main():
     s.add_argument("--parked", help="tên label chờ người, phân tách bằng dấu phẩy")
     s = sub.add_parser("checks"); s.add_argument("slug"); s.add_argument("--branch", required=True); s.add_argument("--contains", required=True)
     s.add_argument("--wait", type=float, default=0, help="số phút chờ thêm khi còn pending")
+    s.add_argument("--since", help="deploy_at: check xanh trong 2 phút đầu vẫn tính là pending")
     s = sub.add_parser("doctor"); s.add_argument("--root")
     a = p.parse_args()
     handler = {"whoami": cmd_whoami, "inspect": cmd_inspect, "items": cmd_items, "status-plan": cmd_status_plan,

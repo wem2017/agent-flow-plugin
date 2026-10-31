@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: reviewer-escalates
+description: "REVIEWER ❌ khi đã hết lượt review: escalate, gắn blocked, đặt round về 0"
+tags: [agent]
+context:
+  scaffold_script: fixture.sh

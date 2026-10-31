@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: reviewer-rejects
+description: REVIEWER ❌ PR có bug và thiếu test, verdict dạng COMMENT, không lên staging
+tags: [agent]
+context:
+  scaffold_script: fixture.sh

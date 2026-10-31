@@ -1,0 +1,1258 @@
+{
+"actions_list": {
+"properties": {
+"method": {
+"description": "The action to perform",
+"enum": [
+"list_workflows",
+"list_workflow_runs",
+"list_workflow_jobs",
+"list_workflow_run_artifacts"
+],
+"type": "string"
+},
+"owner": {
+"description": "Repository owner",
+"type": "string",
+"x-mcp-header": "owner"
+},
+"page": {
+"description": "Page number for pagination (default: 1)",
+"minimum": 1,
+"type": "number"
+},
+"perPage": {
+"description": "Results per page for pagination (default: 30, max: 100)",
+"maximum": 100,
+"minimum": 1,
+"type": "number"
+},
+"repo": {
+"description": "Repository name",
+"type": "string",
+"x-mcp-header": "repo"
+},
+"resource_id": {
+"description": "The unique identifier of the resource. This will vary based on the \"method\" provided, so ensure you provide the correct ID:\n- Do not provide any resource ID for 'list_workflows' method.\n- Provide a workflow ID or workflow file name (e.g. ci.yaml) for 'list_workflow_runs' method, or omit to list all workflow runs in the repository.\n- Provide a workflow run ID for 'list_workflow_jobs' and 'list_workflow_run_artifacts' methods.\n",
+"type": "string"
+},
+"workflow_jobs_filter": {
+"description": "Filters for workflow jobs. **ONLY** used when method is 'list_workflow_jobs'",
+"properties": {
+"filter": {
+"description": "Filters jobs by their completed_at timestamp",
+"enum": [
+"latest",
+"all"
+],
+"type": "string"
+}
+},
+"type": "object"
+},
+"workflow_runs_filter": {
+"description": "Filters for workflow runs. **ONLY** used when method is 'list_workflow_runs'",
+"properties": {
+"actor": {
+"description": "Filter to a specific GitHub user's workflow runs.",
+"type": "string"
+},
+"branch": {
+"description": "Filter workflow runs to a specific Git branch. Use the name of the branch.",
+"type": "string"
+},
+"event": {
+"description": "Filter workflow runs to a specific event type",
+"enum": [
+"branch_protection_rule",
+"check_run",
+"check_suite",
+"create",
+"delete",
+"deployment",
+"deployment_status",
+"discussion",
+"discussion_comment",
+"fork",
+"gollum",
+"issue_comment",
+"issues",
+"label",
+"merge_group",
+"milestone",
+"page_build",
+"public",
+"pull_request",
+"pull_request_review",
+"pull_request_review_comment",
+"pull_request_target",
+"push",
+"registry_package",
+"release",
+"repository_dispatch",
+"schedule",
+"status",
+"watch",
+"workflow_call",
+"workflow_dispatch",
+"workflow_run"
+],
+"type": "string"
+},
+"status": {
+"description": "Filter workflow runs to only runs with a specific status",
+"enum": [
+"queued",
+"in_progress",
+"completed",
+"requested",
+"waiting"
+],
+"type": "string"
+}
+},
+"type": "object"
+}
+},
+"required": [
+"method",
+"owner",
+"repo"
+],
+"type": "object"
+},
+"actions_run_trigger": {
+"properties": {
+"inputs": {
+"description": "Inputs the workflow accepts. Only used for 'run_workflow' method.",
+"properties": {},
+"type": "object"
+},
+"method": {
+"description": "The method to execute",
+"enum": [
+"run_workflow",
+"rerun_workflow_run",
+"rerun_failed_jobs",
+"cancel_workflow_run",
+"delete_workflow_run_logs"
+],
+"type": "string"
+},
+"owner": {
+"description": "Repository owner",
+"type": "string",
+"x-mcp-header": "owner"
+},
+"ref": {
+"description": "The git reference for the workflow. The reference can be a branch or tag name. Required for 'run_workflow' method.",
+"type": "string"
+},
+"repo": {
+"description": "Repository name",
+"type": "string",
+"x-mcp-header": "repo"
+},
+"run_id": {
+"description": "The ID of the workflow run. Required for all methods except 'run_workflow'.",
+"type": "number"
+},
+"workflow_id": {
+"description": "The workflow ID (numeric) or workflow file name (e.g., main.yml, ci.yaml). Required for 'run_workflow' method.",
+"type": "string"
+}
+},
+"required": [
+"method",
+"owner",
+"repo"
+],
+"type": "object"
+},
+"add_issue_comment": {
+"properties": {
+"body": {
+"description": "Comment content. Required unless reaction is provided.",
+"minLength": 1,
+"type": "string"
+},
+"comment_id": {
+"description": "The numeric ID of the issue or pull request comment to react to. Use this for reactions to comments; omit it to react to the issue or pull request itself. Cannot be combined with body.",
+"minimum": 1,
+"type": "integer"
+},
+"issue_number": {
+"description": "Issue or pull request number to comment on or react to.",
+"type": "number"
+},
+"owner": {
+"description": "Repository owner",
+"type": "string",
+"x-mcp-header": "owner"
+},
+"reaction": {
+"description": "Emoji reaction to add. Required unless body is provided.",
+"enum": [
+"+1",
+"-1",
+"laugh",
+"confused",
+"heart",
+"hooray",
+"rocket",
+"eyes"
+],
+"type": "string"
+},
+"repo": {
+"description": "Repository name",
+"type": "string",
+"x-mcp-header": "repo"
+}
+},
+"required": [
+"owner",
+"repo",
+"issue_number"
+],
+"type": "object"
+},
+"add_reply_to_pull_request_comment": {
+"properties": {
+"body": {
+"description": "The text of the reply. Required unless reaction is provided.",
+"type": "string"
+},
+"commentId": {
+"description": "The numeric ID of the pull request review comment to reply or react to. Use the number from a #discussion_r... anchor, not the GraphQL thread node ID (PRRT_...).",
+"minimum": 1,
+"type": "number"
+},
+"owner": {
+"description": "Repository owner",
+"type": "string",
+"x-mcp-header": "owner"
+},
+"pullNumber": {
+"description": "Pull request number. Required when body is provided.",
+"type": "number"
+},
+"reaction": {
+"description": "Emoji reaction to add. Required unless body is provided.",
+"enum": [
+"+1",
+"-1",
+"laugh",
+"confused",
+"heart",
+"hooray",
+"rocket",
+"eyes"
+],
+"type": "string"
+},
+"repo": {
+"description": "Repository name",
+"type": "string",
+"x-mcp-header": "repo"
+}
+},
+"required": [
+"owner",
+"repo",
+"commentId"
+],
+"type": "object"
+},
+"create_pull_request": {
+"properties": {
+"base": {
+"description": "Branch to merge into",
+"type": "string"
+},
+"body": {
+"description": "PR description",
+"type": "string"
+},
+"draft": {
+"description": "Create as draft PR",
+"type": "boolean"
+},
+"head": {
+"description": "Branch containing changes",
+"type": "string"
+},
+"maintainer_can_modify": {
+"description": "Allow maintainer edits",
+"type": "boolean"
+},
+"owner": {
+"description": "Repository owner",
+"type": "string",
+"x-mcp-header": "owner"
+},
+"repo": {
+"description": "Repository name",
+"type": "string",
+"x-mcp-header": "repo"
+},
+"reviewers": {
+"description": "GitHub usernames or ORG/team-slug team reviewers to request reviews from",
+"items": {
+"type": "string"
+},
+"type": "array"
+},
+"title": {
+"description": "PR title",
+"type": "string"
+}
+},
+"required": [
+"owner",
+"repo",
+"title",
+"head",
+"base"
+],
+"type": "object"
+},
+"get_job_logs": {
+"properties": {
+"failed_only": {
+"description": "When true, gets logs for all failed jobs in the workflow run specified by run_id. Requires run_id to be provided.",
+"type": "boolean"
+},
+"job_id": {
+"description": "The unique identifier of the workflow job. Required when getting logs for a single job.",
+"type": "number"
+},
+"owner": {
+"description": "Repository owner",
+"type": "string",
+"x-mcp-header": "owner"
+},
+"repo": {
+"description": "Repository name",
+"type": "string",
+"x-mcp-header": "repo"
+},
+"return_content": {
+"description": "Returns actual log content instead of URLs",
+"type": "boolean"
+},
+"run_id": {
+"description": "The unique identifier of the workflow run. Required when failed_only is true to get logs for all failed jobs in the run.",
+"type": "number"
+},
+"tail_lines": {
+"default": 500,
+"description": "Number of lines to return from the end of the log",
+"type": "number"
+}
+},
+"required": [
+"owner",
+"repo"
+],
+"type": "object"
+},
+"get_me": {
+"properties": {},
+"type": "object"
+},
+"issue_read": {
+"properties": {
+"issue_number": {
+"description": "The number of the issue",
+"type": "number"
+},
+"method": {
+"description": "The read operation to perform on a single issue.\nOptions are:\n1. get - Get issue details. Also returns best-effort hierarchy flags (`has_parent`, `has_children`); `parent` and `sub_issues_summary` are optional relationship summaries, and `closed_by_pull_requests` summarizes the pull requests configured to close the issue as `total_count` plus up to 5 `references`.\n2. get_comments - Get issue comments.\n3. get_sub_issues - Get sub-issues (children) of the issue.\n4. get_parent - Get the parent issue, if this issue is a sub-issue of another.\n5. get_labels - Get labels assigned to the issue.\n",
+"enum": [
+"get",
+"get_comments",
+"get_sub_issues",
+"get_parent",
+"get_labels"
+],
+"type": "string"
+},
+"owner": {
+"description": "The owner of the repository",
+"type": "string",
+"x-mcp-header": "owner"
+},
+"page": {
+"description": "Page number for pagination (min 1)",
+"minimum": 1,
+"type": "number"
+},
+"perPage": {
+"description": "Results per page for pagination (min 1, max 100)",
+"maximum": 100,
+"minimum": 1,
+"type": "number"
+},
+"repo": {
+"description": "The name of the repository",
+"type": "string",
+"x-mcp-header": "repo"
+}
+},
+"required": [
+"method",
+"owner",
+"repo",
+"issue_number"
+],
+"type": "object"
+},
+"issue_write": {
+"properties": {
+"assignees": {
+"description": "Usernames to assign to this issue",
+"items": {
+"type": "string"
+},
+"type": "array"
+},
+"body": {
+"description": "Issue body content",
+"type": "string"
+},
+"duplicate_of": {
+"description": "Issue number that this issue is a duplicate of. Required when state_reason is 'duplicate'.",
+"type": "number"
+},
+"issue_fields": {
+"description": "Issue field values to set or clear. Each item requires 'field_name' and exactly one of 'value', 'field_option_name', or 'delete: true'.",
+"items": {
+"additionalProperties": false,
+"properties": {
+"delete": {
+"description": "Set to true to clear this field's current value on the issue. When false or omitted, this property is ignored. Cannot be true when 'value' or 'field_option_name' is provided.",
+"type": "boolean"
+},
+"field_name": {
+"description": "Issue field name (case-insensitive). Must match a field returned by list_issue_fields for this repository or its organization.",
+"type": "string"
+},
+"field_option_name": {
+"description": "Option name for single-select fields. Validated against the field's options before the API call. Cannot be combined with 'value' or 'delete: true'.",
+"type": "string"
+},
+"value": {
+"description": "Value to set. Use for text, number, and date fields (date as YYYY-MM-DD). For single-select fields, prefer 'field_option_name' so the option is validated before the API call. Cannot be combined with 'field_option_name' or 'delete: true'.",
+"type": [
+"string",
+"number",
+"boolean"
+]
+}
+},
+"required": [
+"field_name"
+],
+"type": "object"
+},
+"type": "array"
+},
+"issue_number": {
+"description": "Issue number to update",
+"type": "number"
+},
+"labels": {
+"description": "Labels to apply to this issue",
+"items": {
+"type": "string"
+},
+"type": "array"
+},
+"method": {
+"description": "Write operation to perform on a single issue.\nOptions are:\n- 'create' - creates a new issue.\n- 'update' - updates an existing issue.\n",
+"enum": [
+"create",
+"update"
+],
+"type": "string"
+},
+"milestone": {
+"description": "Milestone number",
+"type": "number"
+},
+"owner": {
+"description": "Repository owner",
+"type": "string",
+"x-mcp-header": "owner"
+},
+"parent_issue_number": {
+"description": "Issue number of the parent issue. Only used when method is 'create' and cannot be combined with issue_fields. The new issue is created and attached to this parent in the same operation.",
+"minimum": 1,
+"type": "number"
+},
+"parent_owner": {
+"description": "Repository owner of the parent issue. Must be provided with parent_repo. Omit both to use owner and repo. Only used when method is 'create' and parent_issue_number is provided.",
+"type": "string"
+},
+"parent_repo": {
+"description": "Repository name of the parent issue. Must be provided with parent_owner. Omit both to use owner and repo. Only used when method is 'create' and parent_issue_number is provided.",
+"type": "string"
+},
+"repo": {
+"description": "Repository name",
+"type": "string",
+"x-mcp-header": "repo"
+},
+"state": {
+"description": "New state",
+"enum": [
+"open",
+"closed"
+],
+"type": "string"
+},
+"state_reason": {
+"description": "Reason for the state change. Ignored unless state is changed.",
+"enum": [
+"completed",
+"not_planned",
+"duplicate"
+],
+"type": "string"
+},
+"title": {
+"description": "Issue title",
+"type": "string"
+},
+"type": {
+"anyOf": [
+{
+"minLength": 1,
+"type": "string"
+},
+{
+"type": "null"
+}
+],
+"description": "Type of this issue. For updates, pass null to remove the current type. Only use if issue types are enabled for this repository. Use list_issue_types to get valid type values for this repository or its owner organization. If the repository doesn't support issue types, omit this parameter."
+}
+},
+"required": [
+"method",
+"owner",
+"repo"
+],
+"type": "object"
+},
+"merge_pull_request": {
+"properties": {
+"commit_message": {
+"description": "Extra detail for merge commit",
+"type": "string"
+},
+"commit_title": {
+"description": "Title for merge commit",
+"type": "string"
+},
+"expectedHeadSha": {
+"description": "The expected SHA of the pull request's HEAD ref",
+"type": "string"
+},
+"merge_method": {
+"description": "Merge method",
+"enum": [
+"merge",
+"squash",
+"rebase"
+],
+"type": "string"
+},
+"owner": {
+"description": "Repository owner",
+"type": "string",
+"x-mcp-header": "owner"
+},
+"pullNumber": {
+"description": "Pull request number",
+"type": "number"
+},
+"repo": {
+"description": "Repository name",
+"type": "string",
+"x-mcp-header": "repo"
+}
+},
+"required": [
+"owner",
+"repo",
+"pullNumber"
+],
+"type": "object"
+},
+"projects_get": {
+"properties": {
+"field_id": {
+"description": "The field's ID. Required for 'get_project_field' method.",
+"type": "number"
+},
+"field_names": {
+"description": "Specific list of field names to include in the response when getting a project item (e.g. [\"Status\", \"Priority\"]). Resolved server-side to field IDs — pass this instead of 'fields' when you only know the human-readable names. Mutually exclusive with 'fields' — provide one, not both. Only used for 'get_project_item' method.",
+"items": {
+"type": "string"
+},
+"type": "array"
+},
+"fields": {
+"description": "Specific list of field IDs to include in the response when getting a project item (e.g. [\"102589\", \"985201\", \"169875\"]). If neither 'fields' nor 'field_names' is provided, only the title field is included. Mutually exclusive with 'field_names' — provide one, not both. Only used for 'get_project_item' method.",
+"items": {
+"type": "string"
+},
+"type": "array"
+},
+"item_id": {
+"description": "The item's ID. Required for 'get_project_item' method.",
+"type": "number"
+},
+"method": {
+"description": "The method to execute",
+"enum": [
+"get_project",
+"get_project_field",
+"get_project_item",
+"get_project_status_update",
+"get_project_view"
+],
+"type": "string"
+},
+"owner": {
+"description": "The owner (user or organization login). The name is not case sensitive.",
+"type": "string",
+"x-mcp-header": "owner"
+},
+"owner_type": {
+"description": "Owner type (user or org). If not provided, will be automatically detected.",
+"enum": [
+"user",
+"org"
+],
+"type": "string"
+},
+"project_number": {
+"description": "The project's number.",
+"type": "number"
+},
+"status_update_id": {
+"description": "The node ID of the project status update. Required for 'get_project_status_update' method.",
+"type": "string"
+},
+"view_id": {
+"description": "The node ID of the project view. Required for 'get_project_view' method.",
+"type": "string"
+}
+},
+"required": [
+"method"
+],
+"type": "object"
+},
+"projects_list": {
+"properties": {
+"after": {
+"description": "Forward pagination cursor from previous pageInfo.nextCursor.",
+"type": "string"
+},
+"before": {
+"description": "Backward pagination cursor from previous pageInfo.prevCursor (rare).",
+"type": "string"
+},
+"field_names": {
+"description": "Field names to include when listing project items (e.g. [\"Status\", \"Priority\"]). Resolved server-side to field IDs — pass this instead of 'fields' when you only know the human-readable names. Names that fail to resolve return a structured error. Mutually exclusive with 'fields' — provide one, not both. Only used for 'list_project_items' method.",
+"items": {
+"type": "string"
+},
+"type": "array"
+},
+"fields": {
+"description": "Field IDs to include when listing project items (e.g. [\"102589\", \"985201\"]). CRITICAL: Always provide to get field values. Without this (and without 'field_names'), only titles returned. Mutually exclusive with 'field_names' — provide one, not both. Only used for 'list_project_items' method.",
+"items": {
+"type": "string"
+},
+"type": "array"
+},
+"method": {
+"description": "The action to perform",
+"enum": [
+"list_projects",
+"list_project_fields",
+"list_project_items",
+"list_project_status_updates",
+"list_project_views"
+],
+"type": "string"
+},
+"owner": {
+"description": "The owner (user or organization login). The name is not case sensitive.",
+"type": "string",
+"x-mcp-header": "owner"
+},
+"owner_type": {
+"description": "Owner type (user or org). If not provided, will automatically try both.",
+"enum": [
+"user",
+"org"
+],
+"type": "string"
+},
+"perPage": {
+"description": "Results per page (max 50)",
+"type": "number"
+},
+"project_number": {
+"description": "The project's number. Required for 'list_project_fields', 'list_project_items', 'list_project_views', and 'list_project_status_updates' methods.",
+"type": "number"
+},
+"query": {
+"description": "Filter/query string. For list_projects: filter by title text and state (e.g. \"roadmap is:open\"). For list_project_items: advanced filtering using GitHub's project filtering syntax.",
+"type": "string"
+}
+},
+"required": [
+"method",
+"owner"
+],
+"type": "object"
+},
+"projects_write": {
+"properties": {
+"body": {
+"description": "The body of the status update (markdown). Used for 'create_project_status_update' method.",
+"type": "string"
+},
+"field_name": {
+"description": "The name of the iteration field (e.g. 'Sprint'). Required for 'create_iteration_field' method.",
+"type": "string"
+},
+"filter": {
+"anyOf": [
+{
+"type": "string"
+},
+{
+"type": "null"
+}
+],
+"description": "Saved view filter; omit on update to preserve it, or pass null to clear it."
+},
+"issue_number": {
+"description": "The issue number. Required for 'add_project_item' when item_type is 'issue'. Also accepted by 'update_project_item' to resolve the item by issue number (combine with item_owner and item_repo).",
+"type": "number"
+},
+"item_id": {
+"description": "The project item ID. Required for 'delete_project_item'. For 'update_project_item', provide either item_id, or (item_owner + item_repo + issue_number) to resolve the item by issue.",
+"type": "number"
+},
+"item_owner": {
+"description": "The owner (user or organization) of the repository containing the issue or pull request. Required for 'add_project_item' method. Also accepted by 'update_project_item' when resolving the item by issue number.",
+"type": "string"
+},
+"item_repo": {
+"description": "The name of the repository containing the issue or pull request. Required for 'add_project_item' method. Also accepted by 'update_project_item' when resolving the item by issue number.",
+"type": "string"
+},
+"item_type": {
+"description": "The item's type, either issue or pull_request. Required for 'add_project_item' method.",
+"enum": [
+"issue",
+"pull_request"
+],
+"type": "string"
+},
+"items": {
+"description": "The items to update with the top-level 'updated_field'. Required for 'update_project_items'; prefer it over calling 'update_project_item' in a loop. Each entry must match exactly one reference variant: 'node_id', numeric 'item_id', or 'item_owner' + 'item_repo' + 'issue_number'. Limit: 50 items per call.",
+"items": {
+"oneOf": [
+{
+"additionalProperties": false,
+"properties": {
+"node_id": {
+"description": "The project item's GraphQL node ID, as returned by 'list_project_items' or 'add_project_item'.",
+"type": "string"
+}
+},
+"required": [
+"node_id"
+],
+"type": "object"
+},
+{
+"additionalProperties": false,
+"properties": {
+"item_id": {
+"description": "The numeric project item ID.",
+"type": "integer"
+}
+},
+"required": [
+"item_id"
+],
+"type": "object"
+},
+{
+"additionalProperties": false,
+"properties": {
+"issue_number": {
+"description": "Issue number used to resolve the project item.",
+"type": "integer"
+},
+"item_owner": {
+"description": "Owner of the repository containing the issue.",
+"type": "string"
+},
+"item_repo": {
+"description": "Repository containing the issue.",
+"type": "string"
+}
+},
+"required": [
+"item_owner",
+"item_repo",
+"issue_number"
+],
+"type": "object"
+}
+],
+"type": "object"
+},
+"type": "array"
+},
+"iteration_duration": {
+"description": "Duration in days for iterations of the field (e.g. 7 for weekly, 14 for bi-weekly). Required for 'create_iteration_field' method.",
+"type": "number"
+},
+"iterations": {
+"description": "Custom iterations for 'create_iteration_field' method. Only set this when you need iterations with varying durations, breaks between them, or specific titles. Otherwise omit it: GitHub auto-creates three iterations of 'iteration_duration' days starting on 'start_date', which is the right choice for most cases.",
+"items": {
+"additionalProperties": false,
+"properties": {
+"duration": {
+"description": "Duration in days",
+"type": "number"
+},
+"start_date": {
+"description": "Start date in YYYY-MM-DD format",
+"type": "string"
+},
+"title": {
+"description": "Iteration title (e.g. 'Sprint 1')",
+"type": "string"
+}
+},
+"required": [
+"title",
+"start_date",
+"duration"
+],
+"type": "object"
+},
+"type": "array"
+},
+"layout": {
+"description": "View layout; required when creating a view.",
+"enum": [
+"table",
+"board",
+"roadmap"
+],
+"type": "string"
+},
+"method": {
+"description": "The method to execute",
+"enum": [
+"add_project_item",
+"update_project_item",
+"update_project_items",
+"delete_project_item",
+"create_project_status_update",
+"create_project_view",
+"update_project_view",
+"delete_project_view",
+"create_project",
+"create_iteration_field"
+],
+"type": "string"
+},
+"name": {
+"description": "View name; required when creating a view.",
+"type": "string"
+},
+"owner": {
+"description": "The project owner (user or organization login). The name is not case sensitive.",
+"type": "string",
+"x-mcp-header": "owner"
+},
+"owner_type": {
+"description": "Owner type (user or org). Required for 'create_project' method. If not provided for other methods, will be automatically detected.",
+"enum": [
+"user",
+"org"
+],
+"type": "string"
+},
+"project_number": {
+"description": "The project's number. Required for all methods except 'create_project'.",
+"type": "number"
+},
+"pull_request_number": {
+"description": "The pull request number (use when item_type is 'pull_request' for 'add_project_item' method). Provide either issue_number or pull_request_number.",
+"type": "number"
+},
+"start_date": {
+"description": "Start date in YYYY-MM-DD format. Used for 'create_project_status_update' and 'create_iteration_field' methods.",
+"type": "string"
+},
+"status": {
+"description": "The status of the project. Used for 'create_project_status_update' method.",
+"enum": [
+"INACTIVE",
+"ON_TRACK",
+"AT_RISK",
+"OFF_TRACK",
+"COMPLETE"
+],
+"type": "string"
+},
+"target_date": {
+"description": "The target date of the status update in YYYY-MM-DD format. Used for 'create_project_status_update' method.",
+"type": "string"
+},
+"title": {
+"description": "The project title. Required for 'create_project' method.",
+"type": "string"
+},
+"updated_field": {
+"description": "The field/value to apply, using {\"id\": 123, \"value\": ...} or {\"name\": \"Status\", \"value\": ...}; null clears the field. Required for 'update_project_item' and 'update_project_items', where one top-level field/value applies to every item in a batch. For 'update_project_item' SINGLE_SELECT fields, the name form accepts option names; the ID form expects an option ID.",
+"oneOf": [
+{
+"additionalProperties": false,
+"properties": {
+"id": {
+"description": "The numeric project field ID.",
+"type": "integer"
+},
+"value": {
+"description": "The value to apply. Any JSON value is accepted; use null to clear the field."
+}
+},
+"required": [
+"id",
+"value"
+],
+"type": "object"
+},
+{
+"additionalProperties": false,
+"properties": {
+"name": {
+"description": "The project field name. Matching is case-insensitive.",
+"type": "string"
+},
+"value": {
+"description": "The value to apply. Any JSON value is accepted; use null to clear the field."
+}
+},
+"required": [
+"name",
+"value"
+],
+"type": "object"
+}
+],
+"type": "object"
+},
+"view_id": {
+"description": "Project view node ID for update or delete; must belong to owner/project_number.",
+"type": "string"
+},
+"visible_field_names": {
+"description": "Ordered project field names to show on create or replace on update; omit on update to preserve, or pass [] to reset. Mutually exclusive with visible_fields. Roadmap accepts only [].",
+"items": {
+"type": "string"
+},
+"type": "array"
+},
+"visible_fields": {
+"description": "Ordered project field database IDs to show on create or replace on update; omit on update to preserve, or pass [] to reset. Mutually exclusive with visible_field_names. Roadmap accepts only [].",
+"items": {
+"type": "string"
+},
+"type": "array"
+}
+},
+"required": [
+"method",
+"owner"
+],
+"type": "object"
+},
+"pull_request_read": {
+"properties": {
+"after": {
+"description": "Cursor for pagination, used only by the get_review_comments method. Pass the endCursor from the previous page's PageInfo to fetch the next page.",
+"type": "string"
+},
+"method": {
+"description": "Action to specify what pull request data needs to be retrieved from GitHub. \nPossible options: \n 1. get - Get details of a specific pull request.\n 2. get_diff - Get the diff of a pull request.\n 3. get_status - Get combined commit status of a head commit in a pull request.\n 4. get_files - Get the list of files changed in a pull request. Use with pagination parameters to control the number of results returned.\n 5. get_commits - Get the list of commits on a pull request. Use with pagination parameters to control the number of results returned.\n 6. get_review_comments - Get review threads on a pull request. Each thread contains logically grouped review comments made on the same code location during pull request reviews. Returns thread metadata and comments with nullable current and original line-range coordinates (line, start_line, original_line, original_start_line). Current coordinates are omitted when unavailable, such as for outdated comments. Use cursor-based pagination (perPage, after) to control results.\n 7. get_reviews - Get the reviews on a pull request. When asked for review comments, use get_review_comments method. Use with pagination parameters to control the number of results returned.\n 8. get_comments - Get comments on a pull request. Use this if user doesn't specifically want review comments. Use with pagination parameters to control the number of results returned.\n 9. get_check_runs - Get check runs for the head commit of a pull request. Check runs are the individual CI/CD jobs and checks that run on the PR.\n",
+"enum": [
+"get",
+"get_diff",
+"get_status",
+"get_files",
+"get_commits",
+"get_review_comments",
+"get_reviews",
+"get_comments",
+"get_check_runs"
+],
+"type": "string"
+},
+"owner": {
+"description": "Repository owner",
+"type": "string",
+"x-mcp-header": "owner"
+},
+"page": {
+"description": "Page number for pagination (min 1)",
+"minimum": 1,
+"type": "number"
+},
+"perPage": {
+"description": "Results per page for pagination (min 1, max 100)",
+"maximum": 100,
+"minimum": 1,
+"type": "number"
+},
+"pullNumber": {
+"description": "Pull request number",
+"type": "number"
+},
+"repo": {
+"description": "Repository name",
+"type": "string",
+"x-mcp-header": "repo"
+}
+},
+"required": [
+"method",
+"owner",
+"repo",
+"pullNumber"
+],
+"type": "object"
+},
+"pull_request_review_write": {
+"properties": {
+"body": {
+"description": "Review comment text",
+"type": "string"
+},
+"commitID": {
+"description": "SHA of commit to review",
+"type": "string"
+},
+"event": {
+"description": "Review action to perform.",
+"enum": [
+"APPROVE",
+"REQUEST_CHANGES",
+"COMMENT"
+],
+"type": "string"
+},
+"method": {
+"description": "The write operation to perform on pull request review.",
+"enum": [
+"create",
+"submit_pending",
+"delete_pending",
+"resolve_thread",
+"unresolve_thread"
+],
+"type": "string"
+},
+"owner": {
+"description": "Repository owner",
+"type": "string",
+"x-mcp-header": "owner"
+},
+"pullNumber": {
+"description": "Pull request number",
+"type": "number"
+},
+"repo": {
+"description": "Repository name",
+"type": "string",
+"x-mcp-header": "repo"
+},
+"threadId": {
+"description": "The node ID of the review thread (e.g., PRRT_kwDOxxx). Required for resolve_thread and unresolve_thread methods. Get thread IDs from pull_request_read with method get_review_comments.",
+"type": "string"
+}
+},
+"required": [
+"method",
+"owner",
+"repo",
+"pullNumber"
+],
+"type": "object"
+},
+"search_pull_requests": {
+"properties": {
+"fields": {
+"description": "Subset of fields to return for each pull request result. If omitted, all fields are returned. Use this to reduce response size when you only need specific fields; omitting 'body', 'reactions', and 'labels' in particular drops the largest per-result data.",
+"items": {
+"enum": [
+"number",
+"title",
+"body",
+"state",
+"state_reason",
+"draft",
+"locked",
+"html_url",
+"user",
+"author_association",
+"labels",
+"assignee",
+"assignees",
+"milestone",
+"comments",
+"reactions",
+"created_at",
+"updated_at",
+"closed_at",
+"closed_by",
+"pull_request",
+"repository_url"
+],
+"type": "string"
+},
+"type": "array"
+},
+"order": {
+"description": "Sort order",
+"enum": [
+"asc",
+"desc"
+],
+"type": "string"
+},
+"owner": {
+"description": "Optional repository owner. If provided with repo, only pull requests for this repository are listed.",
+"type": "string",
+"x-mcp-header": "owner"
+},
+"page": {
+"description": "Page number for pagination (min 1)",
+"minimum": 1,
+"type": "number"
+},
+"perPage": {
+"description": "Results per page for pagination (min 1, max 100)",
+"maximum": 100,
+"minimum": 1,
+"type": "number"
+},
+"query": {
+"description": "Search query using GitHub pull request search syntax",
+"type": "string"
+},
+"repo": {
+"description": "Optional repository name. If provided with owner, only pull requests for this repository are listed.",
+"type": "string",
+"x-mcp-header": "repo"
+},
+"sort": {
+"description": "Sort field by number of matches of categories, defaults to best match",
+"enum": [
+"comments",
+"reactions",
+"reactions-+1",
+"reactions--1",
+"reactions-smile",
+"reactions-thinking_face",
+"reactions-heart",
+"reactions-tada",
+"interactions",
+"created",
+"updated"
+],
+"type": "string"
+}
+},
+"required": [
+"query"
+],
+"type": "object"
+},
+"update_pull_request": {
+"properties": {
+"base": {
+"description": "New base branch name",
+"type": "string"
+},
+"body": {
+"description": "New description",
+"type": "string"
+},
+"draft": {
+"description": "Mark pull request as draft (true) or ready for review (false)",
+"type": "boolean"
+},
+"maintainer_can_modify": {
+"description": "Allow maintainer edits",
+"type": "boolean"
+},
+"owner": {
+"description": "Repository owner",
+"type": "string",
+"x-mcp-header": "owner"
+},
+"pullNumber": {
+"description": "Pull request number to update",
+"type": "number"
+},
+"repo": {
+"description": "Repository name",
+"type": "string",
+"x-mcp-header": "repo"
+},
+"reviewers": {
+"description": "GitHub usernames or ORG/team-slug team reviewers to request reviews from",
+"items": {
+"type": "string"
+},
+"type": "array"
+},
+"state": {
+"description": "New state",
+"enum": [
+"open",
+"closed"
+],
+"type": "string"
+},
+"title": {
+"description": "New title",
+"type": "string"
+}
+},
+"required": [
+"owner",
+"repo",
+"pullNumber"
+],
+"type": "object"
+}
+}

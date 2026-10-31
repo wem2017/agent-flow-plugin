@@ -74,7 +74,7 @@ def cmd_add(a):
     os.makedirs(os.path.dirname(PATH), exist_ok=True)
     ts = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     repo = a.repo or detect_repo()
-    note = " ".join(a.note.split())[:400]
+    note = afconfig.SECRET_VALUE.sub("<secret>", " ".join(a.note.split()))[:400]
     entry = {"id": hashlib.sha1((ts + note + str(repo)).encode()).hexdigest()[:8], "ts": ts, "repo": repo,
              "issue": a.issue, "role": a.role, "kind": a.kind, "note": note, "version": plugin_version(), "status": "new"}
     with open(PATH, "a", encoding="utf-8") as fh:

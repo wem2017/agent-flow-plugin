@@ -1,0 +1,1 @@
+{"number": 42, "title": "Thêm hàm chia", "state": "open", "labels": [{"name": "agentflow"}], "assignees": [], "comments": [], "body": "### Tiêu chí nghiệm thu\n- [ ] Khi gọi div(6, 2) thì trả về 3\n- [ ] Khi chia cho 0 thì báo lỗi rõ ràng\n\n<!-- agentflow:state\nstage: in_review\nreview_round: 0\nqc_round: 0\npr: 57\nbranch: feat/42-chia\nnext: Review PR #57\n-->"}

@@ -4,6 +4,8 @@ Stdlib only. PyYAML is used when importable; otherwise a parser for the YAML sub
 agentflow.yaml uses (block maps/lists, flow [..] and {..}, quoted scalars, comments).
 """
 
+import functools
+import json
 import os
 import re
 import subprocess
@@ -11,10 +13,17 @@ import subprocess
 CONFIG_NAME = "agentflow.yaml"
 SCHEMA = 4
 
-DEFAULT_FORBIDDEN = [".claude/settings.local.json", "**/.env", "**/.env.*", "**/*.pem", "**/*.key", "**/*.p12", "**/*.jks", "**/*.keystore"]
+DEFAULT_FORBIDDEN = [".claude/settings.local.json", "**/.env", "**/.env.*", "**/*.pem", "**/*.key", "**/*.p12", "**/*.pfx", "**/*.jks", "**/*.keystore",
+                     "**/.netrc", "**/.git-credentials", "**/id_rsa", "**/id_ed25519"]
 FORBIDDEN_EXEMPT_SUFFIXES = (".example", ".sample", ".template", ".dist")
+HOME_SECRETS = (".ssh/", ".aws/credentials", ".config/gh/hosts.yml", ".claude/.credentials.json", ".docker/config.json")
 
 STAGES = ["backlog", "ready", "in_progress", "in_review", "in_qc", "ready_to_merge", "done"]
+LABEL_KEYS = ["agent", "blocked", "needs_info", "changes_requested", "qc_failed", "qc_manual", "deploying"]
+TOP_KEYS = {"schema", "lang", "board", "classify", "types", "labels", "git", "surfaces", "forbidden", "design", "staging", "people", "run", "notify"}
+NOTIFY_EVENTS = {"blocked", "needs_info", "qc_manual", "ready_to_merge"}
+SECRET_VALUE = re.compile(r"gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|\b\d{8,10}:[A-Za-z0-9_-]{35}\b"
+                          r"|\bxox[abprs]-[A-Za-z0-9-]{10,}|\bAKIA[0-9A-Z]{16}\b|-----BEGIN [A-Z ]*PRIVATE KEY-----")
 
 
 def _strip_comment(line):
@@ -24,7 +33,7 @@ def _strip_comment(line):
             out.append(ch)
             if ch == quote:
                 quote = None
-        elif ch in "\"'":
+        elif ch in "\"'" and (i == 0 or line[i - 1] in " \t[{,:"):
             quote = ch
             out.append(ch)
         elif ch == "#" and (i == 0 or line[i - 1] in " \t"):
@@ -178,8 +187,22 @@ def git(args, cwd=None, timeout=5):
     return res.stdout.strip() if res.returncode == 0 else None
 
 
-def repo_root(cwd=None):
+@functools.lru_cache(maxsize=64)
+def _toplevel(cwd):
     return git(["rev-parse", "--show-toplevel"], cwd=cwd)
+
+
+def repo_root(cwd=None):
+    return _toplevel(cwd or os.getcwd())
+
+
+def main_root(cwd=None):
+    """Root of the main checkout, also when `cwd` is inside a linked worktree."""
+    common = git(["rev-parse", "--git-common-dir"], cwd=cwd)
+    if not common:
+        return None
+    common = os.path.realpath(os.path.join(cwd or os.getcwd(), common))
+    return os.path.dirname(common) if os.path.basename(common) == ".git" else None
 
 
 def default_branch(cwd=None):
@@ -188,11 +211,87 @@ def default_branch(cwd=None):
 
 
 def load_config(root):
-    path = os.path.join(root, CONFIG_NAME)
-    if not os.path.isfile(path):
-        return None
-    with open(path, encoding="utf-8") as fh:
-        return parse_yaml(fh.read()) or {}
+    """agentflow.yaml of the repo. The main checkout's copy wins over a worktree's: an agent may write in its worktree,
+    and what it writes there must not change what the guard enforces."""
+    main = main_root(root)
+    for path in ([os.path.join(main, CONFIG_NAME)] if main else []) + [os.path.join(root, CONFIG_NAME)]:
+        if os.path.isfile(path):
+            with open(path, encoding="utf-8") as fh:
+                return parse_yaml(fh.read()) or {}
+    return None
+
+
+def settings_path(cwd=None):
+    """.claude/settings.local.json lives in the main checkout only; worktrees share it."""
+    root = main_root(cwd) or repo_root(cwd) or cwd or os.getcwd()
+    return os.path.join(root, ".claude", "settings.local.json")
+
+
+def settings_key_locked(key, value):
+    """Keys of settings.local.json that could switch the guard off."""
+    head = key.split(".", 1)[0]
+    if head in ("disableAllHooks", "hooks"):
+        return True
+    return head == "enabledPlugins" and "agentflow" in key and str(value).strip().lower() == "false"
+
+
+def validate_config(cfg):
+    """Shape problems of a parsed agentflow.yaml, no network: list of (level, message), level ∈ fail | warn."""
+    out = []
+
+    def fail(msg):
+        out.append(("fail", msg))
+
+    def warn(msg):
+        out.append(("warn", msg))
+
+    def positive_int(section, key):
+        value = (cfg.get(section) or {}).get(key)
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 1):
+            fail("%s.%s phải là số nguyên ≥ 1 (đang là %r)" % (section, key, value))
+
+    for key in cfg:
+        if key not in TOP_KEYS:
+            warn("key lạ `%s` — plugin không đọc" % key)
+    board = cfg.get("board") or {}
+    status = board.get("status") or {}
+    names = [status.get(s) for s in STAGES]
+    for stage, name in zip(STAGES, names):
+        if not name:
+            fail("board.status.%s chưa map" % stage)
+    if len({n for n in names if n}) != len([n for n in names if n]):
+        fail("board.status: hai stage cùng trỏ vào một cột — routing sẽ sai")
+    labels = cfg.get("labels") or {}
+    for key in LABEL_KEYS:
+        if not labels.get(key):
+            fail("labels.%s chưa khai báo" % key)
+    if cfg.get("classify") not in ("issue-type", "label"):
+        fail("classify phải là issue-type hoặc label (đang là %r)" % cfg.get("classify"))
+    if not cfg.get("types"):
+        fail("types trống — DEV không dựng được tên nhánh")
+    gitc = cfg.get("git") or {}
+    if "{issue}" not in str(gitc.get("branch") or ""):
+        fail("git.branch phải có {issue} — một ticket một nhánh")
+    staging = staging_branch(cfg)
+    if not staging:
+        fail("staging.branch chưa khai báo — bắt buộc")
+    elif staging == gitc.get("base"):
+        fail("staging.branch = %r trùng git.base — PR phải nhắm nhánh khác" % staging)
+    if staging and staging in as_list(gitc.get("protected")):
+        warn("git.protected có nhánh staging `%s` — bị bỏ qua, REVIEWER phải push được vào đó" % staging)
+    for key, surface in (cfg.get("surfaces") or {}).items():
+        if not isinstance(surface, dict) or not surface.get("path"):
+            fail("surfaces.%s thiếu path" % key)
+    for key in ("parallel", "max_tasks", "max_review_rounds", "max_qc_rounds"):
+        positive_int("run", key)
+    positive_int("staging", "timeout_min")
+    models = (cfg.get("run") or {}).get("models") or {}
+    if not isinstance(models.get("dev") or {}, dict) or not (models.get("dev") or {}).get("default"):
+        fail("run.models.dev.default chưa khai báo")
+    for event in as_list((cfg.get("notify") or {}).get("events")):
+        if event not in NOTIFY_EVENTS:
+            fail("notify.events có %r — chỉ nhận: %s" % (event, ", ".join(sorted(NOTIFY_EVENTS))))
+    return out
 
 
 def as_list(value):
@@ -213,11 +312,12 @@ def protected_branches(cfg, root):
     names = {str(b) for b in as_list(git_cfg.get("protected"))}
     names.discard(staging_branch(cfg))
     base = git_cfg.get("base") or default_branch(root)
-    if base:
-        names.add(base)
-    return names
+    default = default_branch(root)
+    names |= {b for b in (base, default) if b} or {"main", "master"}  # origin/HEAD unset: the likely base must not stay open
+    return names - {staging_branch(cfg)}
 
 
+@functools.lru_cache(maxsize=128)
 def _glob_to_regex(pattern):
     out, i = [], 0
     while i < len(pattern):
@@ -236,7 +336,7 @@ def _glob_to_regex(pattern):
         else:
             out.append(re.escape(pattern[i]))
             i += 1
-    return re.compile("^" + "".join(out) + "$")
+    return re.compile("^" + "".join(out) + "$", re.I)  # .ENV opens .env on case-insensitive filesystems
 
 
 def forbidden_patterns(cfg):
@@ -253,23 +353,31 @@ def forbidden_patterns(cfg):
 
 
 def is_forbidden(path, root, cfg):
-    """True when `path` (absolute or relative to root) matches a forbidden glob."""
+    """True when `path` (absolute or relative to root) matches a forbidden glob. Outside any repo only the
+    path-free globs apply, plus the credential files under the home directory."""
     if not path:
         return False
     absolute = os.path.realpath(path if os.path.isabs(path) else os.path.join(root, path))
+    home = os.path.realpath(os.path.expanduser("~"))
+    if absolute.startswith(home + os.sep) and absolute[len(home) + 1 :].startswith(HOME_SECRETS):
+        return True
+    base = os.path.basename(absolute)
+    if base.endswith(FORBIDDEN_EXEMPT_SUFFIXES):
+        return False
     probe = os.path.dirname(absolute)
     while probe and not os.path.isdir(probe) and probe != os.path.dirname(probe):
         probe = os.path.dirname(probe)
     own_root = repo_root(probe) if probe else None  # a worktree is its own root
-    rel = os.path.relpath(absolute, os.path.realpath(own_root or root))
-    if rel.startswith(".."):
-        return False
-    rel = rel.replace(os.sep, "/")
-    base = rel.rsplit("/", 1)[-1]
-    if base.endswith(FORBIDDEN_EXEMPT_SUFFIXES):
-        return False
+    rel = os.path.relpath(absolute, os.path.realpath(own_root or root)).replace(os.sep, "/")
+    inside = not rel.startswith("..")
     for pat in forbidden_patterns(cfg):
-        target = rel if "/" in pat else base
+        if inside:
+            target = rel if "/" in pat else base
+        elif pat.startswith("**/") and "/" not in pat[3:]:
+            target = base
+            pat = pat[3:]
+        else:
+            continue
         if _glob_to_regex(pat).match(target):
             return True
     return False
@@ -364,14 +472,11 @@ def github_token(cwd=None):
     """GitHub token, first hit wins: env.GITHUB_TOKEN in the repo's .claude/settings.local.json (read
     directly — independent of when Claude Code applies settings env), process GITHUB_TOKEN / GH_TOKEN,
     then `gh auth token`. Returns "" when nothing is configured."""
-    import json
-
     for start in (cwd, os.environ.get("CLAUDE_PROJECT_DIR"), os.getcwd()):
         if not start:
             continue
-        root = repo_root(start) or start
         try:
-            with open(os.path.join(root, ".claude", "settings.local.json"), encoding="utf-8") as fh:
+            with open(settings_path(start), encoding="utf-8") as fh:
                 tok = ((json.load(fh) or {}).get("env") or {}).get("GITHUB_TOKEN")
             if tok:
                 return tok
