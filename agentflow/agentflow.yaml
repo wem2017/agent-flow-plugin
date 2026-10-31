@@ -1,0 +1,99 @@
+# AgentFlow — config của MỘT repo. `/agentflow:init` copy file này vào root repo rồi điền value.
+# Commit được: KHÔNG BAO GIỜ chứa secret (secret nằm ở env của .claude/settings.local.json).
+# Mỗi key chỉ giữ thứ không suy ra được từ git. Kiểm tra: /agentflow:doctor
+
+schema: 4                      # version của file này, không phải của plugin
+lang: vi                       # ngôn ngữ agent viết issue/comment/PR
+
+# ── BOARD ────────────────────────────────────────────────────────────────────
+board:
+  url: null                    # BẮT BUỘC — https://github.com/orgs/<org>/projects/<N> hoặc /users/<login>/projects/<N>
+  # Stage của plugin → tên option Status THẬT trên board (khớp từng ký tự).
+  status:
+    backlog: "Backlog"               # PO — agent chỉ tạo issue vào đây
+    ready: "Ready"                   # PO đã kéo vào — DEV agent nhặt
+    in_progress: "In Progress"       # DEV đang làm / đang sửa
+    in_review: "In Review"           # draft PR đã mở — Reviewer agent, ✅ thì merge lên staging
+    in_qc: "In QC"                   # chờ pipeline staging, rồi QC agent (+ QC người nếu cần test tay)
+    ready_to_merge: "Ready to Merge" # người approve + merge
+    done: "Done"
+  # Field tuỳ chọn trên board. Xoá key nếu board không có field đó.
+  fields:
+    priority: "Priority"       # option đầu tiên = ưu tiên cao nhất
+    size: "Size"               # option cuối (vd XL) = phải tách trước khi làm
+    platform: "Platform"
+
+# ── PHÂN LOẠI ISSUE ──────────────────────────────────────────────────────────
+classify: issue-type           # issue-type (issue type của org) | label
+types:                         # tên type (hoặc label) → tiền tố nhánh/commit
+  Feature: feat
+  Improvement: improve
+  Bug: fix
+  Task: chore
+
+# Tên label thật trên repo cho từng tín hiệu (init tạo nếu thiếu).
+labels:
+  agent: "agentflow"                     # ticket do agent sở hữu (DEV gắn khi nhận việc)
+  blocked: "blocked"                     # chờ người gỡ — loop bỏ qua
+  needs_info: "needs-info"               # thiếu thông tin — loop bỏ qua
+  changes_requested: "changes-requested" # review trả về — DEV sửa
+  qc_failed: "qc-failed"                 # QC trả về — DEV sửa
+  qc_manual: "qc-manual"                 # chờ QC người test tay theo checklist
+  deploying: "deploying"                 # đã merge lên staging — chờ pipeline xong mới QC
+
+# ── GIT ──────────────────────────────────────────────────────────────────────
+git:
+  base: null                   # nhánh PR nhắm tới; null = default branch của repo
+  protected: []                # nhánh không bao giờ push thẳng (hook chặn), vd [production]. Không ghi nhánh staging
+  branch: "{type}/{issue}-{slug}"   # {type} lấy từ bảng types
+  commit: "{type}({surface}): {subject}"
+  link: "Closes"               # từ khoá trong PR body — merge xong issue tự đóng
+
+# ── SURFACES (tuỳ chọn) ──────────────────────────────────────────────────────
+# Bỏ hẳn block này nếu repo một khối. Lệnh chạy từ thư mục `path`, phải exit 0.
+# surfaces:
+#   web:
+#     path: "web/"
+#     platform: "Web"          # option của field Platform ứng với surface
+#     check: "pnpm typecheck && pnpm lint"
+#     test: "pnpm test"
+#     e2e: ""                  # tuỳ chọn — QC chạy nhắm vào staging, có env STAGING_URL, vd "BASE_URL=$STAGING_URL pnpm e2e"
+
+# Glob agent KHÔNG được sửa hay in nội dung (hợp với mặc định của plugin: .env*, *.pem, *.key, *.p12, *.pfx, *.jks, *.keystore, .netrc, .git-credentials, id_rsa, id_ed25519).
+forbidden: []
+
+# ── DESIGN (tuỳ chọn) ────────────────────────────────────────────────────────
+design:
+  figma: false                 # true = issue có link Figma → DEV/QC dùng Figma MCP
+  repo: []                     # path design/prototype trong repo, vd ["docs/design/"]
+
+# ── STAGING (bắt buộc) ───────────────────────────────────────────────────────
+# Nhánh chỉ để build và test: Reviewer merge dồn PR đã ✅ vào đây, không bao giờ merge ngược về PR hay master.
+staging:
+  branch: "staging"            # BẮT BUỘC — phải tồn tại trên origin, khác git.base
+  url: ""                      # URL API/web của môi trường staging. Trống ⇒ AC API/web thành checklist cho QC người
+  build: ""                    # cách lấy bản build cho mobile/QC người, vd "artifact APK của workflow staging-release"
+  notes: ""                    # tài khoản/dữ liệu test: chỉ ghi TÊN biến env, vd "STAGING_TEST_USER, STAGING_TEST_PASSWORD"
+  timeout_min: 30              # pipeline quá thời gian này ⇒ blocked, báo người
+
+# ── NGƯỜI (GitHub login, để @mention) ────────────────────────────────────────
+people:
+  po: []
+  qc: []
+  reviewers: []
+
+# ── LOOP ─────────────────────────────────────────────────────────────────────
+run:
+  parallel: 2                  # số ticket xử lý song song (git worktree)
+  max_tasks: 5                 # số ticket đưa tới cổng người mỗi lượt /agentflow:run
+  max_review_rounds: 3         # số ❌ review liên tiếp; lần kế tiếp → escalate
+  max_qc_rounds: 2             # số ❌ QC + QC người cho đến khi pass; lần kế tiếp → escalate
+  models:
+    dev: { default: opus }        # thêm key theo Size để đổi model, vd L: fable. Effort nằm ở frontmatter của agent
+    reviewer: opus
+    qc: sonnet
+
+# ── NOTIFY ───────────────────────────────────────────────────────────────────
+notify:
+  telegram: false              # cần TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID trong env
+  events: [blocked, needs_info, qc_manual, ready_to_merge]

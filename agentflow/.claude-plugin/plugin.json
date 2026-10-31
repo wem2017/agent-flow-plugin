@@ -1,0 +1,26 @@
+{
+  "name": "agentflow",
+  "version": "1.0.0",
+  "description": "Agent team cho mọi repo GitHub: DEV · Reviewer (Opus) · QC tự chạy ticket trên GitHub Projects board (Backlog → Ready → In Progress → In Review → staging → In QC → Ready to Merge → Done) tới cổng của người; tối ưu token, song song qua worktree, tự học qua /agentflow:learn. Con người giữ quyền chốt việc, QC tay và merge.",
+  "author": {
+    "name": "Wem",
+    "email": "huynh.developer@gmail.com"
+  },
+  "homepage": "https://github.com/wem2017/agent-flow-plugin",
+  "repository": "https://github.com/wem2017/agent-flow-plugin",
+  "license": "MIT",
+  "privacyPolicyUrl": "https://github.com/wem2017/agent-flow-plugin/blob/master/agentflow/PRIVACY.md",
+  "defaultEnabled": false,
+  "keywords": [
+    "workflow",
+    "agents",
+    "github",
+    "github-projects",
+    "figma",
+    "mcp",
+    "code-review",
+    "qa",
+    "self-improving",
+    "project-management"
+  ]
+}

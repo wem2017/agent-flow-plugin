@@ -1,0 +1,54 @@
+name: Tính năng
+description: Khả năng mới người dùng chưa có — kèm tiêu chí nghiệm thu để QC kiểm
+type: Feature
+projects:
+  - {{PROJECT}}
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Vấn đề và mục tiêu
+      description: Người dùng đang gặp vấn đề gì, tính năng giải quyết gì, đo thành công bằng gì.
+    validations:
+      required: true
+  - type: textarea
+    id: story
+    attributes:
+      label: User story
+      placeholder: Là <vai trò cụ thể>, tôi muốn <năng lực> để <giá trị>.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Tiêu chí nghiệm thu
+      description: Mỗi dòng một hành vi QC kiểm được — căn cứ duy nhất để pass hay trả về.
+      value: |
+        - [ ] Khi ..., thì ...
+        - [ ] Khi ..., thì ...
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Nền tảng
+      multiple: true
+      options:
+{{PLATFORM_OPTIONS}}
+    validations:
+      required: true
+  - type: textarea
+    id: design
+    attributes:
+      label: Thiết kế
+      description: Link Figma (có node-id), ảnh màn hình hoặc flow.
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Ngoài phạm vi
+      description: Những gì bản này cố ý không làm.
+  - type: textarea
+    id: qc
+    attributes:
+      label: Hướng dẫn cho QC
+      description: Cần test gì, ở đâu; mục nào phải test tay trên thiết bị.

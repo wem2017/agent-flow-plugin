@@ -1,0 +1,15 @@
+# AgentFlow secrets — không bao giờ commit token thật.
+# MỌI secret (GITHUB_TOKEN, TELEGRAM_*, FIGMA_TOKEN) nằm ở block `env` trong
+# .claude/settings.local.json — nên dòng ignore dưới đây là load-bearing.
+.env
+.env.*
+.claude/settings.local.json
+
+# Rác hệ điều hành
+.DS_Store
+
+# Python bytecode của scripts/ và bin/
+__pycache__/
+
+# Kết quả chạy claude plugin eval
+evals/results/

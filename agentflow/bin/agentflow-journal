@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""AgentFlow friction journal — raw material for /agentflow:learn (stdlib only).
+
+One JSON line per friction point, user-level so lessons from every repo meet in one place:
+$AGENTFLOW_JOURNAL or ~/.claude/agentflow/journal.jsonl
+
+  add <kind> <note> [--issue N] [--role R] [--repo O/R]   append (repo auto-detected)
+  list [--all] [--kind K] [--repo O/R] [--limit N]        pending entries (status=new)
+  mark <id>... --as applied|dismissed [--ref TEXT]        close entries after /learn
+  stats                                                   pending count per kind × repo
+
+kind: review_fail · qc_fail · human_feedback · needs_info · blocked · tool_error · retry ·
+      correction · slow · other
+"""
+
+import argparse
+import datetime as dt
+import hashlib
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "scripts"))
+import afconfig  # noqa: E402
+
+KINDS = ("review_fail", "qc_fail", "human_feedback", "needs_info", "blocked", "tool_error", "retry",
+         "correction", "slow", "other")
+PATH = os.environ.get("AGENTFLOW_JOURNAL") or os.path.expanduser("~/.claude/agentflow/journal.jsonl")
+
+
+def plugin_version():
+    manifest = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", ".claude-plugin", "plugin.json")
+    try:
+        with open(manifest, encoding="utf-8") as fh:
+            return json.load(fh).get("version")
+    except (OSError, ValueError):
+        return None
+
+
+def detect_repo():
+    url = afconfig.git(["remote", "get-url", "origin"]) or ""
+    slug = url.rstrip("/")
+    slug = slug[:-4] if slug.endswith(".git") else slug
+    slug = slug.split("github.com:")[-1].split("github.com/")[-1]
+    return slug if slug.count("/") == 1 else None
+
+
+def load():
+    if not os.path.isfile(PATH):
+        return []
+    out = []
+    with open(PATH, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if line:
+                try:
+                    out.append(json.loads(line))
+                except ValueError:
+                    continue
+    return out
+
+
+def save(entries):
+    tmp = PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        for e in entries:
+            fh.write(json.dumps(e, ensure_ascii=False) + "\n")
+    os.replace(tmp, PATH)
+
+
+def cmd_add(a):
+    if a.kind not in KINDS:
+        sys.exit("agentflow-journal: kind phải là một trong: " + ", ".join(KINDS))
+    os.makedirs(os.path.dirname(PATH), exist_ok=True)
+    ts = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    repo = a.repo or detect_repo()
+    note = afconfig.SECRET_VALUE.sub("<secret>", " ".join(a.note.split()))[:400]
+    entry = {"id": hashlib.sha1((ts + note + str(repo)).encode()).hexdigest()[:8], "ts": ts, "repo": repo,
+             "issue": a.issue, "role": a.role, "kind": a.kind, "note": note, "version": plugin_version(), "status": "new"}
+    with open(PATH, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    print("journal %s" % entry["id"])
+
+
+def cmd_list(a):
+    rows = [e for e in load() if a.all or e.get("status") == "new"]
+    rows = [e for e in rows if (not a.kind or e.get("kind") == a.kind) and (not a.repo or e.get("repo") == a.repo)]
+    for e in rows[-a.limit:]:
+        print("%s %s %-14s %s%s v%s | %s" % (e["id"], e["ts"][:10], e.get("kind"), e.get("repo") or "-",
+                                            "#%s" % e["issue"] if e.get("issue") else "", e.get("version") or "?", e.get("note")))
+    if not rows:
+        print("(journal trống)")
+
+
+def cmd_mark(a):
+    entries, ids, hit = load(), set(a.ids), 0
+    for e in entries:
+        if e.get("id") in ids:
+            e["status"], e["ref"] = a.as_, a.ref
+            hit += 1
+    save(entries)
+    print("marked %d/%d as %s" % (hit, len(ids), a.as_))
+
+
+def cmd_stats(_):
+    counts = {}
+    for e in load():
+        if e.get("status") == "new":
+            key = (e.get("kind"), e.get("repo") or "-")
+            counts[key] = counts.get(key, 0) + 1
+    for (kind, repo), n in sorted(counts.items(), key=lambda kv: -kv[1]):
+        print("%3d  %-14s %s" % (n, kind, repo))
+    if not counts:
+        print("(không có entry mới)")
+
+
+def main():
+    p = argparse.ArgumentParser(prog="agentflow-journal", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("add"); s.add_argument("kind"); s.add_argument("note")
+    s.add_argument("--issue", type=int); s.add_argument("--role"); s.add_argument("--repo")
+    s = sub.add_parser("list"); s.add_argument("--all", action="store_true"); s.add_argument("--kind")
+    s.add_argument("--repo"); s.add_argument("--limit", type=int, default=50)
+    s = sub.add_parser("mark"); s.add_argument("ids", nargs="+")
+    s.add_argument("--as", dest="as_", choices=["applied", "dismissed"], required=True); s.add_argument("--ref")
+    sub.add_parser("stats")
+    a = p.parse_args()
+    {"add": cmd_add, "list": cmd_list, "mark": cmd_mark, "stats": cmd_stats}[a.cmd](a)
+
+
+if __name__ == "__main__":
+    main()

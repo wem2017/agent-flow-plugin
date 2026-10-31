@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: dev-dor-missing-ac
+description: DEV không code khi issue thiếu tiêu chí nghiệm thu
+tags: [agent]
+context:
+  scaffold_script: fixture.sh

@@ -1,0 +1,50 @@
+name: Cải thiện
+description: Làm tốt hơn tính năng đang chạy đúng — trải nghiệm, hiệu năng, chất lượng
+type: Improvement
+projects:
+  - {{PROJECT}}
+body:
+  - type: textarea
+    id: current
+    attributes:
+      label: Hiện trạng
+      description: Đang thế nào, đau ở đâu — kèm số đo nếu có (thời gian, số bước, tỉ lệ lỗi).
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: Mục tiêu
+      description: Sau khi làm thì đo bằng gì, đạt mức nào.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Tiêu chí nghiệm thu
+      value: |
+        - [ ] Khi ..., thì ...
+    validations:
+      required: true
+  - type: textarea
+    id: unchanged
+    attributes:
+      label: Hành vi không đổi
+      description: Phần người dùng đang thấy KHÔNG được thay đổi.
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Nền tảng
+      multiple: true
+      options:
+{{PLATFORM_OPTIONS}}
+    validations:
+      required: true
+  - type: textarea
+    id: design
+    attributes:
+      label: Thiết kế
+  - type: textarea
+    id: qc
+    attributes:
+      label: Hướng dẫn cho QC

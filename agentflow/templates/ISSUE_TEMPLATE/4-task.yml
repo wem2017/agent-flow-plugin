@@ -1,0 +1,27 @@
+name: Task kỹ thuật
+description: Việc kỹ thuật hoặc việc con, không đổi hành vi người dùng thấy
+type: Task
+projects:
+  - {{PROJECT}}
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Mục tiêu
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Tiêu chí nghiệm thu
+      value: |
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: qc
+    attributes:
+      label: Hướng dẫn cho QC
+      description: Cần test gì, ở đâu. Ghi "Không cần QC tay" nếu là việc nội bộ (refactor, CI...).
+    validations:
+      required: true

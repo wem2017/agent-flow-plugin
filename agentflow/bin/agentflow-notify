@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+"""AgentFlow one-way ping to a human (Telegram). Best-effort: never fails the caller.
+
+  agentflow-notify <event> "<text>"      event ∈ notify.events of agentflow.yaml
+
+Sends only when notify.telegram is true, the event is listed, and TELEGRAM_BOT_TOKEN +
+TELEGRAM_CHAT_ID are in env. Token stays inside this process — never put it on a command line.
+"""
+
+import json
+import os
+import sys
+import urllib.parse
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "scripts"))
+import afconfig  # noqa: E402
+
+
+def main():
+    if len(sys.argv) < 3:
+        print("usage: agentflow-notify <event> <text>")
+        return
+    event, text = sys.argv[1], sys.argv[2]
+    root = afconfig.repo_root()
+    try:
+        cfg = afconfig.load_config(root) if root else None
+    except ValueError:
+        cfg = None
+    notify = (cfg or {}).get("notify") or {}
+    if not notify.get("telegram"):
+        print("notify: off")
+        return
+    if event not in (notify.get("events") or []):
+        print("notify: event %s không bật" % event)
+        return
+    bot, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
+    if not bot or not chat:
+        print("notify: thiếu TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID — bỏ qua")
+        return
+    data = urllib.parse.urlencode({"chat_id": chat, "text": text[:3500], "disable_web_page_preview": "true"}).encode()
+    try:
+        status, _, body = afconfig.request("POST", "https://api.telegram.org/bot%s/sendMessage" % bot,
+                                           {"Content-Type": "application/x-www-form-urlencoded"}, data, timeout=10)
+        ok = status == 200 and json.loads(body or b"{}").get("ok")
+        print("notify: %s" % ("sent" if ok else "failed (HTTP %s)" % status))
+    except Exception as exc:  # best-effort by contract
+        print("notify: failed (%s)" % type(exc).__name__)
+
+
+if __name__ == "__main__":
+    main()
