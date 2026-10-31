@@ -1,6 +1,6 @@
 # Phát triển AgentFlow
 
-Marketplace `agent-flow-plugins` là **directory source** trỏ vào repo này: Claude Code đọc thẳng working tree, nhưng lúc `install`/`update` nó **copy snapshot** vào `~/.claude/plugins/cache/agent-flow-plugins/agentflow/<version>/` — khoá theo `version`. Sửa source không tự lan sang bản đang chạy.
+Trên máy dev, marketplace `agent-flow-plugins` là **directory source** trỏ vào bản clone: Claude Code đọc thẳng working tree, nhưng lúc `install`/`update` nó **copy snapshot** vào `~/.claude/plugins/cache/agent-flow-plugins/agentflow/<version>/` — khoá theo `version`. Sửa source không tự lan sang bản đang chạy.
 
 ## Vòng phát hành (đã tự động trong `/agentflow:learn`)
 
@@ -41,4 +41,4 @@ Sửa guard hoặc script → thêm case cho mỗi lỗ hổng/chặn nhầm v�
 
 ## Phân phối cho team
 
-Push repo lên GitHub; mỗi release `claude plugin tag ./agentflow` (tạo tag `agentflow--v<version>`). Teammate: `claude plugin marketplace add <owner>/<repo>` một lần, sau đó `marketplace update` + `plugin update` + restart. Máy không giữ source thì `/agentflow:learn` dừng và đề nghị gửi bài học qua issue/PR.
+`master` có branch protection: thay đổi đi qua PR và phải pass CI. Mỗi release `claude plugin tag ./agentflow --push` (tạo tag `agentflow--v<version>`). Teammate: `claude plugin marketplace add wem2017/agent-flow-plugin` một lần, sau đó `marketplace update` + `plugin update` + restart. Máy không giữ source thì `/agentflow:learn` dừng và đề nghị gửi bài học qua issue/PR.

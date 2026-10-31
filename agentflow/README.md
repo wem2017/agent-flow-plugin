@@ -52,7 +52,7 @@ Tài khoản test của staging cũng để trong `env`; `staging.notes` trong `
 ## Cài đặt
 
 ```bash
-claude plugin marketplace add /đường/dẫn/tới/agent-flow-plugin     # hoặc <owner>/<repo> trên GitHub
+claude plugin marketplace add wem2017/agent-flow-plugin     # phát triển plugin: thay bằng đường dẫn tới bản clone
 cd <repo của bạn>
 claude plugin install agentflow@agent-flow-plugins --scope local
 claude plugin enable  agentflow@agent-flow-plugins --scope local
