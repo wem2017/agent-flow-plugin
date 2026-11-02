@@ -42,12 +42,13 @@ Mọi secret nằm trong block `env` của **`.claude/settings.local.json`** c�
 
 ```bash
 read -s T && printf '%s\n' "$T" | agentflow-settings set-secret GITHUB_TOKEN     # tương tự TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+agentflow-settings import GITHUB_TOKEN                                            # hoặc chép token đang dùng (env của shell, gh) vào file
 agentflow-settings show                                                           # cây key, value bị che
 ```
 
 GitHub MCP lấy token qua `headersHelper` (`scripts/mcp-headers.py`): đọc file settings → env → `gh auth token`. Đổi token → `/mcp` → `plugin:agentflow:github` → **Reconnect**, không cần restart.
 
-Tài khoản test của staging cũng để trong `env`; `staging.notes` trong `agentflow.yaml` chỉ ghi tên biến.
+Tài khoản test của staging cũng để trong `env`; `staging.notes` trong `agentflow.yaml` chỉ ghi tên biến. Init chỉ xong khi file có đủ `env`: `GITHUB_TOKEN`, cặp `TELEGRAM_*` nếu bật Telegram, và mọi tên biến trong `staging.notes`; `/agentflow:doctor` báo ✗ khi thiếu, kể cả khi token vẫn lấy được từ shell hay `gh`.
 
 Script của plugin (`agentflow-board`, `agentflow-notify`, helper của GitHub MCP) đọc thẳng `env` trong file này, nên giá trị vừa ghi có hiệu lực ngay, không cần restart Claude Code. Lệnh của agent cần secret (vd e2e đăng nhập bằng tài khoản test) chạy qua `agentflow-settings exec -- <lệnh>`: giá trị trong file đè lên env cũ của session và không hiện ra transcript.
 

@@ -276,6 +276,7 @@ class Doctor(BoardCase):
         subprocess.run(["git", "init", "-q", "-b", "master"], cwd=self.repo, check=True)
         with open(os.path.join(self.repo, ".gitignore"), "w") as fh:
             fh.write(".claude/settings.local.json\n")
+        self.write_settings_env({"GITHUB_TOKEN": "t"})
         self.write_config(CONFIG)
         real_git = afconfig.git
 
@@ -294,6 +295,11 @@ class Doctor(BoardCase):
     def write_config(self, text):
         with open(os.path.join(self.repo, "agentflow.yaml"), "w") as fh:
             fh.write(text)
+
+    def write_settings_env(self, env):
+        os.makedirs(os.path.join(self.repo, ".claude"), exist_ok=True)
+        with open(os.path.join(self.repo, ".claude", "settings.local.json"), "w") as fh:
+            json.dump({"env": env}, fh)
 
     def good_github(self, options=OPTIONS, labels=("agentflow", "blocked", "needs-info", "changes-requested", "qc-failed", "qc-manual", "deploying"), runs=1):
         project = {"id": "P", "title": "T", "url": URL, "shortDescription": "", "closed": False, "items": {"totalCount": 0},
@@ -376,8 +382,25 @@ class Doctor(BoardCase):
         self.assertEqual(code, 1)
         self.assertIn("/agentflow:init", out)
 
+    def test_token_only_in_process_env_or_gh_fails(self):
+        self.write_settings_env({})
+        code, out = self.doctor()
+        self.assertEqual(code, 1)
+        self.assertIn("thiếu GITHUB_TOKEN", out)
+
+    def test_telegram_and_staging_notes_need_their_env(self):
+        self.write_config(CONFIG.replace('url: "https://s.example"', 'url: "https://s.example", notes: "STAGING_TEST_USER, STAGING_TEST_PASSWORD"')
+                          + "notify: {telegram: true, events: [blocked]}\n")
+        self.write_settings_env({"GITHUB_TOKEN": "t", "STAGING_TEST_USER": "u", "TELEGRAM_CHAT_ID": "1"})
+        code, out = self.doctor()
+        self.assertEqual(code, 1)
+        self.assertIn("thiếu TELEGRAM_BOT_TOKEN, STAGING_TEST_PASSWORD", out)
+        self.write_settings_env({"GITHUB_TOKEN": "t", "STAGING_TEST_USER": "u", "STAGING_TEST_PASSWORD": "p", "TELEGRAM_CHAT_ID": "1", "TELEGRAM_BOT_TOKEN": "b"})
+        code, out = self.doctor()
+        self.assertEqual(code, 0, out)
+
     def test_tracked_settings_file_fails(self):
-        os.makedirs(os.path.join(self.repo, ".claude"))
+        os.makedirs(os.path.join(self.repo, ".claude"), exist_ok=True)
         with open(os.path.join(self.repo, ".claude", "settings.local.json"), "w") as fh:
             fh.write("{}")
         subprocess.run(["git", "add", "-f", ".claude/settings.local.json"], cwd=self.repo, check=True)

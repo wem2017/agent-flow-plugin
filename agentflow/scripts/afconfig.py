@@ -468,20 +468,28 @@ def request(method, url, headers=None, data=None, timeout=30):
         return int(res.stdout.strip() or 0), hdrs, body
 
 
-def settings_envs(cwd=None):
-    """`env` blocks of .claude/settings.local.json, nearest repo first (cwd, CLAUDE_PROJECT_DIR, process cwd).
+def settings_env(cwd):
+    """`env` block of the repo's .claude/settings.local.json; {} when the file or the block is missing.
     Read from the file, not the process env: Claude Code applies settings env only at session start, so a
     value written by `agentflow-settings set-secret` would otherwise wait for a restart."""
+    try:
+        with open(settings_path(cwd), encoding="utf-8") as fh:
+            env = (json.load(fh) or {}).get("env")
+    except (OSError, ValueError):
+        return {}
+    return {k: str(v) for k, v in env.items() if v is not None} if isinstance(env, dict) else {}
+
+
+def settings_envs(cwd=None):
+    """settings_env of the nearest repos first: cwd, CLAUDE_PROJECT_DIR, process cwd."""
     for start in (cwd, os.environ.get("CLAUDE_PROJECT_DIR"), os.getcwd()):
-        if not start:
-            continue
-        try:
-            with open(settings_path(start), encoding="utf-8") as fh:
-                env = (json.load(fh) or {}).get("env")
-        except (OSError, ValueError):
-            continue
-        if isinstance(env, dict):
-            yield {k: str(v) for k, v in env.items() if v is not None}
+        if start:
+            yield settings_env(start)
+
+
+def staging_env_names(cfg):
+    """Env names that staging.notes refers to (it holds names only, e.g. STAGING_TEST_USER)."""
+    return sorted(set(re.findall(r"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b", str(((cfg or {}).get("staging") or {}).get("notes") or ""))))
 
 
 def env_value(name, cwd=None):

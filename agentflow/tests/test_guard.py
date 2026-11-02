@@ -138,7 +138,7 @@ NOT_OVERBLOCKED = [
     "sed -n 2p README.md", 'WT="/tmp/my repo"; git -C "$WT" status', 'curl -s -o out.json -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/user', "git remote -v", "git rebase origin/master",
     "rg -t ts .env src", "grep --include '*.ts' -rn .env src", "tree -I .env", "zip -x .env -r a.zip .", "eslint --ignore-pattern .env .", "git add -A -- . ':!.env'", "git add -A -- . ':(exclude).env'",
     'python3 -c "import os; print(\'API_KEY\' in os.environ)"', 'docker login --password-stdin <<< "$TOKEN"', "declare -x FOO=bar", "export FOO=bar", 'MSG="fix: gh pr merge note"; git commit -m "$MSG"',
-    "agentflow-settings has TELEGRAM_BOT_TOKEN", "STAGING_URL=https://s.example agentflow-settings exec -- sh -c 'BASE_URL=$STAGING_URL pnpm e2e'",
+    "agentflow-settings has TELEGRAM_BOT_TOKEN", "agentflow-settings import GITHUB_TOKEN","STAGING_URL=https://s.example agentflow-settings exec -- sh -c 'BASE_URL=$STAGING_URL pnpm e2e'",
 ]
 FILES = [
     ("BLOCK", "Edit", "secret/staging/app.env"), ("BLOCK", "Read", "server.pem"), ("BLOCK", "Read", ".env"), ("BLOCK", "Read", ".ENV"),
@@ -206,6 +206,7 @@ ROLES = [  # role, want, tool, input
     ("reviewer", "ALLOW", "Bash", {"command": 'WT="$HOME/my repo/.claude/worktrees/af-7-staging"; echo "$WT"'}),
     ("dev", "BLOCK", "Edit", {"file_path": ".claude/worktrees/af-7/.claude/settings.json"}), ("dev", "BLOCK", "Write", {"file_path": ".claude/settings.local.json"}),
     ("dev", "BLOCK", "Bash", {"command": "echo '{}' > .claude/settings.json"}), ("dev", "BLOCK", "Bash", {"command": "agentflow-settings set a.b 1"}),
+    ("qc", "BLOCK", "Bash", {"command": "agentflow-settings import GITHUB_TOKEN"}),
     ("dev", "BLOCK", "Edit", {"file_path": os.path.realpath(GUARD)}), ("dev", "BLOCK", "Write", {"file_path": ".claude/worktrees/af-7/a.py", "content": "T = '%s'" % FAKE_PAT}),
     (None, "ALLOW", "Edit", {"file_path": ".claude/settings.json", "new_string": '"model": "opus"'}), (None, "BLOCK", "Edit", {"file_path": ".claude/settings.json", "new_string": '"disableAllHooks": true'}),
 ]

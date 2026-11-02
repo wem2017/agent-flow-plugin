@@ -33,6 +33,7 @@ Chưa `ignored` + `untracked` → **dừng**.
 
 `agentflow-board whoami`. Token tìm theo thứ tự: `env.GITHUB_TOKEN` trong `.claude/settings.local.json` → env của process → `gh auth token` (cùng một hàm cho script và cho MCP — `scripts/mcp-headers.py` là `headersHelper` của GitHub MCP).
 - Không có token → classic PAT, scope `repo`, `project`, `read:org` nếu board của org, `workflow` nếu agent được sửa CI. Ghi **chỉ** bằng `agentflow-settings set-secret GITHUB_TOKEN` (value qua stdin) — guard chặn Read/Edit file settings để token không vào transcript. Tốt nhất người tự chạy: `! read -s T && printf '%s\n' "$T" | agentflow-settings set-secret GITHUB_TOKEN`. Người đã dán token vào chat → pipe giúp, rồi khuyên rotate.
+- Token đến từ env của process hoặc `gh` (`agentflow-settings has GITHUB_TOKEN` fail) → **vẫn phải ghi vào file**, hỏi: chép token đang dùng (`agentflow-settings import GITHUB_TOKEN`) hay PAT hẹp qua `set-secret` (đề xuất khi token quá rộng). Xong bước này `has GITHUB_TOKEN` phải exit 0.
 - Có `WARN token quá rộng` → nhắc tạo token hẹp hơn (không chặn).
 - Probe MCP `get_me` (tool deferred — nạp bằng ToolSearch trước). Fail mà script chạy được → `/mcp` → `plugin:agentflow:github` → Reconnect (helper đọc lại token mỗi lần connect, không cần restart).
 
@@ -74,8 +75,8 @@ Chi tiết + lệnh: `${CLAUDE_PLUGIN_ROOT}/skills/init/references/board-setup.m
 
 - **Figma**: dùng không? Có → `design.figma: true`; kiểm tool MCP `figma` có trong session; chưa authenticate → "chạy `/mcp` → figma → Authenticate". Thấy prototype trong repo (`docs/design`, `*.html` thiết kế…) → đề xuất `design.repo`.
 - **people**: `po`, `qc`, `reviewers` (GitHub login) — gợi ý từ assignee trên board/collaborator. Mention chính token owner không tạo notification — nói rõ.
-- **Telegram**: dùng không? Có → `notify.telegram: true`; kiểm `agentflow-settings has TELEGRAM_BOT_TOKEN && agentflow-settings has TELEGRAM_CHAT_ID`; thiếu → hướng dẫn `set-secret` (script đọc thẳng file, không cần restart).
-- **staging**: `url` (API/web), `build` (cách lấy bản build cho mobile/QC người), `notes` (chỉ **tên** biến env của tài khoản test; value ghi bằng `agentflow-settings set-secret`), `timeout_min`. Kiểm trong `.github/workflows/`: có pipeline chạy khi push vào nhánh staging và báo check về commit, không có → nói rõ ticket sẽ `blocked` khi hết timeout. Check phải bao trùm cả bước deploy: check xanh trước khi deploy xong thì QC test nhầm bản cũ. Nhánh staging phải cho push trực tiếp, không bật rule bắt buộc PR hay status check trước khi push.
+- **Telegram**: dùng không? Có → `notify.telegram: true`; kiểm `agentflow-settings has TELEGRAM_BOT_TOKEN && agentflow-settings has TELEGRAM_CHAT_ID`; thiếu → người ghi bằng `set-secret` (có hiệu lực ngay), chưa có thì giữ `notify.telegram: false`.
+- **staging**: `url` (API/web), `build` (cách lấy bản build cho mobile/QC người), `notes` (chỉ **tên** biến env của tài khoản test, dạng `STAGING_TEST_USER`; mỗi tên phải có value qua `agentflow-settings set-secret`, doctor fail nếu thiếu), `timeout_min`. Kiểm trong `.github/workflows/`: có pipeline chạy khi push vào nhánh staging và báo check về commit, không có → nói rõ ticket sẽ `blocked` khi hết timeout. Check phải bao trùm cả bước deploy: check xanh trước khi deploy xong thì QC test nhầm bản cũ. Nhánh staging phải cho push trực tiếp, không bật rule bắt buộc PR hay status check trước khi push.
 - **run**: giữ mặc định (`parallel 2`, `max_tasks 5`, `max_review_rounds 3`, `max_qc_rounds 2`, DEV opus, REVIEWER opus, QC sonnet) trừ khi người muốn đổi.
 
 ## 9. Ghi file
@@ -89,7 +90,7 @@ Chi tiết + lệnh: `${CLAUDE_PLUGIN_ROOT}/skills/init/references/board-setup.m
 
 ## 10. Verify
 
-1. `agentflow-board doctor` — phải `KẾT QUẢ: OK` (⚠ được phép). ✗ → sửa theo dòng báo rồi chạy lại.
+1. `agentflow-board doctor` — phải `KẾT QUẢ: OK` (⚠ được phép), kể cả dòng `env của .claude/settings.local.json`. ✗ → sửa theo dòng báo rồi chạy lại.
 2. **Smoke test đường runtime (MCP)** — bắt buộc, không cần hỏi: tạo issue `AgentFlow setup check` → `add_project_item` → `update_project_item` Status = `backlog` → `get_project_item` (`field_names:["Status"]`) assert = `backlog` → đổi sang `ready` và đọc lại → **dọn dẹp kể cả khi fail**: `delete_project_item` + đóng issue. Fail → bảng nguyên nhân trong reference §Smoke.
 3. Guard: `printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git push --force"},"cwd":"'"$PWD"'"}' | python3 "${CLAUDE_PLUGIN_ROOT}/scripts/guard.py"; echo $?` → phải `2`.
 4. Telegram bật → `agentflow-notify blocked "AgentFlow: notify OK (setup check)"`.

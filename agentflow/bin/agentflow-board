@@ -580,8 +580,12 @@ def cmd_doctor(a):
     ignored = subprocess.run(["git", "check-ignore", "-q", ".claude/settings.local.json"], cwd=root).returncode == 0
     tracked = subprocess.run(["git", "ls-files", "--error-unmatch", ".claude/settings.local.json"], cwd=root, capture_output=True).returncode == 0
     (ok if ignored and not tracked else fail)(".claude/settings.local.json gitignored%s" % (" nhưng đang bị TRACK" if tracked else ""))
-    if subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.realpath(__file__)), "agentflow-settings"), "has", "GITHUB_TOKEN"], cwd=root).returncode != 0:
-        warn("env.GITHUB_TOKEN chưa có trong .claude/settings.local.json — đang dùng token từ env/gh (agentflow-settings set-secret GITHUB_TOKEN để cố định theo repo)")
+    local_env = afconfig.settings_env(root)
+    notify = cfg.get("notify") or {}
+    need = ["GITHUB_TOKEN"] + (["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"] if notify.get("telegram") else []) + afconfig.staging_env_names(cfg)
+    missing = [n for n in need if not local_env.get(n)]
+    (fail if missing else ok)("env của .claude/settings.local.json: %s" % (
+        "thiếu " + ", ".join(missing) + " — agentflow-settings import GITHUB_TOKEN (chép token đang dùng) / set-secret <TÊN>" if missing else ", ".join(need)))
     try:
         user, headers = http("GET", "/user", want_headers=True)
     except (RuntimeError, SystemExit) as err:
@@ -679,10 +683,6 @@ def cmd_doctor(a):
             warn("surface %s chưa có lệnh check — DEV phải tự tìm (tốn token)" % key)
         else:
             ok("surface %s (%s)" % (key, s.get("path")))
-    notify = cfg.get("notify") or {}
-    if notify.get("telegram"):
-        has = afconfig.env_value("TELEGRAM_BOT_TOKEN", root) and afconfig.env_value("TELEGRAM_CHAT_ID", root)
-        (ok if has else warn)("telegram %s" % ("sẵn sàng" if has else "bật nhưng thiếu TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID — tự tắt"))
     print("KẾT QUẢ: %s" % ("OK" if not bad else "%d lỗi" % len(bad)))
     sys.exit(1 if bad else 0)
 

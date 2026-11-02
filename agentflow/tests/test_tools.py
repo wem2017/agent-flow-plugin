@@ -107,6 +107,19 @@ class Settings(RepoCase):
                 self.assertEqual(res.returncode, 0, res.stderr)
                 self.assertNotIn("from-file", res.stdout + res.stderr)
 
+    def test_import_copies_the_value_in_use_without_echo(self):
+        res = tool("agentflow-settings", "import", "GITHUB_TOKEN", cwd=self.repo, env={"GH_TOKEN": FAKE_PAT})
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertNotIn(FAKE_PAT, res.stdout + res.stderr)
+        res = tool("agentflow-settings", "import", "STAGING_TEST_USER", cwd=self.repo, env={"STAGING_TEST_USER": "qa@x"})
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(self.read_settings()["env"], {"GITHUB_TOKEN": FAKE_PAT, "STAGING_TEST_USER": "qa@x"})
+        self.assertEqual(stat.S_IMODE(os.stat(self.settings).st_mode), 0o600)
+
+    def test_import_without_a_value_writes_nothing(self):
+        self.assertNotEqual(tool("agentflow-settings", "import", "STAGING_TEST_USER", cwd=self.repo).returncode, 0)
+        self.assertFalse(os.path.exists(self.settings))
+
     def test_exec_without_command_or_missing_binary(self):
         for args in (["exec"], ["exec", "--"]):
             self.assertEqual(tool("agentflow-settings", *args, cwd=self.repo).returncode, 2)

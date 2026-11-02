@@ -8,6 +8,8 @@ written with mode 600. Worktrees share the settings of the main checkout.
   show                         key tree; values under `env` and secret-looking keys are masked
   set <dotted.key> <json>      e.g. set enabledPlugins.agentflow@agent-flow-plugins true
   set-secret <ENV_NAME>        value read from stdin into env.<ENV_NAME> (never echoed)
+  import <ENV_NAME>            copy the value in use into env.<ENV_NAME> (never echoed): process env, and for
+                               GITHUB_TOKEN the token the plugin resolves (GITHUB_TOKEN, GH_TOKEN, gh auth token)
   has <ENV_NAME>               exit 0 if env.<ENV_NAME> is set and non-empty
   exec -- <cmd> [args…]        run cmd with `env` of the file over the process env (no restart needed)
 """
@@ -92,6 +94,13 @@ def main():
         data.setdefault("env", {})[args[1]] = value
         save(data)
         print("set env.%s (ẩn)" % args[1])
+    elif args[0] == "import" and len(args) == 2:
+        value = afconfig.github_token() if args[1] == "GITHUB_TOKEN" else afconfig.env_value(args[1])
+        if not value:
+            sys.exit("agentflow-settings: %s không có giá trị nào đang dùng — ghi bằng set-secret" % args[1])
+        data.setdefault("env", {})[args[1]] = value
+        save(data)
+        print("set env.%s (ẩn, chép từ giá trị đang dùng)" % args[1])
     elif args[0] == "has" and len(args) == 2:
         sys.exit(0 if (data.get("env") or {}).get(args[1]) else 1)
     elif args[0] == "exec" and args[1:] not in ([], ["--"]):

@@ -826,7 +826,7 @@ def check_interpreter(args, cmd, session):
 
 
 def check_settings_tool(args, session):
-    if len(args) >= 2 and args[0] in ("set", "set-secret"):
+    if len(args) >= 2 and args[0] in ("set", "set-secret", "import"):
         if session.role:
             block("subagent không sửa settings local.")
         if args[0] == "set" and afconfig.settings_key_locked(args[1], args[2] if len(args) > 2 else ""):
