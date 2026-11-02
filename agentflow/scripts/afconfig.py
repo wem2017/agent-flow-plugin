@@ -468,21 +468,34 @@ def request(method, url, headers=None, data=None, timeout=30):
         return int(res.stdout.strip() or 0), hdrs, body
 
 
-def github_token(cwd=None):
-    """GitHub token, first hit wins: env.GITHUB_TOKEN in the repo's .claude/settings.local.json (read
-    directly — independent of when Claude Code applies settings env), process GITHUB_TOKEN / GH_TOKEN,
-    then `gh auth token`. Returns "" when nothing is configured."""
+def settings_envs(cwd=None):
+    """`env` blocks of .claude/settings.local.json, nearest repo first (cwd, CLAUDE_PROJECT_DIR, process cwd).
+    Read from the file, not the process env: Claude Code applies settings env only at session start, so a
+    value written by `agentflow-settings set-secret` would otherwise wait for a restart."""
     for start in (cwd, os.environ.get("CLAUDE_PROJECT_DIR"), os.getcwd()):
         if not start:
             continue
         try:
             with open(settings_path(start), encoding="utf-8") as fh:
-                tok = ((json.load(fh) or {}).get("env") or {}).get("GITHUB_TOKEN")
-            if tok:
-                return tok
+                env = (json.load(fh) or {}).get("env")
         except (OSError, ValueError):
             continue
-    tok = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+        if isinstance(env, dict):
+            yield {k: str(v) for k, v in env.items() if v is not None}
+
+
+def env_value(name, cwd=None):
+    """env.<name> of the settings file, else the process env. "" when unset."""
+    for env in settings_envs(cwd):
+        if env.get(name):
+            return env[name]
+    return os.environ.get(name, "")
+
+
+def github_token(cwd=None):
+    """GitHub token, first hit wins: env.GITHUB_TOKEN of the settings file, process GITHUB_TOKEN / GH_TOKEN,
+    then `gh auth token`. Returns "" when nothing is configured."""
+    tok = env_value("GITHUB_TOKEN", cwd) or os.environ.get("GH_TOKEN")
     if tok:
         return tok
     try:

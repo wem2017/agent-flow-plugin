@@ -98,6 +98,22 @@ class Settings(RepoCase):
         self.assertIn("JSON", res.stderr)
         self.assertNotIn("leaky-value", res.stdout + res.stderr)
 
+    def test_exec_runs_with_the_file_env_over_the_process_env(self):
+        tool("agentflow-settings", "set-secret", "A", cwd=self.repo, stdin="from-file\n")
+        probe = "import os,sys; sys.exit(0 if os.environ.get('A') == 'from-file' and os.environ.get('B') == 'kept' else 1)"
+        for prefix in (["--"], []):
+            with self.subTest(prefix):
+                res = tool("agentflow-settings", "exec", *prefix, sys.executable, "-c", probe, cwd=self.repo, env={"A": "stale", "B": "kept"})
+                self.assertEqual(res.returncode, 0, res.stderr)
+                self.assertNotIn("from-file", res.stdout + res.stderr)
+
+    def test_exec_without_command_or_missing_binary(self):
+        for args in (["exec"], ["exec", "--"]):
+            self.assertEqual(tool("agentflow-settings", *args, cwd=self.repo).returncode, 2)
+        res = tool("agentflow-settings", "exec", "--", "no-such-binary-af", cwd=self.repo)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("no-such-binary-af", res.stderr)
+
     def test_worktree_shares_the_main_settings(self):
         subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "i", "--allow-empty"], cwd=self.repo, check=True)
         subprocess.run(["git", "worktree", "add", "-q", "wt", "-b", "f"], cwd=self.repo, check=True)
@@ -182,6 +198,15 @@ class Notify(RepoCase):
         env = {"TELEGRAM_BOT_TOKEN": "123:bot-secret", "TELEGRAM_CHAT_ID": "1", "HTTPS_PROXY": "http://127.0.0.1:9", "https_proxy": "http://127.0.0.1:9"}
         res = tool("agentflow-notify", "blocked", "x", cwd=self.repo, env=env)
         self.assertEqual(res.returncode, 0)
+        self.assertNotIn("bot-secret", res.stdout + res.stderr)
+
+    def test_credentials_from_the_settings_file_without_restart(self):
+        self.write_cfg("notify:\n  telegram: true\n  events: [blocked]\n")
+        for name, value in (("TELEGRAM_BOT_TOKEN", "123:bot-secret"), ("TELEGRAM_CHAT_ID", "1")):
+            tool("agentflow-settings", "set-secret", name, cwd=self.repo, stdin=value + "\n")
+        res = tool("agentflow-notify", "blocked", "x", cwd=self.repo, env={"HTTPS_PROXY": "http://127.0.0.1:9", "https_proxy": "http://127.0.0.1:9"})
+        self.assertEqual(res.returncode, 0)
+        self.assertIn("failed", res.stdout)  # it tried to send: the credentials were found
         self.assertNotIn("bot-secret", res.stdout + res.stderr)
 
     def test_broken_config_and_outside_repo(self):

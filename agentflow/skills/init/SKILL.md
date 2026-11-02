@@ -74,7 +74,7 @@ Chi tiết + lệnh: `${CLAUDE_PLUGIN_ROOT}/skills/init/references/board-setup.m
 
 - **Figma**: dùng không? Có → `design.figma: true`; kiểm tool MCP `figma` có trong session; chưa authenticate → "chạy `/mcp` → figma → Authenticate". Thấy prototype trong repo (`docs/design`, `*.html` thiết kế…) → đề xuất `design.repo`.
 - **people**: `po`, `qc`, `reviewers` (GitHub login) — gợi ý từ assignee trên board/collaborator. Mention chính token owner không tạo notification — nói rõ.
-- **Telegram**: dùng không? Có → `notify.telegram: true`; kiểm presence `[ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]`; thiếu → hướng dẫn thêm vào env cùng file (có hiệu lực sau restart).
+- **Telegram**: dùng không? Có → `notify.telegram: true`; kiểm `agentflow-settings has TELEGRAM_BOT_TOKEN && agentflow-settings has TELEGRAM_CHAT_ID`; thiếu → hướng dẫn `set-secret` (script đọc thẳng file, không cần restart).
 - **staging**: `url` (API/web), `build` (cách lấy bản build cho mobile/QC người), `notes` (chỉ **tên** biến env của tài khoản test; value ghi bằng `agentflow-settings set-secret`), `timeout_min`. Kiểm trong `.github/workflows/`: có pipeline chạy khi push vào nhánh staging và báo check về commit, không có → nói rõ ticket sẽ `blocked` khi hết timeout. Check phải bao trùm cả bước deploy: check xanh trước khi deploy xong thì QC test nhầm bản cũ. Nhánh staging phải cho push trực tiếp, không bật rule bắt buộc PR hay status check trước khi push.
 - **run**: giữ mặc định (`parallel 2`, `max_tasks 5`, `max_review_rounds 3`, `max_qc_rounds 2`, DEV opus, REVIEWER opus, QC sonnet) trừ khi người muốn đổi.
 
@@ -96,4 +96,4 @@ Chi tiết + lệnh: `${CLAUDE_PLUGIN_ROOT}/skills/init/references/board-setup.m
 
 ## 11. Tóm tắt (≤ 15 dòng)
 
-Repo · board (URL, map 7 stage) · base/protected · staging (branch, url, pipeline) · surfaces · labels · type mode · Figma · Telegram · people · permission mode · file đã ghi · việc tay còn lại (workflow board, Figma OAuth, restart nếu vừa đổi env). Kết thúc: `Tiếp: /agentflow:task <mô tả> để tạo việc, PO kéo sang Ready, rồi /agentflow:run (hoặc /agentflow:do #n).`
+Repo · board (URL, map 7 stage) · base/protected · staging (branch, url, pipeline) · surfaces · labels · type mode · Figma · Telegram · people · permission mode · file đã ghi · việc tay còn lại (workflow board, Figma OAuth). Kết thúc: `Tiếp: /agentflow:task <mô tả> để tạo việc, PO kéo sang Ready, rồi /agentflow:run (hoặc /agentflow:do #n).`

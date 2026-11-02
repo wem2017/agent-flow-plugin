@@ -209,6 +209,17 @@ class Repo(unittest.TestCase):
         with mock.patch.object(afconfig, "settings_path", return_value=os.path.join(empty, "none")), mock.patch.dict(os.environ, {"GITHUB_TOKEN": "from-env"}):
             self.assertEqual(afconfig.github_token(self.repo), "from-env")
 
+    def test_env_value_reads_the_settings_file_first(self):
+        os.makedirs(os.path.join(self.repo, ".claude"))
+        with open(os.path.join(self.repo, ".claude", "settings.local.json"), "w") as fh:
+            fh.write('{"env": {"TELEGRAM_CHAT_ID": 42, "EMPTY": ""}}')
+        with mock.patch.dict(os.environ, {"TELEGRAM_CHAT_ID": "stale", "EMPTY": "from-env", "ONLY_ENV": "e"}):
+            self.assertEqual(afconfig.env_value("TELEGRAM_CHAT_ID", self.repo), "42")
+            self.assertEqual(afconfig.env_value("EMPTY", self.repo), "from-env")
+            self.assertEqual(afconfig.env_value("ONLY_ENV", self.repo), "e")
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(afconfig.env_value("MISSING", self.repo), "")
+
 
 class Misc(unittest.TestCase):
     def test_board_url(self):

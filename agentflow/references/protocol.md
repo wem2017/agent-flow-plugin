@@ -5,7 +5,7 @@ Contract chung cho mọi agent và lệnh `/agentflow:*`. Lý do: `DESIGN-NOTES.
 ## 1. Config
 
 - **`agentflow.yaml`** ở repo root (commit): hành vi. Gate: `schema` phải là `4`, không thì dừng: "chạy `/agentflow:init`".
-- **`.claude/settings.local.json`** (gitignored): `env` giữ mọi secret (`GITHUB_TOKEN`, `TELEGRAM_*`, `FIGMA_TOKEN`).
+- **`.claude/settings.local.json`** (gitignored): `env` giữ mọi secret. Lệnh cần secret: `agentflow-settings exec -- <cmd>`.
 - Suy từ git mỗi run, không ghi vào config: owner/repo (`git remote get-url origin`), default branch (`git symbolic-ref --short refs/remotes/origin/HEAD`). `git.base: null` ⇒ base = default branch. `staging.branch` chỉ để build test: không bao giờ là base của PR.
 - `board.url` → `owner`, `owner_type` (`orgs`→`org`, `users`→`user`), `project_number`. Board có thể thuộc owner khác repo.
 - Tên cột: **luôn** dùng `board.status.<stage>`, tên label: **luôn** `labels.<key>`. Không hardcode chuỗi nào.

@@ -9,6 +9,7 @@ written with mode 600. Worktrees share the settings of the main checkout.
   set <dotted.key> <json>      e.g. set enabledPlugins.agentflow@agent-flow-plugins true
   set-secret <ENV_NAME>        value read from stdin into env.<ENV_NAME> (never echoed)
   has <ENV_NAME>               exit 0 if env.<ENV_NAME> is set and non-empty
+  exec -- <cmd> [args…]        run cmd with `env` of the file over the process env (no restart needed)
 """
 
 import json
@@ -93,6 +94,14 @@ def main():
         print("set env.%s (ẩn)" % args[1])
     elif args[0] == "has" and len(args) == 2:
         sys.exit(0 if (data.get("env") or {}).get(args[1]) else 1)
+    elif args[0] == "exec" and args[1:] not in ([], ["--"]):
+        cmd = args[2:] if args[1] == "--" else args[1:]
+        env = dict(os.environ)
+        env.update({k: str(v) for k, v in (data.get("env") or {}).items() if v is not None})
+        try:
+            os.execvpe(cmd[0], cmd, env)
+        except OSError as err:
+            sys.exit("agentflow-settings: %s: %s" % (cmd[0], err.strerror))
     else:
         print(__doc__)
         sys.exit(2)

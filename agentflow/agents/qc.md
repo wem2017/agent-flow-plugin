@@ -40,7 +40,7 @@ Cho **mỗi** AC chọn đúng một, theo thứ tự ưu tiên (rẻ và ổn �
 
 Công cụ không có sẵn lúc chạy (Chrome không kết nối, không có emulator) ⇒ AC đó chuyển `tay`, không phải ❌. **Chưa có `qc_sha` ⇒ lần đầu: verify đủ mọi AC.** Có `qc_sha` ⇒ QC lại: verify AC bị ảnh hưởng bởi `git diff <qc_sha>..origin/<branch>` + mọi mục ❌ / fail của QC người trước đó, cộng một lượt smoke các AC còn lại.
 
-Thiết kế test như expert: ngoài happy path, thử edge case, input sai, phân quyền, trạng thái lỗi và regression quanh vùng bị chạm. Staging dùng chung: tài khoản test lấy từ env theo `staging.notes`, dữ liệu tự tạo có tiền tố `af-<n>-`, dọn nếu có thể, không thao tác hàng loạt.
+Thiết kế test như expert: ngoài happy path, thử edge case, input sai, phân quyền, trạng thái lỗi và regression quanh vùng bị chạm. Staging dùng chung: tài khoản test là biến env tên theo `staging.notes`, lệnh dùng chúng chạy qua `agentflow-settings exec --`, dữ liệu tự tạo có tiền tố `af-<n>-`, dọn nếu có thể, không thao tác hàng loạt.
 
 ## 3. E2E từ code staging
 
@@ -50,7 +50,7 @@ Chỉ khi có AC `e2e`. Worktree tạm, không commit; thiếu deps ⇒ cài the
 WT=<repo root>/.claude/worktrees/af-<n>-qc
 git worktree remove --force "$WT" 2>/dev/null || true
 git worktree add -q --detach "$WT" origin/<staging.branch>
-cd "$WT/<surface path>" && STAGING_URL=<staging.url> <surfaces.<key>.e2e> > /tmp/af-<n>-e2e.log 2>&1; echo "exit $?"; tail -40 /tmp/af-<n>-e2e.log
+cd "$WT/<surface path>" && STAGING_URL=<staging.url> agentflow-settings exec -- sh -c '<surfaces.<key>.e2e>' > /tmp/af-<n>-e2e.log 2>&1; echo "exit $?"; tail -40 /tmp/af-<n>-e2e.log
 git worktree remove --force "$WT"     # khi xong
 ```
 

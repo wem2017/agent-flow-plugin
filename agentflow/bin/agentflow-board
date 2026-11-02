@@ -681,7 +681,7 @@ def cmd_doctor(a):
             ok("surface %s (%s)" % (key, s.get("path")))
     notify = cfg.get("notify") or {}
     if notify.get("telegram"):
-        has = os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID")
+        has = afconfig.env_value("TELEGRAM_BOT_TOKEN", root) and afconfig.env_value("TELEGRAM_CHAT_ID", root)
         (ok if has else warn)("telegram %s" % ("sẵn sàng" if has else "bật nhưng thiếu TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID — tự tắt"))
     print("KẾT QUẢ: %s" % ("OK" if not bad else "%d lỗi" % len(bad)))
     sys.exit(1 if bad else 0)

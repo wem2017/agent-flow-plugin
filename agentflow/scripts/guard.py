@@ -890,6 +890,11 @@ def run_argv(argv, cmd, session):
                 block("không đọc nội dung file forbidden (secret) qua `find | xargs`.")
         run_argv(inner, cmd, session)
         return
+    if exe == "agentflow-settings" and args[:1] == ["exec"]:  # runs a command with the secrets of the settings file
+        inner = args[2:] if args[1:2] == ["--"] else args[1:]
+        if inner:
+            run_argv(inner, cmd, session)
+        return
     if exe in SHELLS:
         check_shell(args, cmd, session)
         return

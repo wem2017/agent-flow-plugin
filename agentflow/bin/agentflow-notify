@@ -4,7 +4,8 @@
   agentflow-notify <event> "<text>"      event ∈ notify.events of agentflow.yaml
 
 Sends only when notify.telegram is true, the event is listed, and TELEGRAM_BOT_TOKEN +
-TELEGRAM_CHAT_ID are in env. Token stays inside this process — never put it on a command line.
+TELEGRAM_CHAT_ID are set (env of .claude/settings.local.json, read directly, else the process env).
+Token stays inside this process — never put it on a command line.
 """
 
 import json
@@ -33,7 +34,7 @@ def main():
     if event not in (notify.get("events") or []):
         print("notify: event %s không bật" % event)
         return
-    bot, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
+    bot, chat = afconfig.env_value("TELEGRAM_BOT_TOKEN", root), afconfig.env_value("TELEGRAM_CHAT_ID", root)
     if not bot or not chat:
         print("notify: thiếu TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID — bỏ qua")
         return
