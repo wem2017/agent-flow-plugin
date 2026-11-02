@@ -282,6 +282,12 @@ def validate_config(cfg):
     for key, surface in (cfg.get("surfaces") or {}).items():
         if not isinstance(surface, dict) or not surface.get("path"):
             fail("surfaces.%s thiếu path" % key)
+            continue
+        e2e_dir = str(surface.get("e2e_dir") or "")
+        if e2e_dir and not _test_folder(e2e_dir, str(surface["path"])):
+            fail("surfaces.%s.e2e_dir phải là thư mục con của surface, không `.`, `..`, thư mục CI/config như `.github` (đang là %r)" % (key, e2e_dir))
+        elif surface.get("e2e") and not e2e_dir:
+            warn("surfaces.%s có e2e mà thiếu e2e_dir — QC chạy được test nhưng không commit được test tự động" % key)
     for key in ("parallel", "max_tasks", "max_review_rounds", "max_qc_rounds"):
         positive_int("run", key)
     positive_int("staging", "timeout_min")
@@ -299,6 +305,31 @@ def as_list(value):
     if value is None:
         return []
     return [value] if isinstance(value, str) else list(value)
+
+
+def _safe_relative(path):
+    return not os.path.isabs(path) and ".." not in path.replace("\\", "/").split("/")
+
+
+NOT_TEST_FOLDERS = {".git", ".github", ".gitlab", ".claude", ".husky", ".circleci", ".buildkite", "node_modules"}
+
+
+def _test_folder(e2e_dir, base=""):
+    """A folder of its own inside the surface: `.` would hand QC the app code, `.github` the CI."""
+    folder = os.path.normpath(os.path.join(base, e2e_dir)).replace("\\", "/")
+    return _safe_relative(e2e_dir) and os.path.normpath(e2e_dir) != "." and not NOT_TEST_FOLDERS & set(folder.split("/"))
+
+
+def e2e_dirs(cfg):
+    """Folders, relative to the repo root, where QC may write and commit automation tests."""
+    out, surfaces = [], (cfg or {}).get("surfaces") if isinstance(cfg, dict) else None
+    for surface in surfaces.values() if isinstance(surfaces, dict) else []:
+        if not isinstance(surface, dict):
+            continue
+        base, e2e_dir = str(surface.get("path") or ""), str(surface.get("e2e_dir") or "")
+        if base and e2e_dir and _safe_relative(base) and _test_folder(e2e_dir, base):
+            out.append(os.path.normpath(os.path.join(base, e2e_dir)).replace("\\", "/"))
+    return out
 
 
 def staging_branch(cfg):

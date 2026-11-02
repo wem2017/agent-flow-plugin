@@ -58,6 +58,8 @@ git:
 #     check: "pnpm typecheck && pnpm lint"
 #     test: "pnpm test"
 #     e2e: ""                  # tuỳ chọn — QC chạy nhắm vào staging, có env STAGING_URL, vd "BASE_URL=$STAGING_URL pnpm e2e"
+#     e2e_dir: ""              # tuỳ chọn — thư mục test e2e trong surface, vd ".maestro" (Maestro, QC ưu tiên cho UI) hoặc "e2e": QC viết test tự động
+#                              # và commit vào PR, chỉ trong thư mục này (hook chặn file khác). Trống ⇒ QC không commit test
 
 # Glob agent KHÔNG được sửa hay in nội dung (hợp với mặc định của plugin: .env*, *.pem, *.key, *.p12, *.pfx, *.jks, *.keystore, .netrc, .git-credentials, id_rsa, id_ed25519).
 forbidden: []
@@ -91,7 +93,7 @@ run:
   models:
     dev: { default: opus }        # thêm key theo Size để đổi model, vd L: fable. Effort nằm ở frontmatter của agent
     reviewer: opus
-    qc: sonnet
+    qc: opus                     # QC viết test tự động (Playwright, Maestro…)
 
 # ── NOTIFY ───────────────────────────────────────────────────────────────────
 notify:

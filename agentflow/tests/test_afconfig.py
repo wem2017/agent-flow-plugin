@@ -96,6 +96,10 @@ class Validate(unittest.TestCase):
             (lambda c: c["run"].update(models={"dev": {}}), "run.models.dev.default"),
             (lambda c: c["notify"].update(events=["x"]), "notify.events"),
             (lambda c: c.update(surfaces={"web": {}}), "surfaces.web"),
+            (lambda c: c.update(surfaces={"web": {"path": "web/", "e2e_dir": "."}}), "surfaces.web.e2e_dir"),
+            (lambda c: c.update(surfaces={"web": {"path": "web/", "e2e_dir": "../src"}}), "surfaces.web.e2e_dir"),
+            (lambda c: c.update(surfaces={"web": {"path": "web/", "e2e_dir": "/abs/e2e"}}), "surfaces.web.e2e_dir"),
+            (lambda c: c.update(surfaces={"ci": {"path": "./", "e2e_dir": ".github/e2e"}}), "surfaces.ci.e2e_dir"),
         ]
         for change, needle in cases:
             cfg = filled_config()
@@ -110,6 +114,18 @@ class Validate(unittest.TestCase):
         warns = [m for level, m in afconfig.validate_config(cfg) if level == "warn"]
         self.assertTrue(any("oops" in m for m in warns))
         self.assertTrue(any("git.protected" in m for m in warns))
+
+    def test_e2e_without_folder_warns(self):
+        cfg = filled_config()
+        cfg["surfaces"] = {"web": {"path": "web/", "e2e": "pnpm e2e"}}
+        self.assertTrue(any("surfaces.web" in m and "e2e_dir" in m for level, m in afconfig.validate_config(cfg) if level == "warn"))
+
+    def test_e2e_dirs(self):
+        cfg = {"surfaces": {"web": {"path": "web/", "e2e_dir": "e2e"}, "app": {"path": "mobile", "e2e_dir": ".maestro/"},
+                            "root": {"path": "./", "e2e_dir": "tests/e2e"}, "none": {"path": "api/"}, "bad": {"path": "x/", "e2e_dir": "."},
+                            "up": {"path": "x/", "e2e_dir": "../src"}, "ci": {"path": ".github", "e2e_dir": "e2e"}}}
+        self.assertEqual(sorted(afconfig.e2e_dirs(cfg)), ["mobile/.maestro", "tests/e2e", "web/e2e"])
+        self.assertEqual(afconfig.e2e_dirs({"surfaces": ["web"]}), [])  # malformed: no folder, not a crash
 
 
 class Paths(unittest.TestCase):

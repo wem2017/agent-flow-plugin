@@ -5,7 +5,7 @@ bare origin and a stateful fake GitHub. Asserts on what ended up in GitHub and i
   python3 agentflow/tests/e2e/run.py [--scenario new|rework|feedback|redeploy|manual-pass|pipeline-fail|pipeline-infra|pipeline-timeout|qc-stale] [--budget USD] [--model sonnet] [--keep]
 
 new: a fresh ticket in Ready. rework: QC returned the ticket with a real bug on the PR branch, which is also on staging.
-feedback: a human requested changes at Ready to Merge. redeploy: a human reset staging while the ticket waited for its build.
+feedback: at Ready to Merge a human requested changes, and left an inline comment that would break div. redeploy: a human reset staging while the ticket waited for its build.
 manual-pass: a human QC ticked the checklist and dragged the card. pipeline-fail: the staging build fails because of this PR.
 pipeline-infra: it fails because of the infrastructure. pipeline-timeout: it never reports. qc-stale: the card reached QC while
 staging does not hold the PR head.
@@ -25,6 +25,9 @@ import sys
 import tempfile
 import threading
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fake_github  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN = os.path.realpath(os.path.join(HERE, "..", ".."))
 AGENTFLOW_YAML = """schema: 4
@@ -42,7 +45,8 @@ surfaces:
     path: "."
     check: "python3 -m py_compile calc.py"
     test: "python3 -m unittest"
-    e2e: "python3 -m unittest"
+    e2e: "python3 -m unittest discover -s e2e -t ."
+    e2e_dir: "e2e"
 forbidden: []
 design: {figma: false, repo: []}
 staging: {branch: staging, url: "", build: "", notes: "", timeout_min: 30}
@@ -84,6 +88,11 @@ def make_repo(base, model):
         fh.write("def add(a, b):\n    return a + b\n")
     with open(os.path.join(repo, "test_calc.py"), "w") as fh:
         fh.write("import unittest\n\nfrom calc import add\n\n\nclass AddTest(unittest.TestCase):\n    def test_add(self):\n        self.assertEqual(add(1, 2), 3)\n")
+    os.makedirs(os.path.join(repo, "e2e"))
+    with open(os.path.join(repo, "e2e", "__init__.py"), "w") as fh:
+        fh.write("")
+    with open(os.path.join(repo, "e2e", "test_smoke.py"), "w") as fh:
+        fh.write("import unittest\n\nfrom calc import add\n\n\nclass SmokeTest(unittest.TestCase):\n    def test_add(self):\n        self.assertEqual(add(2, 2), 4)\n")
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "chore: init")
     git(repo, "push", "-q", "origin", "master", "master:staging")
@@ -181,6 +190,8 @@ def seed_scenario(scenario, repo, state):
         state["issue"]["comments"].append({"id": 9, "body": "[AF:QC] ✅ @" + head[:7], "author_association": "OWNER", "user": {"login": "agentflow-bot"}})
         state["pr"]["reviews"].append({"id": 1, "state": "CHANGES_REQUESTED", "event": "REQUEST_CHANGES", "author_association": "OWNER", "user": {"login": "acme-rev"},
                                        "body": "Đổi thông báo lỗi thành đúng chuỗi: khong chia duoc cho 0", "submitted_at": "2026-10-31T00:00:00Z"})
+        state["pr"]["threads"] = [{"path": "calc.py", "line": 8, "comments": [{"id": 700, "author_association": "MEMBER", "user": {"login": "acme-rev"},
+                                   "body": "Dùng `a // b` cho gọn", "created_at": "2026-10-31T00:00:00Z"}]}]
     elif scenario == "redeploy":
         # The human reset staging: deploy_sha exists but is not on staging any more.
         state["status"] = "In QC"
@@ -226,9 +237,9 @@ def make_plugin(base, state_path, bare):
     return copy
 
 
-def serve_checks(bare, scenario, seeded_head):
-    """What `agentflow-board checks` reads. The staging pipeline is green on whatever the head is, except in the pipeline-*
-    scenarios, where the head as seeded stays failing or silent."""
+def serve_checks(bare, scenario, seeded_head, state_path):
+    """What `agentflow-board checks` and `feedback` read. The staging pipeline is green on whatever the head is, except in the
+    pipeline-* scenarios, where the head as seeded stays failing or silent."""
     failing = {"status": "completed", "conclusion": "failure", "name": "build", "html_url": "http://local/1"}
 
     def runs_for(sha):
@@ -266,6 +277,20 @@ def serve_checks(bare, scenario, seeded_head):
             self.end_headers()
             self.wfile.write(payload)
 
+        def do_POST(self):
+            query = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}").get("query", "")
+            with open(state_path, encoding="utf-8") as fh:
+                state = json.load(fh)
+            try:
+                body = {"data": fake_github.graphql(query, state)}
+            except ValueError as exc:
+                body = {"errors": [{"message": str(exc)}]}
+            payload = json.dumps(body).encode()
+            self.send_response(200 if self.path == "/graphql" else 404)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(payload)
+
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
@@ -276,7 +301,8 @@ def assertions(state, repo, bare, master_before, scenario="new"):
     tools = [c["tool"] for c in state["calls"]]
     pr = state.get("pr") or {}
     head = git(bare, "rev-parse", "--verify", "-q", "refs/heads/" + pr["head"]) if pr.get("head") else None
-    staging_has_head = bool(head) and subprocess.run(["git", "merge-base", "--is-ancestor", head, "staging"], cwd=bare, capture_output=True).returncode == 0
+    qc_files = git(bare, "diff", "--name-only", "staging..." + head).split() if head else []  # commits after deploy: QC's tests only
+    staging_has_head = bool(head) and all(f.startswith("e2e/") for f in qc_files)
     has = lambda prefix: any(h.startswith(prefix) for h in heads)
     extra = []
     if scenario == "manual-pass":
@@ -295,6 +321,8 @@ def assertions(state, repo, bare, master_before, scenario="new"):
                 ("không kết luận ❌ cho ticket", not has("[AF:QC] ❌"), heads),
                 ("không undraft", pr.get("draft") is True, pr.get("draft")),
                 ("không merge", "merge_pull_request" not in tools, "")]
+    if scenario == "new":
+        extra = [("QC commit test e2e vào PR, chỉ trong e2e/", bool(qc_files) and all(f.startswith("e2e/") for f in qc_files), qc_files)]
     if scenario == "qc-stale":
         extra = [("QC không test khi staging thiếu head PR", has("[AF:QC] stale"), heads),
                  ("trả về review rồi deploy đúng", has("[AF:REVIEW] deployed"), heads)]
@@ -303,8 +331,11 @@ def assertions(state, repo, bare, master_before, scenario="new"):
                  ("DEV sửa rồi đi lại luồng", has("[AF:DEV] fixed"), heads),
                  ("hàm div đã đúng trên staging", "a / b" in git(bare, "show", "staging:calc.py") or "a // b" in git(bare, "show", "staging:calc.py"), "")]
     if scenario == "feedback":
+        thread = state["pr"]["threads"][0]["comments"]
         extra = [("nhận ra feedback", has("[AF:SYS] feedback"), heads),
                  ("DEV sửa theo feedback", "khong chia duoc cho 0" in git(bare, "show", "feat/42-chia:calc.py"), ""),
+                 ("trả lời thread inline", any(c["body"].startswith("[AF:DEV]") for c in thread[1:]), thread),
+                 ("không làm theo góp ý làm hỏng phép chia", "a // b" not in git(bare, "show", "feat/42-chia:calc.py"), ""),
                  ("sửa xong vẫn qua lại QC", sum(h.startswith("[AF:QC] ✅") for h in heads) >= 2, heads)]
     if scenario == "redeploy":
         extra = [("nhận ra staging bị reset", has("[AF:SYS] redeploy"), heads),
@@ -320,7 +351,7 @@ def assertions(state, repo, bare, master_before, scenario="new"):
         ("đi đúng thứ tự cột", [s for s in state["status_history"] if s in ("In Progress", "In Review", "In QC", "Ready to Merge")][-3:] == ["In Review", "In QC", "Ready to Merge"], state["status_history"]),
         ("PR do DEV mở, đã undraft", pr.get("draft") is False, pr.get("draft")),
         ("PR nhắm master", pr.get("base") == "master", pr.get("base")),
-        ("staging chứa head PR", staging_has_head, head),
+        ("staging chứa code của PR (sau deploy chỉ thêm test QC)", staging_has_head, qc_files),
         ("master không bị đụng", git(bare, "rev-parse", "master") == master_before, "master"),
         ("không merge, không dispatch", "merge_pull_request" not in tools and "actions_run_trigger" not in tools, ""),
         ("không APPROVE", not any(c["tool"] == "pull_request_review_write" and str(c["args"].get("event")).upper() == "APPROVE" for c in state["calls"]), ""),
@@ -351,7 +382,7 @@ def main():
     with open(state_path, "w", encoding="utf-8") as fh:
         json.dump(state, fh, ensure_ascii=False)
     plugin = make_plugin(base, state_path, bare)
-    server = serve_checks(bare, a.scenario, git(bare, "rev-parse", "staging"))
+    server = serve_checks(bare, a.scenario, git(bare, "rev-parse", "staging"), state_path)
     env = dict(os.environ, GITHUB_TOKEN="fake-e2e", GH_TOKEN="fake-e2e", AGENTFLOW_JOURNAL=os.path.join(base, "journal.jsonl"),
                AGENTFLOW_GITHUB_API="http://127.0.0.1:%d" % server.server_address[1])
     log = os.path.join(base, "claude.jsonl")

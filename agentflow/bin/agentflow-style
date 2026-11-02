@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""AgentFlow style check — short expressions the formatter had to break over several lines (stdlib only).
+
+Only lines the change adds are checked, so DEV fixes its own code and REVIEWER judges only the PR.
+
+  agentflow-style <base>          working tree (new untracked files too) against merge-base(<base>, HEAD) — DEV
+  agentflow-style <base> <head>   diff <base>...<head> — REVIEWER
+
+One line per hit `file:line  <kind>  <code>`; exit 1 on hits, 0 when clean, 2 when git fails.
+  arrow    `=>` ends the line: the body of an expression-bodied function moved down
+  logic    `&&` / `||` starts or ends the line: a condition broken in pieces
+  ternary  `?` / `:` starts the line, or `?` ends it: a ternary broken in pieces
+"""
+
+import os
+import re
+import subprocess
+import sys
+
+CODE = re.compile(r"\.(jsx?|mjs|cjs|tsx?|mts|cts|vue|svelte|dart|java|kts?|swift|cs|go|php)$")
+GENERATED = re.compile(r"\.(g|freezed|gr|gen|generated|pb|min|mocks)\.\w+$|(^|/)(generated|__generated__|node_modules|vendor)/")
+COMMENT = ("//", "/*", "*", "#", "<!--")
+RULES = (
+    ("arrow", re.compile(r"=>$")),
+    ("logic", re.compile(r"^(&&|\|\|)(\s|$)|\s(&&|\|\|)$")),
+    ("ternary", re.compile(r"^[?:]\s|\s\?$")),
+)
+FIX = {
+    "arrow": "thân { … return …; } thay cho biểu thức bị đẩy xuống dòng",
+    "logic": "tách điều kiện thành biến boolean có tên hoặc guard clause (if (!x) return …), mỗi ý một dòng",
+    "ternary": "if/else, hoặc hàm có early return",
+}
+MAX_UNTRACKED = 1 << 20
+
+
+def git(root, *args):
+    res = subprocess.run(["git", "-C", root, "-c", "core.quotePath=false", *args], capture_output=True, text=True, errors="replace")
+    if res.returncode:
+        sys.stderr.write("agentflow-style: git %s: %s\n" % (args[0], res.stderr.strip()[:300]))
+        sys.exit(2)
+    return res.stdout
+
+
+def added_in_diff(diff):
+    path, lineno = None, 0
+    for line in diff.splitlines():
+        if line.startswith("+++ "):
+            target = line[4:].strip('"')
+            path = target[2:] if target.startswith("b/") else None  # /dev/null: the file was deleted
+        elif line.startswith("@@"):
+            lineno = int(re.match(r"@@ -\S+ \+(\d+)", line).group(1))
+        elif line.startswith("+") and path:
+            yield path, lineno, line[1:]
+            lineno += 1
+
+
+def added_untracked(root):
+    for path in git(root, "ls-files", "--others", "--exclude-standard", "-z").split("\0"):
+        full = os.path.join(root, path)
+        if not path or not CODE.search(path) or os.path.getsize(full) > MAX_UNTRACKED:
+            continue
+        with open(full, encoding="utf-8", errors="replace") as fh:
+            for lineno, line in enumerate(fh, 1):
+                yield path, lineno, line.rstrip("\n")
+
+
+def kind_of(text):
+    code = text.strip()
+    if not code or code.startswith(COMMENT):
+        return None
+    code = re.sub(r"\s+//.*$", "", code)
+    for kind, rule in RULES:
+        if rule.search(code):
+            return kind
+    return None
+
+
+def main(argv):
+    if len(argv) not in (1, 2) or argv[0].startswith("-"):
+        sys.stderr.write(__doc__)
+        return 2
+    root = git(os.getcwd(), "rev-parse", "--show-toplevel").strip()
+    if len(argv) == 2:
+        lines = added_in_diff(git(root, "diff", "-U0", "--no-color", "--no-ext-diff", "%s...%s" % tuple(argv)))
+    else:
+        base = git(root, "merge-base", argv[0], "HEAD").strip()
+        lines = list(added_in_diff(git(root, "diff", "-U0", "--no-color", "--no-ext-diff", base))) + list(added_untracked(root))
+    hits = []  # [path, first line, last line, kinds, code of the first line]; adjacent lines are one expression
+    for path, lineno, text in lines:
+        if not CODE.search(path) or GENERATED.search(path):
+            continue
+        kind = kind_of(text)
+        if not kind:
+            continue
+        if hits and hits[-1][0] == path and hits[-1][2] == lineno - 1:
+            hits[-1][2] = lineno
+            if kind not in hits[-1][3]:
+                hits[-1][3].append(kind)
+        else:
+            hits.append([path, lineno, lineno, [kind], text.strip()[:120]])
+    if not hits:
+        print("agentflow-style: sạch")
+        return 0
+    for path, first, last, kinds, code in hits:
+        where = "%d" % first if first == last else "%d-%d" % (first, last)
+        print("%s:%s  %s  %s" % (path, where, ",".join(kinds), code))
+    print("\n%d chỗ biểu thức ngắn bị bẻ dòng. Viết lại, không lách bằng rút tên hay tắt formatter:" % len(hits))
+    for kind in sorted({k for hit in hits for k in hit[3]}):
+        print("  %-8s → %s" % (kind, FIX[kind]))
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

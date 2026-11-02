@@ -7,8 +7,8 @@ import os
 import subprocess
 import sys
 
-STATE = os.environ["AF_E2E_STATE"]
-BARE = os.environ["AF_E2E_BARE"]
+STATE = os.environ.get("AF_E2E_STATE")
+BARE = os.environ.get("AF_E2E_BARE")
 # Input schemas recorded from the real server (tools/list of api.githubcopilot.com/mcp/, 2026-10-31).
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "github_tools.json"), encoding="utf-8") as _fh:
     TOOLS = json.load(_fh)
@@ -115,7 +115,12 @@ def call(name, a, st):
         hit = pr and any(r.get("state") == "CHANGES_REQUESTED" for r in pr["reviews"])
         return {"total_count": 1 if hit else 0, "items": [pr_view(st)] if hit else []}
     if name == "add_reply_to_pull_request_comment":
-        return {"id": 1}
+        for thread in st["pr"].get("threads", []):
+            if thread["comments"][0]["id"] == int(a.get("commentId") or 0):
+                thread["comments"].append({"id": 1000 + len(st["calls"]), "body": a.get("body", ""), "author_association": "OWNER",
+                                           "user": {"login": "agentflow-bot"}, "created_at": "2026-10-31T01:00:00Z"})
+                return {"id": thread["comments"][-1]["id"]}
+        raise ValueError("review comment %s not found" % a.get("commentId"))
     if name == "actions_list":
         log = st.get("job_log")
         return {"total_count": 1 if log else 0, "workflow_runs": [{"id": 900, "name": "staging", "conclusion": "failure", "head_branch": "staging"}] if log else [],
@@ -123,6 +128,34 @@ def call(name, a, st):
     if name == "get_job_logs":
         return {"logs": st.get("job_log") or ""}
     return {"ok": True}  # merge_pull_request, actions_run_trigger: reaching here is what the harness fails on
+
+
+def _gql_comment(c):
+    return {"databaseId": c["id"], "author": {"login": c["user"]["login"]}, "authorAssociation": c.get("author_association", "OWNER"),
+            "body": c.get("body", ""), "createdAt": c.get("created_at", "2026-10-31T00:00:00Z")}
+
+
+def graphql(query, st):
+    """The two queries of `agentflow-board feedback`, answered from the same state the MCP side writes."""
+    pr = st.get("pr")
+    node = None
+    if pr:
+        node = {"number": pr["number"], "state": pr["state"].upper(), "isDraft": pr["draft"], "headRefName": pr["head"],
+                "url": "https://github.com/acme/app/pull/%d" % pr["number"], "repository": {"nameWithOwner": "acme/app"},
+                "headRepository": {"nameWithOwner": "acme/app"}}
+    if "closedByPullRequestsReferences" in query:
+        return {"repository": {"issue": {"body": st["issue"]["body"], "closedByPullRequestsReferences": {"nodes": [node] if node else []},
+                                         "timelineItems": {"nodes": []}}}}
+    if "reviewThreads" in query and node:
+        threads = [{"isResolved": t.get("resolved", False), "isOutdated": False, "path": t["path"], "line": t["line"], "originalLine": t["line"],
+                    "root": {"nodes": [{"databaseId": t["comments"][0]["id"]}]}, "comments": {"nodes": [_gql_comment(c) for c in t["comments"]]}}
+                   for t in pr.get("threads", [])]
+        reviews = [{"databaseId": r["id"], "author": {"login": (r.get("user") or {}).get("login", "agentflow-bot")},
+                    "authorAssociation": r.get("author_association", "OWNER"), "state": r["state"], "body": r.get("body", ""),
+                    "submittedAt": r.get("submitted_at")} for r in pr["reviews"]]
+        comments = [_gql_comment(c) for c in pr["comments"] if c.get("user")]
+        return {"repository": {"pullRequest": dict(node, reviewThreads={"nodes": threads}, reviews={"nodes": reviews}, comments={"nodes": comments})}}
+    raise ValueError("unsupported query")
 
 
 def main():

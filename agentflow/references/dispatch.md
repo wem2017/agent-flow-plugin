@@ -20,7 +20,7 @@ Paginate tới hết. Board có thể dùng chung nhiều repo, số issue trùn
 
 Mỗi lượt **một lần**:
 - `query: is:closed is:issue repo:<owner>/<repo> label:"<labels.agent>" -label:"<labels.blocked>" -status:"<done>"` → issue đã đóng mà card chưa `done` (merge với `Closes`, workflow board tắt) → SYS *done*; riêng khi PR `state.pr` còn mở: gắn `blocked`, `[AF:SYS] stuck`.
-- Có ticket `A` ở `ready_to_merge`: `search_pull_requests` query `repo:<owner>/<repo> is:pr review:changes_requested` → tập PR có người yêu cầu sửa.
+- Ticket `A` ở `in_review`, `in_qc`, `ready_to_merge`: **một** lệnh `agentflow-board feedback <owner/repo> --summary --issue <n> --issue <m> …` → `pending` > 0 = người còn góp ý trên PR chưa được trả lời. Lệnh lỗi ⇒ coi như 0, journal `tool_error`.
 
 ## 3. Bảng hành động
 
@@ -30,10 +30,11 @@ Mỗi lượt **một lần**:
 |---|---|---|---|
 | `ready_to_merge` | `A` — đọc state (`issue_read`) rồi `pull_request_read method=get` PR `state.pr` | PR đã merge → SYS *done* | – |
 | `ready_to_merge` | `A` + PR đã đóng mà không merge | gắn `blocked`, comment `[AF:SYS] stuck — PR #<m> đã đóng mà chưa merge`, mention `people.po` | – |
-| `ready_to_merge` | `A` + (`changes_requested`, hoặc PR thuộc tập changes_requested **và** `get_reviews` có review CHANGES_REQUESTED `submitted_at` > `state.fb`) | SYS *feedback* → DEV `MODE=rework` | 0 |
+| `ready_to_merge` | `A` + (`changes_requested` hoặc `pending` > 0) | SYS *feedback* → DEV `MODE=rework` | 0 |
 | `ready_to_merge` | `A` + `qc_manual` (QC người đã pass, kéo card) | SYS *qc-manual-pass* | – |
 | `ready_to_merge` | còn lại | chờ người merge — liệt kê ở báo cáo | – |
 | `in_qc` | `A` + `qc_manual` + `qc_failed` | SYS *qc-failed* → DEV `MODE=rework` | 1 |
+| `in_qc` · `in_review` | `A` + `pending` > 0 | SYS *feedback* → DEV `MODE=rework` | 0 |
 | `in_qc` | `A` + `qc_manual` | chờ QC người — liệt kê | – |
 | `in_qc` | `A` + `deploying` | kiểm pipeline (§3b) | 1 |
 | `in_qc` | `A` | QC | 1 |
@@ -45,7 +46,7 @@ Mỗi lượt **một lần**:
 
 **SYS transition** — orchestrator tự làm theo thứ tự ghi protocol §6. Hai cái dẫn tới DEV (*feedback*, *qc-failed*) chỉ chạy khi **sẽ spawn DEV ngay trong cùng bước** (không chạy dưới `--only review|qc`, không chạy khi đã chạm trần). §3b chỉ chạy khi QC được spawn (bỏ qua dưới `--only dev|review`):
 - *done*: Status → `done`, comment `[AF:SYS] done`, gỡ `qc_manual`; xoá worktree (§7).
-- *feedback*: state `stage: in_progress`, `fb: <submitted_at mới nhất>`, `next: DEV sửa theo feedback trên PR #<m>`; comment `[AF:SYS] feedback`; gắn `changes_requested`, gỡ `qc_manual`; `update_pull_request draft=true` (chưa qua QC thì chưa merge được); Status → `in_progress`. Không tăng round.
+- *feedback*: state `stage: in_progress`, `next: DEV xử lý góp ý trên PR #<m>`; comment `[AF:SYS] feedback`; gắn `changes_requested`, gỡ `qc_manual`, `deploying`; `update_pull_request draft=true` nếu PR chưa draft (chưa qua QC thì chưa merge được); Status → `in_progress`. Không tăng round.
 - *qc-manual-pass*: state `stage: ready_to_merge`, `review_round: 0`, `qc_round: 0`; comment `[AF:SYS] qc-manual-pass`; `update_pull_request draft=false` rồi mới gỡ `qc_manual`, `qc_failed` (lỗi giữa chừng còn chạy lại được). Không spawn.
 - *qc-failed*: `qc_round += 1` (vượt `max_qc_rounds` → escalate theo protocol §7 và không spawn DEV); comment `[AF:SYS] qc-failed`; gỡ `qc_manual`, giữ `qc_failed`; state `stage: ready`; Status → `ready`.
 
@@ -74,7 +75,7 @@ Không còn gì để spawn mà danh sách đang build chưa rỗng: chạy lệ
 
 Sắp theo **hạng** tăng dần, rồi vị trí option Priority (option đầu = cao nhất; không có = cuối), rồi số issue tăng dần.
 
-Model: DEV = `run.models.dev[<Size>]` nếu có, không thì `run.models.dev.default`; REVIEWER = `run.models.reviewer` (mặc định opus); QC = `run.models.qc`.
+Model: DEV = `run.models.dev[<Size>]` nếu có, không thì `run.models.dev.default`; REVIEWER = `run.models.reviewer` (mặc định opus); QC = `run.models.qc` (mặc định opus: QC viết test tự động).
 
 ## 5. Spawn
 

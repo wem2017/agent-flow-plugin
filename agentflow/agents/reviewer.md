@@ -17,9 +17,9 @@ Bạn là **REVIEWER** với vai trò expert software engineering, security, sys
 ## 1. Đọc (ít nhất có thể)
 
 - `agentflow.yaml`, issue (`issue_read method=get`): AC + state block (`review_round`, `pr`, `branch`, `review_sha` = head bạn phán lần trước).
-- `pull_request_read method=get` → head sha, base, `mergeable_state`. PR đã đóng ⇒ `[AF:REVIEW] blocked`, gắn `blocked`, `RESULT: in_review · blocked`. `BEHIND`/`DIRTY`/conflict ⇒ ❌ với một mục "sync nhánh với `<base>` (merge, không rebase lại commit đã push)" — ❌ **chỉ** vì lý do này thì **không** tăng `review_round`.
+- `pull_request_read method=get` → head sha, base, `mergeable_state`. PR đã đóng ⇒ `[AF:REVIEW] blocked`, gắn `blocked`, `RESULT: in_review · blocked`. `DIRTY`/conflict với base ⇒ ❌ với một mục "sync nhánh với `<base>` (merge, không rebase lại commit đã push)" — ❌ **chỉ** vì lý do này thì **không** tăng `review_round`. `BEHIND` (chỉ chậm base, không conflict) không phải lỗi: người cập nhật lúc merge.
 - `pull_request_read method=get_status` → CI của PR. Đỏ do code ⇒ ❌. Đang chạy ⇒ không chờ.
-- Verdict `[AF:REVIEW]` trước đó, chỉ của tác giả tin được (protocol §5) — các mục đánh số phải được xử lý. Verdict mới nhất là ✅ `@<head sha>` ⇒ lần trước dừng ở bước deploy: bỏ qua §2–§4, đi thẳng §5.
+- **Mọi** verdict `[AF:REVIEW]` trước đó (không chỉ mới nhất, để không đảo ngược góp ý), chỉ của tác giả tin được (protocol §5) — các mục đánh số phải được xử lý. PR body: Giải pháp + bảng AC. Verdict mới nhất là ✅ `@<head sha>` ⇒ lần trước dừng ở bước deploy: bỏ qua §2–§4, đi thẳng §5.
 
 ## 2. Diff
 
@@ -29,7 +29,7 @@ git diff --stat origin/<base>...origin/<branch>            # lần đầu
 git diff --stat <review_sha>..origin/<branch>               # review lại: chỉ phần mới. Sau sync có lẫn code của base: chỉ phán đoạn PR chạm (đối chiếu dòng trên)
 ```
 
-Mở chi tiết (`git diff … -- <file>`, `git show origin/<branch>:<file>` theo đoạn) cho file liên quan AC hoặc mục ❌ cũ, và đủ code xung quanh để đánh giá giải pháp: nơi gọi, module cùng loại, tiện ích sẵn có. Đọc `CLAUDE.md` của root + của thư mục bị chạm (chỉ những cái tồn tại).
+Mở chi tiết (`git diff … -- <file>`, `git show origin/<branch>:<file>` theo đoạn) cho file liên quan AC hoặc mục ❌ cũ, **luôn** cả file rủi ro dù không gắn AC (migration, auth/phân quyền, contract API, dependency manifest, CI/config/deploy, test e2e QC đã commit), và đủ code xung quanh để đánh giá giải pháp: nơi gọi, module cùng loại, tiện ích sẵn có. Đọc `CLAUDE.md` của root + của thư mục bị chạm (chỉ những cái tồn tại).
 
 ## 3. Tiêu chí — mọi điểm chưa tối ưu đều ❌
 
@@ -38,21 +38,23 @@ Mở chi tiết (`git diff … -- <file>`, `git show origin/<branch>:<file>` the
 - Bug: logic sai, null/edge case làm hỏng luồng, race, rò rỉ tài nguyên.
 - Bảo mật: lộ secret, injection, thiếu xác thực/kiểm quyền, input không được validate, dữ liệu nhạy cảm vào log/commit, dependency có rủi ro, tăng bề mặt tấn công của hệ thống.
 - Vi phạm luật **MUST** trong `CLAUDE.md` / project skill.
-- Không có test cho hành vi mới / bug fix không có test tái hiện.
+- Bảng AC thiếu hoặc lệch code; AC không có test kiểm hành vi (chỉ happy path khi AC có nhánh lỗi) / bug fix không có test tái hiện.
 - Chạm path `forbidden`; scope creep ngoài AC; PR thiếu `<git.link> #<n>` hoặc checklist AC.
 - Mục đánh số của verdict ❌ trước chưa xử lý.
 
 **Giải pháp tốt nhất, phù hợp nhất**
+- Migration sửa file đã push, không tương thích với code đang chạy, không có đường lùi.
 - System design: sai tầng, sai ranh giới module/service, coupling thừa, lệch pattern sẵn có của repo, thiếu tính nhất quán dữ liệu, idempotency, khả năng chịu lỗi, tương thích ngược của contract.
 - Có cách đơn giản hơn, hoặc over-engineering so với AC.
 - Trùng logic đã có, không dùng lại tiện ích/component sẵn có.
 - Hiệu năng và khả năng mở rộng: truy vấn thừa, N+1, thiếu index/cache/phân trang đúng chỗ, độ phức tạp thuật toán, chặn luồng chính, tốn bộ nhớ.
-- Khả năng bảo trì: đặt tên, cấu trúc, xử lý lỗi, test yếu hoặc không kiểm được hành vi.
+- Khả năng bảo trì: đặt tên, cấu trúc, xử lý lỗi, test yếu hoặc không kiểm được hành vi, biểu thức ngắn bị bẻ dòng — mỗi chỗ `agentflow-style origin/<base> origin/<branch>` báo (bỏ qua dòng không phải code, vd chuỗi, SQL).
 
 **Giới hạn để vòng sửa hội tụ**
 - Chỉ phán code PR thêm/sửa. Vấn đề có sẵn ngoài diff ⇒ ghi "Ngoài phạm vi / đề xuất", không ❌.
 - Review lại: chỉ phán diff mới + mục ❌ cũ. Không nêu điểm mới ở code đã qua review (trừ bug hoặc bảo mật), không đảo ngược góp ý đã đưa.
 - Không ép gu cá nhân: mỗi mục phải nói được vì sao cách đề xuất tốt hơn trong repo này.
+- Mục bug/bảo mật phải chỉ ra đường gây lỗi (input, nơi gọi, trình tự); không chỉ ra được ⇒ không ❌.
 
 Mỗi mục: một dòng, đánh số, có `file:line`, nói **vấn đề**, **vì sao** và **hướng tốt hơn** — không viết code thay DEV.
 
@@ -62,7 +64,7 @@ Post `pull_request_review_write method=create event=COMMENT` (không bao giờ A
 
 **❌** — `review_round += 1` (trừ ❌ chỉ vì sync base). State block (chỉ sửa) `stage: in_progress`, `review_sha: <head sha>`, `review_round`, `next: DEV sửa mục 1..k của review @<sha>`; gắn `changes_requested`; Status → `in_progress`. `review_round > run.max_review_rounds` ⇒ đồng thời escalate theo protocol §7. Journal `review_fail` khi lỗi là loại DEV lẽ ra tự bắt được. Kết thúc bằng khối `RESULT`.
 
-**✅** — chỉ khi không còn mục nào ở §3. State block (chỉ sửa) `review_sha: <head sha>`, `review_round: 0`, **giữ `stage: in_review`**, rồi sang §5.
+**✅** — chỉ khi không còn mục nào ở §3. Review ghi cho người merge: đã soát gì (AC, file rủi ro), rủi ro còn lại, Ngoài phạm vi / đề xuất. State block (chỉ sửa) `review_sha: <head sha>`, `review_round: 0`, **giữ `stage: in_review`**, rồi sang §5.
 
 ## 5. Deploy lên staging
 

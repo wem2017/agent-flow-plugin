@@ -2,7 +2,8 @@
 """AgentFlow board tool — setup + diagnostics over GitHub GraphQL/REST (stdlib only).
 
 Runtime ticket work goes through GitHub MCP; this tool covers what MCP cannot do (edit Status
-options, create fields/views, link repo) and read-only reports that would be expensive via MCP.
+options, create fields/views, link repo) and read-only reports that would be expensive via MCP
+(pipeline checks, people's feedback on a PR).
 Auth: env.GITHUB_TOKEN of .claude/settings.local.json, else $GITHUB_TOKEN, else $GH_TOKEN, else
 `gh auth token`. Never prints the token.
 
@@ -21,6 +22,8 @@ Auth: env.GITHUB_TOKEN of .claude/settings.local.json, else $GITHUB_TOKEN, else 
   issue-types --org O [--ensure Name|description ...]
   metrics <board-url> [--days N] [--stages k=v,...] [--parked l1,l2,...]
   checks <owner/repo> --branch B --contains SHA [--since ISO] [--wait MIN]   CI of the branch head; one JSON line
+  feedback <owner/repo> --issue N [--issue M ...] [--summary]   people's feedback on the PR of each issue
+       (state block `pr`, else the one open PR linked to it); one JSON line per issue
   doctor [--root DIR]                       check agentflow.yaml against GitHub
 """
 
@@ -28,6 +31,8 @@ import argparse
 import datetime as dt
 import json
 import os
+import re
+import shutil
 import statistics
 import subprocess
 import sys
@@ -508,11 +513,125 @@ def cmd_checks(a):
         sha, state, failed = _head_checks(a.slug, a.branch)
         if state == "success" and _too_fresh(a.since):
             state = "pending"
-        contains = _contains(a.slug, a.contains, sha)
+        contains = _contains(a.slug, a.contains, sha) if a.contains else True
         if state != "pending" or not contains or time.time() >= deadline:
             break
         time.sleep(30)
     print(json.dumps({"state": state, "sha": sha, "contains": contains, "failed": failed}, ensure_ascii=False))
+
+
+TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
+STATE_BLOCK = re.compile(r"<!--\s*agentflow:state\s*\n(.*?)-->", re.S)
+BODY_MAX = 1500
+PR_FIELDS = "number state isDraft headRefName url repository{ nameWithOwner } headRepository{ nameWithOwner }"
+ISSUE_PRS_Q = ("query($o:String!,$r:String!,$n:Int!){ repository(owner:$o,name:$r){ issue(number:$n){ body"
+               " closedByPullRequestsReferences(first:10, includeClosedPrs:false){ nodes{ %s } }"
+               " timelineItems(itemTypes:[CROSS_REFERENCED_EVENT], last:50){ nodes{ ... on CrossReferencedEvent{"
+               " source{ ... on PullRequest{ %s } } } } } } } }") % (PR_FIELDS, PR_FIELDS)
+COMMENT_FIELDS = "databaseId author{ login } authorAssociation body createdAt"
+PR_FEEDBACK_Q = ("query($o:String!,$r:String!,$m:Int!){ repository(owner:$o,name:$r){ pullRequest(number:$m){ %s"
+                 " reviewThreads(first:100){ nodes{ isResolved isOutdated path line originalLine"
+                 " root: comments(first:1){ nodes{ databaseId } } comments(last:30){ nodes{ %s } } } }"
+                 " reviews(last:50){ nodes{ databaseId author{ login } authorAssociation state body submittedAt } }"
+                 " comments(last:100){ nodes{ %s } } } } }") % (PR_FIELDS, COMMENT_FIELDS, COMMENT_FIELDS)
+
+
+def _state_block(body):
+    match = STATE_BLOCK.search(body or "")
+    pairs = (line.partition(":") for line in (match.group(1) if match else "").splitlines())
+    return {key.strip(): value.strip() for key, sep, value in pairs if sep}
+
+
+def _from_people(node):
+    """Feedback of a person: trusted author, and not one of the agent's own [AF:…] comments (same login as the user)."""
+    return node.get("authorAssociation") in TRUSTED and not (node.get("body") or "").lstrip().startswith("[AF:")
+
+
+def _entry(node, at_key="createdAt", **extra):
+    body = (node.get("body") or "").strip()
+    entry = dict(extra, author=(node.get("author") or {}).get("login"), at=node.get(at_key))
+    entry["body"] = body if len(body) <= BODY_MAX else body[:BODY_MAX] + "…"
+    return entry
+
+
+def _newer(ts, since):
+    return bool(ts) and (not since or _iso(ts) > _iso(since))
+
+
+def _linked_prs(slug, issue):
+    """Open PRs of this repo (not from a fork) that close or mention the issue."""
+    found = {}
+    sources = [n.get("source") or {} for n in issue["timelineItems"]["nodes"]]
+    for pr in issue["closedByPullRequestsReferences"]["nodes"] + sources:
+        same_repo = all(((pr.get(k) or {}).get("nameWithOwner") or "").lower() == slug.lower() for k in ("repository", "headRepository"))
+        if pr.get("number") and pr.get("state") == "OPEN" and same_repo:
+            found[pr["number"]] = pr
+    return [found[n] for n in sorted(found)]
+
+
+def _pr_feedback(pr, since):
+    """pending: what sends the ticket back to DEV — open threads whose last word is a person's, Request changes after
+    `since`. notes: review bodies and PR comments after `since`, read with them but never a trigger on their own."""
+    pending, notes = [], []
+    for thread in pr["reviewThreads"]["nodes"]:
+        said = [c for c in thread["comments"]["nodes"] if c.get("authorAssociation") in TRUSTED]
+        if thread["isResolved"] or not said or not _from_people(said[-1]):
+            continue
+        pending.append({"kind": "thread", "reply_to": thread["root"]["nodes"][0]["databaseId"], "path": thread["path"],
+                        "line": thread["line"] or thread["originalLine"], "outdated": thread["isOutdated"],
+                        "comments": [_entry(c) for c in said]})
+    for review in pr["reviews"]["nodes"]:
+        if not _from_people(review) or not _newer(review.get("submittedAt"), since):
+            continue
+        if review["state"] == "CHANGES_REQUESTED":
+            pending.append(_entry(review, "submittedAt", kind="changes_requested"))
+        elif review["state"] == "COMMENTED" and (review.get("body") or "").strip():
+            notes.append(_entry(review, "submittedAt", kind="review"))
+    for comment in pr["comments"]["nodes"]:
+        if _from_people(comment) and _newer(comment.get("createdAt"), since):
+            notes.append(_entry(comment, kind="comment"))
+    return pending, notes
+
+
+def _feedback(slug, number):
+    owner, name = slug.split("/", 1)
+    issue = (gql(ISSUE_PRS_Q, o=owner, r=name, n=number).get("repository") or {}).get("issue")
+    if not issue:
+        raise RuntimeError("không thấy issue #%d trong %s" % (number, slug))
+    state = _state_block(issue["body"])
+    linked = _linked_prs(slug, issue)
+    res = {"issue": number, "pr": None, "pending": [], "notes": [], "fb": state.get("fb") or None}
+    pr_number = int(state["pr"].lstrip("#")) if state.get("pr", "").lstrip("#").isdigit() else None
+    if pr_number is None and len(linked) == 1:
+        pr_number = linked[0]["number"]
+    elif pr_number is None and linked:
+        res["prs"] = [{"number": p["number"], "branch": p["headRefName"], "url": p["url"]} for p in linked]
+    if pr_number is None:
+        return res
+    pr = gql(PR_FEEDBACK_Q, o=owner, r=name, m=pr_number)["repository"]["pullRequest"]
+    res.update(pr=pr["number"], branch=pr["headRefName"], state=pr["state"], draft=pr["isDraft"], url=pr["url"])
+    if pr["state"] != "OPEN":
+        return res
+    res["pending"], res["notes"] = _pr_feedback(pr, res["fb"])
+    read = [e["at"] for e in res["pending"] + res["notes"] if e.get("at")] + ([res["fb"]] if res["fb"] else [])
+    res["fb"] = max(read, key=_iso) if read else None  # DEV writes it back to the state block once handled
+    return res
+
+
+def cmd_feedback(a):
+    failed = False
+    for number in a.issue:
+        try:
+            res = _feedback(a.slug, number)
+        except RuntimeError as err:
+            failed = True
+            print(json.dumps({"issue": number, "error": str(err)[:300]}, ensure_ascii=False))
+            continue
+        if a.summary:
+            res = dict({k: res[k] for k in ("issue", "pr", "prs") if k in res}, pending=len(res["pending"]))
+        print(json.dumps(res, ensure_ascii=False))
+    if failed:
+        sys.exit(2)
 
 
 def _branch_rules(slug, branch):
@@ -548,6 +667,21 @@ def _doctor_base(slug, base, ok, warn):
         warn("%s không có branch protection — guard là lớp chặn duy nhất, mà guard chỉ là best-effort. Nên bật nếu gói GitHub cho phép" % base)
 
 
+def _maestro():
+    """Where the maestro CLI is: on PATH, or only where its installer puts it (then agents' shells may not find it)."""
+    found = shutil.which("maestro")
+    if found:
+        return found, True
+    home = os.path.expanduser("~/.maestro/bin/maestro")
+    return (home, False) if os.access(home, os.X_OK) else (None, False)
+
+
+def _uses_maestro(cfg):
+    surfaces = cfg.get("surfaces") if isinstance(cfg.get("surfaces"), dict) else {}
+    return any("maestro" in str(s.get("e2e") or "") or str(s.get("e2e_dir") or "").rstrip("/").endswith(".maestro")
+               for s in surfaces.values() if isinstance(s, dict))
+
+
 def cmd_doctor(a):
     root = a.root or afconfig.repo_root() or "."
     ok = lambda m: print("✓ " + m)  # noqa: E731
@@ -569,6 +703,13 @@ def cmd_doctor(a):
     for level, msg in afconfig.validate_config(cfg):
         if not msg.startswith(("board.status.", "staging.branch")):  # the checks below report these with board context
             (fail if level == "fail" else warn)(msg)
+    if _uses_maestro(cfg):
+        path, on_path = _maestro()
+        if on_path:
+            ok("maestro: %s" % path)
+        else:
+            warn("maestro %s — QC không chạy được flow Maestro, AC UI thành checklist test tay" % (
+                "có ở %s nhưng không nằm trong PATH: thêm ~/.maestro/bin vào PATH" % path if path else "chưa cài: curl -fsSL https://get.maestro.mobile.dev | bash"))
     if os.path.isfile(os.path.join(root, ".mcp.json")):
         try:
             with open(os.path.join(root, ".mcp.json"), encoding="utf-8") as fh:
@@ -710,14 +851,18 @@ def main():
     s = sub.add_parser("issue-types"); s.add_argument("--org", required=True); s.add_argument("--ensure", action="append")
     s = sub.add_parser("metrics"); s.add_argument("url"); s.add_argument("--days", type=int, default=30); s.add_argument("--stages")
     s.add_argument("--parked", help="tên label chờ người, phân tách bằng dấu phẩy")
-    s = sub.add_parser("checks"); s.add_argument("slug"); s.add_argument("--branch", required=True); s.add_argument("--contains", required=True)
+    s = sub.add_parser("checks"); s.add_argument("slug"); s.add_argument("--branch", required=True)
+    s.add_argument("--contains", help="deploy_sha phải nằm trong head; bỏ trống = chỉ đọc check của head (vd base đỏ sẵn chưa)")
     s.add_argument("--wait", type=float, default=0, help="số phút chờ thêm khi còn pending")
     s.add_argument("--since", help="deploy_at: check xanh trong 2 phút đầu vẫn tính là pending")
+    s = sub.add_parser("feedback"); s.add_argument("slug"); s.add_argument("--issue", type=int, action="append", required=True)
+    s.add_argument("--summary", action="store_true", help="một dòng mỗi issue: pr + số mục chờ DEV")
     s = sub.add_parser("doctor"); s.add_argument("--root")
     a = p.parse_args()
     handler = {"whoami": cmd_whoami, "inspect": cmd_inspect, "items": cmd_items, "status-plan": cmd_status_plan,
                "status-apply": cmd_status_apply, "ensure-field": cmd_ensure_field, "create": cmd_create,
-               "labels": cmd_labels, "repo": cmd_repo, "issue-types": cmd_issue_types, "metrics": cmd_metrics, "checks": cmd_checks, "doctor": cmd_doctor}[a.cmd]
+               "labels": cmd_labels, "repo": cmd_repo, "issue-types": cmd_issue_types, "metrics": cmd_metrics, "checks": cmd_checks,
+               "feedback": cmd_feedback, "doctor": cmd_doctor}[a.cmd]
     try:
         handler(a)
     except RuntimeError as err:

@@ -231,6 +231,84 @@ class Notify(RepoCase):
         self.assertEqual(tool("agentflow-notify", cwd=self.repo).returncode, 0)
 
 
+WRAPPED = """const isWordChar = (char?: string) =>
+  !!char && (char.toLowerCase() !== char.toUpperCase() || /[0-9_]/.test(char));
+const isRNAnimatedValue = (v: unknown): v is Animated.Value =>
+  !!v &&
+  typeof (v as Animated.Value).setValue === 'function' &&
+  typeof (v as Animated.Value).interpolate === 'function';
+const label = isLoggedIn
+  ? translate('home.greeting', { name: user.fullName })
+  : translate('home.guest');
+"""
+ONE_LINERS = """const isEven = (n: number) => n % 2 === 0;
+const short = isDone ? 'Xong' : 'Chưa';
+const Row = ({ item }: Props) => (
+  <View>{item.visible && <Text>{item.name}</Text>}</View>
+);
+const x = a?.b ?? c;
+// a comment that ends with &&
+items.map((item) => {
+  return item;
+});
+"""
+
+
+class Style(RepoCase):
+    def setUp(self):
+        super().setUp()
+        self.git("commit", "-q", "--allow-empty", "-m", "base")
+        self.git("switch", "-q", "-c", "feat")
+
+    def git(self, *args):
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=self.repo, check=True)
+
+    def write(self, rel, text):
+        path = os.path.join(self.repo, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def test_wrapped_expressions_one_hit_each(self):
+        self.write("src/a.ts", ONE_LINERS + WRAPPED)
+        res = tool("agentflow-style", "master", cwd=self.repo)
+        self.assertEqual(res.returncode, 1, res.stderr)
+        hits = [line.split("  ")[:2] for line in res.stdout.splitlines() if line.startswith("src/")]
+        self.assertEqual(hits, [["src/a.ts:11", "arrow"], ["src/a.ts:13-15", "arrow,logic"], ["src/a.ts:18-19", "ternary"]])
+
+    def test_one_liners_comments_and_other_files_are_clean(self):
+        self.write("src/a.ts", ONE_LINERS)
+        self.write("notes.md", "a = b &&\n")
+        self.write("lib/a.g.dart", "bool get x =>\n    a;\n")
+        res = tool("agentflow-style", "master", cwd=self.repo)
+        self.assertEqual((res.returncode, res.stdout.strip()), (0, "agentflow-style: sạch"))
+
+    def test_only_added_lines_count(self):
+        self.write("lib/a.dart", "bool get isX =>\n    a;\n")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "old")
+        self.git("switch", "-q", "-c", "next")
+        self.write("lib/a.dart", "bool get isX =>\n    a;\nfinal ok = a &&\n    b;\n")
+        res = tool("agentflow-style", "feat", cwd=self.repo)
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("lib/a.dart:3  logic", res.stdout)
+        self.assertNotIn("lib/a.dart:1", res.stdout)
+
+    def test_head_mode_reads_commits_not_the_working_tree(self):
+        self.write("src/b.ts", WRAPPED)
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "feat")
+        self.write("src/c.ts", WRAPPED)
+        res = tool("agentflow-style", "master", "feat", cwd=self.repo)
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("src/b.ts:1", res.stdout)
+        self.assertNotIn("src/c.ts", res.stdout)
+
+    def test_bad_ref_and_usage(self):
+        self.assertEqual(tool("agentflow-style", "nope", cwd=self.repo).returncode, 2)
+        self.assertEqual(tool("agentflow-style", cwd=self.repo).returncode, 2)
+
+
 class McpHeaders(RepoCase):
     def test_token_from_settings(self):
         os.makedirs(os.path.dirname(self.settings))

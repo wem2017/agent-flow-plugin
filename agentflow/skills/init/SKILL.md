@@ -55,7 +55,7 @@ Chưa `ignored` + `untracked` → **dừng**.
 
 ## 5. Surfaces + lệnh check
 
-Scan marker (`package.json`, `pubspec.yaml`, `go.mod`, `pyproject.toml`, `Cargo.toml`, `build.gradle*`, `pom.xml`, `Gemfile`, `composer.json`) ở root và thư mục con cấp 1. Đề xuất mỗi phần build riêng một surface: `path`, `platform` (option của field Platform trên board), `check` (typecheck/lint/format/analyze), `test`, `e2e` — **lấy nguyên lệnh** từ bảng quality gate trong CONTRIBUTING, script trong `package.json`, `Makefile`, hoặc job CI. Repo một khối → bỏ hẳn `surfaces`. Đề xuất `forbidden`: thư mục secret thấy được (vd `secret/**`) + file credential.
+Scan marker (`package.json`, `pubspec.yaml`, `go.mod`, `pyproject.toml`, `Cargo.toml`, `build.gradle*`, `pom.xml`, `Gemfile`, `composer.json`) ở root và thư mục con cấp 1. Đề xuất mỗi phần build riêng một surface: `path`, `platform` (option của field Platform trên board), `check` (typecheck/lint/format/analyze), `test`, `e2e` — **lấy nguyên lệnh** từ bảng quality gate trong CONTRIBUTING, script trong `package.json`, `Makefile`, hoặc job CI; `e2e_dir` = thư mục test e2e có sẵn (`e2e/`, `.maestro/`, `cypress/`, `integration_test/`, `testDir` của Playwright), QC commit test vào đó. Surface UI (mobile, web) chưa có e2e → Maestro (QC ưu tiên, test như người dùng): `e2e_dir: .maestro`, `e2e: maestro test .maestro`, máy cần `maestro`; đã có framework khác → hỏi người giữ hay chuyển Maestro. Repo một khối → bỏ hẳn `surfaces`, trừ khi có e2e (một surface `path: ./`). Đề xuất `forbidden`: thư mục secret thấy được (vd `secret/**`) + file credential.
 
 ## 6. Board
 
@@ -77,7 +77,7 @@ Chi tiết + lệnh: `${CLAUDE_PLUGIN_ROOT}/skills/init/references/board-setup.m
 - **people**: `po`, `qc`, `reviewers` (GitHub login) — gợi ý từ assignee trên board/collaborator. Mention chính token owner không tạo notification — nói rõ.
 - **Telegram**: dùng không? Có → `notify.telegram: true`; kiểm `agentflow-settings has TELEGRAM_BOT_TOKEN && agentflow-settings has TELEGRAM_CHAT_ID`; thiếu → người ghi bằng `set-secret` (có hiệu lực ngay), chưa có thì giữ `notify.telegram: false`.
 - **staging**: `url` (API/web), `build` (cách lấy bản build cho mobile/QC người), `notes` (chỉ **tên** biến env của tài khoản test, dạng `STAGING_TEST_USER`; mỗi tên phải có value qua `agentflow-settings set-secret`, doctor fail nếu thiếu), `timeout_min`. Kiểm trong `.github/workflows/`: có pipeline chạy khi push vào nhánh staging và báo check về commit, không có → nói rõ ticket sẽ `blocked` khi hết timeout. Check phải bao trùm cả bước deploy: check xanh trước khi deploy xong thì QC test nhầm bản cũ. Nhánh staging phải cho push trực tiếp, không bật rule bắt buộc PR hay status check trước khi push.
-- **run**: giữ mặc định (`parallel 2`, `max_tasks 5`, `max_review_rounds 3`, `max_qc_rounds 2`, DEV opus, REVIEWER opus, QC sonnet) trừ khi người muốn đổi.
+- **run**: giữ mặc định (`parallel 2`, `max_tasks 5`, `max_review_rounds 3`, `max_qc_rounds 2`, DEV opus, REVIEWER opus, QC opus) trừ khi người muốn đổi.
 
 ## 9. Ghi file
 

@@ -33,5 +33,5 @@ Tool `figma` không có / chưa authenticate ⇒ build theo AC, ghi một dòng 
 ## QC
 
 - So đúng revision DEV đã ghi. Design đổi sau khi DEV build ⇒ không phải lỗi của DEV: ghi vào checklist "design đã đổi — PO xác nhận", **không** tính ❌.
-- Web: mở staging bằng Claude in Chrome hoặc e2e của repo, chụp màn hình và so với `get_screenshot`: layout, spacing, màu token, chữ, đủ state. Lệch rõ ⇒ ❌ kèm ảnh/vị trí; lệch cảm quan ⇒ đưa vào checklist test tay.
-- Mobile: chạy được trên emulator/simulator thì so như web. Không chạy được UI ⇒ toàn bộ phần so UI vào checklist test tay (`[AF:QC] 🧪`), kèm link frame Figma cho từng mục.
+- Chụp màn hình bằng flow Maestro (web: Claude in Chrome khi không chạy được Maestro), tự xem ảnh và so với `get_screenshot`: layout, spacing, màu token, chữ, đủ state. Lệch rõ ⇒ ❌ kèm tên ảnh/vị trí; lệch cảm quan ⇒ đưa vào checklist test tay.
+- Mobile: chạy được trên emulator/simulator thì so như trên. Không chạy được UI ⇒ toàn bộ phần so UI vào checklist test tay (`[AF:QC] 🧪`), kèm link frame Figma cho từng mục.

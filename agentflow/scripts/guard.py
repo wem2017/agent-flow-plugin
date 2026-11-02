@@ -18,6 +18,7 @@ import json
 import os
 import re
 import shlex
+import tempfile
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -205,6 +206,8 @@ class Session:
             return "subagent không sửa settings/hook/plugin (`%s`)." % path
         scope = self.scope(parent_dir(absolute))
         if not scope or not (resolved == scope.main or resolved.startswith(scope.main + os.sep)):
+            if self.role == "qc" and not any(resolved == t or resolved.startswith(t + os.sep) for t in temp_roots()):
+                return "QC chỉ ghi file ngoài repo vào thư mục tạm (`/tmp/af-<n>-…`), không phải `%s`." % path
             return None
         if os.path.basename(resolved) == afconfig.CONFIG_NAME:
             return "subagent không sửa/xoá `agentflow.yaml`."
@@ -212,10 +215,120 @@ class Session:
                "dev": r"/\.claude/worktrees/af-\d+(/|$)"}.get(self.role)
         if own and not re.search(own, resolved):
             return "%s không sửa file ngoài worktree của mình (`%s`)." % (self.role.upper(), path)
+        if self.role == "qc" and not in_test_folder(resolved[re.search(own, resolved).end():], scope.cfg):
+            return "QC chỉ sửa test tự động trong `surfaces.<key>.e2e_dir` (`%s`)." % path
         return None
 
     def in_staging_worktree(self, path):
         return re.search(r"/\.claude/worktrees/af-\d+-staging(/|$)", self.abspath(path)) is not None
+
+
+
+def temp_roots():
+    roots = {"/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp", tempfile.gettempdir(), os.environ.get("TMPDIR") or "/tmp"}
+    return {os.path.realpath(r).rstrip(os.sep) for r in roots if r}
+
+
+def in_test_folder(rel, cfg):
+    rel = rel.strip("/")
+    return any(rel == d or rel.startswith(d + "/") for d in afconfig.e2e_dirs(cfg))
+
+
+QC_ROOT = re.compile(r"/\.claude/worktrees/af-\d+-qc(?=/|$)")
+QC_GIT = {"status", "fetch", "diff", "log", "show", "blame", "annotate", "grep", "cat-file", "rev-parse", "rev-list", "merge-base",
+          "ls-files", "ls-tree", "ls-remote", "describe", "shortlog", "name-rev", "show-ref", "for-each-ref", "symbolic-ref",
+          "check-ignore", "whatchanged", "version", "help", "worktree", "branch", "remote", "config", "tag", "stash",
+          "add", "commit", "restore", "push"}
+QC_GIT_GLOBALS = {"-C", "--no-pager", "-P", "--no-optional-locks"}
+BRANCH_WRITERS = {"-d", "-D", "--delete", "-f", "--force", "-m", "-M", "--move", "-c", "-C", "--copy", "-u", "--set-upstream-to",
+                  "--unset-upstream", "--edit-description", "-t", "--track"}
+CONFIG_READERS = {"--get", "--get-all", "--get-regexp", "--list", "-l", "get", "list"}
+MSG_QC_GIT = "QC chỉ đọc git, và `git -C <repo>/.claude/worktrees/af-<n>-qc add|commit|restore|push origin HEAD:<branch>` cho test trong `surfaces.<key>.e2e_dir`"
+
+
+def qc_tree(path):
+    """Root of the QC worktree that `path` really is in (symlinks resolved), else None."""
+    real = os.path.realpath(path)
+    m = QC_ROOT.search(real)
+    return real[: m.end()] if m else None
+
+
+def qc_stray(top, cfg, *ranges):
+    """Files outside the test folders among the changes git reports for each range, or None if git cannot tell.
+    Renames off (a move out of the app is a deletion there), paths from the top, unquoted, whatever the user's git config says."""
+    stray = []
+    for rng in ranges:
+        out = afconfig.git(["-c", "diff.relative=false", "-c", "core.quotePath=false", "diff", "--no-renames", "--no-ext-diff", "--name-only", "-z"] + rng, cwd=top)
+        if out is None:
+            return None
+        stray += [f for f in out.split("\0") if f.strip() and not in_test_folder(f.strip(), cfg)]
+    return stray
+
+
+def check_qc_git(argv, sub, args, workdir, known, session, scope):
+    """QC writes tests, nothing else: an allow-list, since plumbing, global options and env can each route around a deny-list."""
+    i = 1
+    while i < len(argv) and argv[i] != sub:
+        name = argv[i].split("=", 1)[0]
+        if name not in QC_GIT_GLOBALS:
+            block("QC không dùng tuỳ chọn toàn cục `%s` của git. %s." % (argv[i], MSG_QC_GIT))
+        i += 2 if argv[i] == "-C" else 1
+    if sub not in QC_GIT:
+        block("QC không dùng `git %s`. %s." % (sub, MSG_QC_GIT))
+    words = [a for a in args if not a.startswith("-")]
+    if sub == "branch" and (words or BRANCH_WRITERS & {a.split("=", 1)[0] for a in args}):
+        block("QC chỉ liệt kê nhánh.")
+    if sub == "config" and not CONFIG_READERS & set(args):
+        block("QC chỉ đọc cấu hình git.")
+    if sub == "remote" and words[:1] not in ([], ["get-url"], ["show"]):
+        block("QC chỉ đọc remote.")
+    if sub in ("tag", "stash") and not read_only_form(sub, args):
+        block("QC không `git %s`." % sub)
+    if sub == "worktree":
+        target = next((a for a in words[1:]), None)
+        if words[:1] in (["list"], ["prune"]):
+            return
+        if words[:1] not in (["add"], ["remove"]) or {"-b", "-B"} & set(args) or not known or not target or DYNAMIC.search(target) \
+                or not QC_ROOT.search(os.path.normpath(os.path.join(workdir, target))):
+            block("QC chỉ `git worktree add --detach|remove` worktree `.claude/worktrees/af-<n>-qc` của mình.")
+        return
+    if sub not in ("add", "commit", "restore", "push"):
+        return
+    top = qc_tree(workdir) if known and not DYNAMIC.search(workdir) else None
+    if not top or os.path.realpath(afconfig.git(["rev-parse", "--show-toplevel"], cwd=workdir) or "") != top:
+        block("%s (`git %s`)." % (MSG_QC_GIT, sub))
+    if sub == "restore" and any(a.split("=", 1)[0] in ("-s", "--source") or a.startswith("-s") and len(a) > 2 for a in args):
+        block("QC không `git restore --source` — chỉ bỏ thay đổi của chính mình.")
+    if sub == "add":
+        paths = [os.path.realpath(os.path.join(workdir, p)) for p in git_read_paths(sub, args)]
+        if not paths or any(DYNAMIC.search(p) or not p.startswith(top) or not in_test_folder(p[len(top):], scope.cfg) for p in paths):
+            block("QC chỉ stage test trong `surfaces.<key>.e2e_dir`: `git -C <wt> add -- <surface>/<e2e_dir>`.")
+    if sub == "commit":
+        stray = qc_stray(top, scope.cfg, ["--cached"], ["HEAD"])
+        if stray is None:
+            block("không đọc được thay đổi trong worktree QC — không commit.")
+        if stray:
+            block("QC chỉ commit file trong `surfaces.<key>.e2e_dir`; bỏ thay đổi ngoài đó trước (`git restore %s`)." % " ".join(stray[:5]))
+    if sub == "push":
+        positional, skip = [], False
+        for a in args:
+            if skip:
+                skip = False
+            elif a.startswith("-"):
+                skip = a in PUSH_VALUE_FLAGS
+            else:
+                positional.append(a)
+        m = re.fullmatch(r"HEAD:(?:refs/heads/)?([\w./-]+)", positional[1]) if len(positional) == 2 and positional[0] == "origin" else None
+        if not m:
+            block("QC chỉ `git push origin HEAD:<branch>` từ worktree QC.")
+        remote = "refs/remotes/origin/" + m.group(1)
+        if not afconfig.git(["rev-parse", "--verify", "-q", remote], cwd=top):
+            block("QC chỉ push lên PR branch đã có trên remote — `git fetch origin %s` trước." % m.group(1))
+        if afconfig.git(["rev-list", "--merges", remote + "..HEAD"], cwd=top) != "":
+            block("QC không push commit merge — chỉ commit test của mình.")
+        stray = qc_stray(top, scope.cfg, [remote, "HEAD"])
+        if stray is None or stray:
+            block("QC chỉ push commit test trong `surfaces.<key>.e2e_dir`; HEAD khác `origin/%s` ở: %s." % (m.group(1), " ".join((stray or ["?"])[:5])))
 
 
 # ── push ──────────────────────────────────────────────────────────────────────
@@ -281,6 +394,8 @@ def check_push(args, workdir, known, session, scope):
             block("REVIEWER chỉ push vào `%s`, không đụng PR branch." % scope.staging)
         if session.role == "dev" and t == scope.staging:
             block("DEV không đụng nhánh staging — REVIEWER merge lên đó sau khi ✅.")
+        if session.role == "qc" and t == scope.staging:
+            block("QC không push nhánh staging — chỉ đẩy test lên PR branch.")
 
 
 # ── git ───────────────────────────────────────────────────────────────────────
@@ -399,6 +514,8 @@ def check_git(argv, session):
     scope = session.scope(workdir if known else None) or session.scope(session.cwd)
     if not scope:
         return
+    if session.role == "qc" and not session.hard_only:
+        check_qc_git(argv, sub, args, workdir, known, session, scope)
     aliases = {}
     for item in configs:
         key, _, value = item.partition("=")
@@ -446,8 +563,6 @@ def check_git(argv, session):
             if session.secret_path(path):
                 block("`%s` là path forbidden (secret) — không đọc qua git, không stage." % path)
     changes = sub in GIT_CHANGERS and not read_only_form(sub, args)
-    if session.role == "qc" and (changes or sub in ("pull", "checkout", "switch")):
-        block("QC không commit, không push, không đổi lịch sử git (`git %s`)." % sub)
     if session.role == "reviewer" and ((changes and sub != "push") or sub in ("pull", "checkout", "switch")):
         if not known or not session.in_staging_worktree(workdir):
             block("REVIEWER chỉ `git %s` trong worktree staging, ghi path tường minh: `git -C <repo>/.claude/worktrees/af-<n>-staging …`." % sub)
@@ -656,7 +771,11 @@ def check_mutators(exe, args, session):
         return
     if exe in ("sed", "gsed", "perl", "ruby") and any(re.match(r"^-[a-zA-Z]*i", a) for a in args):
         targets = [a for a in args if a and not a.startswith("-")][1:]  # the first is the script; sed -i '' has an empty suffix
-    elif exe in ("cp", "mv", "install", "ln"):
+    elif exe == "ln" and session.role == "qc":
+        block("QC không tạo link — test không cần, và link trong `e2e_dir` trỏ được ra code app.")
+    elif exe == "mv":
+        targets = [a for a in args if not a.startswith("-")]  # the sources disappear: a move out of a folder changes it
+    elif exe in ("cp", "install", "ln"):
         targets = [a for a in args if not a.startswith("-")][-1:]
     elif exe == "dd":
         targets = [a[3:] for a in args if a.startswith("of=")]
@@ -984,6 +1103,8 @@ def check_cmd(cmd, session):
         m = ASSIGN.match(word)
         if m and GIT_CONFIG_ENV.match(m.group(1)) and session.scope():
             block("không cấu hình git qua biến môi trường (`%s`) — guard không đọc được cấu hình đó." % m.group(1))
+        if m and session.role == "qc" and m.group(1).startswith("GIT_"):
+            block("QC không đặt `%s` — biến này đổi repo, index hay cấu hình mà git dùng." % m.group(1))
     if not argv or (name_of(argv[0]) in ("export", "readonly", "declare", "typeset", "local") and len(argv) > 1 and "-p" not in argv):
         for word in words[i + 1 :] if argv else words:
             m = ASSIGN.match(word)
@@ -1070,8 +1191,6 @@ def check_mcp(tool, ti, session):
 
 
 def check_write(path, ti, session):
-    if session.role == "qc":
-        block("QC không sửa file.")
     reason = session.write_denied(path)
     if reason:
         block(reason)

@@ -1,6 +1,6 @@
 # AgentFlow
 
-Plugin Claude Code biến một repo GitHub thành **team agent có kỷ luật**: **DEV** (Opus) code, **REVIEWER** (Opus) soát code và giải pháp, **QC** test trên staging — tự chạy ticket trên GitHub Projects board **tới cổng của con người**. Bạn chỉ làm ba việc: **chốt việc** (PO kéo Backlog → Ready), **QC tay** khi cần, và **merge**.
+Plugin Claude Code biến một repo GitHub thành **team agent có kỷ luật**: **DEV** (Opus) code, **REVIEWER** (Opus) soát code và giải pháp, **QC** (Opus) test trên staging như người dùng thật, soát UI/UX qua ảnh chụp và để lại test e2e tự động (ưu tiên Maestro cho mobile và web) — tự chạy ticket trên GitHub Projects board **tới cổng của con người**. Bạn chỉ làm ba việc: **chốt việc** (PO kéo Backlog → Ready), **QC tay** khi cần, và **merge**.
 
 - **Một plugin, nhiều repo** — tên cột, label, nhánh, lệnh check của từng repo nằm trong `agentflow.yaml`; plugin chỉ giữ ngữ nghĩa.
 - **Tối ưu token** — lệnh chỉ load khi gọi, mỗi ticket một subagent (session chính chỉ giữ 3 dòng kết quả), review/QC lặp lại chỉ soát diff mới, chờ pipeline không tốn token, lệnh check lưu sẵn trong config, output dài vào log.
@@ -11,11 +11,14 @@ Plugin Claude Code biến một repo GitHub thành **team agent có kỷ luật*
 ```
 Backlog ─PO kéo→ Ready ─DEV→ In Progress ─draft PR→ In Review ─REVIEWER ✅, merge staging→ In QC +deploying
                                                                                               │ pipeline xong
-                                     Done ←người merge─ Ready to Merge ←✅ undraft─ QC test trên staging
+                                     Done ←người merge─ Ready to Merge ←✅ undraft─ QC test trên staging,
+                                                                                    commit test e2e vào PR
 
 Review ❌            → In Progress +changes-requested
 QC ❌                → Ready +qc-failed, kèm bước tái hiện + bằng chứng; DEV sửa trước việc mới, rồi review phần mới → staging → QC lại
-Request changes trên PR hoặc gắn changes-requested → In Progress, PR về draft (comment thường trên PR không kích hoạt DEV)
+Góp ý trên PR       → In Progress, PR về draft: comment trên dòng code chưa được trả lời hoặc Request changes (ở In Review,
+                      In QC, Ready to Merge), gắn changes-requested (ở Ready to Merge). DEV xét từng góp ý: hợp lý thì sửa, không
+                      thì trả lời lý do trong thread; người vẫn giữ ý thì làm theo. Comment thường chỉ được đọc kèm
 Còn mục cần test tay → +qc-manual, checklist [AF:QC] 🧪 trên staging; QC người tick + kéo card (pass, agent undraft) hoặc gắn qc-failed (fail)
 Pipeline fail       → QC đọc log: do ticket thì ❌ về Ready; do hạ tầng/ticket khác thì +blocked. Quá staging.timeout_min → +blocked
 Người reset staging → ticket đang chờ build quay về In Review, REVIEWER deploy lại
@@ -35,6 +38,7 @@ Tên cột thật của board được map trong `agentflow.yaml` → `board.sta
 | `git`, `python3` ≥ 3.9, `jq` | `jq` cho `/agentflow:learn` và init |
 | Nhánh staging + pipeline | Push vào staging phải chạy pipeline và báo check về commit (GitHub Actions hoặc CI ngoài có commit status) |
 | GitHub **classic PAT** | `repo`, `project`, `read:org` (board của org), `workflow` nếu agent được sửa CI. Chỉ cấp đúng chừng đó |
+| Maestro (khuyến nghị) | QC dùng để test UI mobile và web như người dùng: `curl -fsSL https://get.maestro.mobile.dev \| bash`, `maestro` phải nằm trong PATH; mobile cần emulator/simulator đang chạy. `/agentflow:doctor` báo khi thiếu |
 | Figma (tuỳ chọn) | MCP chính thức, OAuth: `/mcp` → figma → Authenticate |
 | Telegram (tuỳ chọn) | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` |
 
@@ -81,14 +85,16 @@ claude plugin enable  agentflow@agent-flow-plugins --scope local
 
 | Thành phần | Vai trò |
 |---|---|
-| `agents/dev.md` · `reviewer.md` · `qc.md` | Ba subagent (DEV và REVIEWER Opus effort xhigh, QC Sonnet — model đổi qua `run.models`) |
+| `agents/dev.md` · `reviewer.md` · `qc.md` | Ba subagent, cả ba Opus effort xhigh (model đổi qua `run.models`). DEV tự review và ghi bảng AC → code → test vào PR; REVIEWER luôn đọc file rủi ro; QC viết test e2e trong `surfaces.<key>.e2e_dir` và commit vào PR |
+| `bin/agentflow-style` | Soát dòng code mới: hàm thân biểu thức (`=>`), điều kiện `&&`/`||`, ternary bị formatter bẻ dòng. DEV phải sạch trước khi push, REVIEWER ❌ mỗi chỗ còn lại. Viết vừa một dòng thì vẫn được; `CLAUDE.md` của repo nói khác thì theo `CLAUDE.md` |
 | `references/protocol.md` | Contract chung: stage, label, board call, state block, comment `[AF:…]`, thứ tự ghi, git, token hygiene, journal |
 | `references/dispatch.md` | Orchestrator: hàng đợi, bảng hành động, model, song song, no-progress guard |
 | `references/design.md` | Figma / design trong repo — chỉ load khi ticket chạm UI |
+| `references/automation.md` | Cách QC viết test e2e: Maestro trước (mobile và web, thao tác như người dùng), soát UI/UX bằng ảnh chụp tự xem, framework khác khi repo đã chọn — chỉ load khi QC viết test |
 | `skills/*` | 7 lệnh (`disable-model-invocation` — không tốn context khi không gọi) |
-| `hooks/hooks.json` + `scripts/guard.py` · `shellparse.py` | Hook chặn (best-effort, xem §Chạy không cần bạn), kể cả qua lệnh bọc (`bash -c`, `env`, `timeout`, `$(…)`, `xargs`, `eval`, code Python/Node): merge/approve PR, dispatch workflow, force-push, xoá nhánh remote, push nhánh protected/base, đọc/sửa/in path `forbidden`, token trong tham số. Thêm luật theo role: QC không đổi git, REVIEWER chỉ push staging, DEV không đụng staging |
+| `hooks/hooks.json` + `scripts/guard.py` · `shellparse.py` | Hook chặn (best-effort, xem §Chạy không cần bạn), kể cả qua lệnh bọc (`bash -c`, `env`, `timeout`, `$(…)`, `xargs`, `eval`, code Python/Node): merge/approve PR, dispatch workflow, force-push, xoá nhánh remote, push nhánh protected/base, đọc/sửa/in path `forbidden`, token trong tham số. Thêm luật theo role: QC chỉ sửa, commit và `push origin HEAD:<branch>` test trong `e2e_dir` của worktree QC (allow-list lệnh git, kiểm từng commit sắp push), REVIEWER chỉ push staging, DEV không đụng staging |
 | `scripts/result-check.py` | Hook `SubagentStop`: subagent phải kết thúc bằng khối `RESULT` |
-| `bin/agentflow-board` | Setup + chẩn đoán qua GraphQL (Status option, field, view, label, issue type, doctor, metrics) + đọc check pipeline staging |
+| `bin/agentflow-board` | Setup + chẩn đoán qua GraphQL (Status option, field, view, label, issue type, doctor, metrics) + đọc check pipeline staging + gom góp ý của người trên PR (`feedback`) |
 | `bin/agentflow-journal` · `agentflow-notify` · `agentflow-settings` | Journal tự học (`~/.claude/agentflow/journal.jsonl`) · ping Telegram · sửa settings local và chạy lệnh với `env` của nó, không lộ secret |
 | `scripts/mcp-headers.py` | `headersHelper` cấp token cho GitHub MCP lúc connect |
 | `templates/` | Issue form, PR template, README board |
