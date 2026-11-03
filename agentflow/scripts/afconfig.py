@@ -523,11 +523,6 @@ def settings_envs(cwd=None):
             yield settings_env(start)
 
 
-def staging_env_names(cfg):
-    """Env names that staging.notes refers to (it holds names only, e.g. STAGING_TEST_USER)."""
-    return sorted(set(re.findall(r"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b", str(((cfg or {}).get("staging") or {}).get("notes") or ""))))
-
-
 def env_value(name, cwd=None):
     """env.<name> of the settings file, else the process env. "" when unset."""
     for env in settings_envs(cwd):

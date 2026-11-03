@@ -408,14 +408,14 @@ class Doctor(BoardCase):
         self.assertEqual(code, 1)
         self.assertIn("thiếu GITHUB_TOKEN", out)
 
-    def test_telegram_and_staging_notes_need_their_env(self):
-        self.write_config(CONFIG.replace('url: "https://s.example"', 'url: "https://s.example", notes: "STAGING_TEST_USER, STAGING_TEST_PASSWORD"')
+    def test_telegram_needs_its_env_staging_notes_does_not(self):
+        self.write_config(CONFIG.replace('url: "https://s.example"', 'url: "https://s.example", notes: "secret/staging/ APP_ID, E2E_EMAIL, E2E_PASSWORD"')
                           + "notify: {telegram: true, events: [blocked]}\n")
-        self.write_settings_env({"GITHUB_TOKEN": "t", "STAGING_TEST_USER": "u", "TELEGRAM_CHAT_ID": "1"})
+        self.write_settings_env({"GITHUB_TOKEN": "t", "TELEGRAM_CHAT_ID": "1"})
         code, out = self.doctor()
         self.assertEqual(code, 1)
-        self.assertIn("thiếu TELEGRAM_BOT_TOKEN, STAGING_TEST_PASSWORD", out)
-        self.write_settings_env({"GITHUB_TOKEN": "t", "STAGING_TEST_USER": "u", "STAGING_TEST_PASSWORD": "p", "TELEGRAM_CHAT_ID": "1", "TELEGRAM_BOT_TOKEN": "b"})
+        self.assertIn("thiếu TELEGRAM_BOT_TOKEN —", out)
+        self.write_settings_env({"GITHUB_TOKEN": "t", "TELEGRAM_CHAT_ID": "1", "TELEGRAM_BOT_TOKEN": "b"})
         code, out = self.doctor()
         self.assertEqual(code, 0, out)
 
@@ -466,7 +466,7 @@ class Preflight(unittest.TestCase):
         git("remote", "add", "origin", self.remote, cwd=self.repo)
         git("push", "-q", "origin", "HEAD:refs/heads/master", cwd=self.repo)
         with open(os.path.join(self.repo, "agentflow.yaml"), "w") as fh:
-            fh.write(CONFIG.replace('url: "https://s.example"', 'url: "https://s.example", notes: "E2E_EMAIL"'))
+            fh.write(CONFIG.replace('url: "https://s.example"', 'url: "https://s.example", notes: "secret/staging/ E2E_EMAIL"'))
         os.makedirs(os.path.join(self.repo, ".claude"))
         with open(os.path.join(self.repo, ".claude", "settings.local.json"), "w") as fh:
             json.dump({"env": {"GITHUB_TOKEN": "t"}}, fh)
@@ -479,7 +479,7 @@ class Preflight(unittest.TestCase):
         return json.loads(out.getvalue())
 
     def test_push_ok_and_missing_env(self):
-        self.assertEqual(self.preflight(), {"push": True, "missing_env": ["E2E_EMAIL"]})
+        self.assertEqual(self.preflight(), {"push": True, "missing_env": []})
         self.assertEqual(self.git("rev-parse", "master", cwd=self.remote), self.head)
 
     def test_push_blocked(self):

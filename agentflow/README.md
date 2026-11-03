@@ -52,9 +52,9 @@ agentflow-settings show                                                         
 
 GitHub MCP lấy token qua `headersHelper` (`scripts/mcp-headers.py`): đọc file settings → env → `gh auth token`. Đổi token → `/mcp` → `plugin:agentflow:github` → **Reconnect**, không cần restart.
 
-Tài khoản test của staging cũng để trong `env`; `staging.notes` trong `agentflow.yaml` chỉ ghi tên biến. Init chỉ xong khi file có đủ `env`: `GITHUB_TOKEN`, cặp `TELEGRAM_*` nếu bật Telegram, và mọi tên biến trong `staging.notes`; `/agentflow:doctor` báo ✗ khi thiếu, kể cả khi token vẫn lấy được từ shell hay `gh`.
+App id và tài khoản test của staging **không** nằm trong `env`: agent đọc chúng trong secret folder của project (gitignored, vd `secret/staging/`), path ghi ở `staging.notes`; folder này không được nằm trong `forbidden`. Init chỉ xong khi file có đủ `env`: `GITHUB_TOKEN` và cặp `TELEGRAM_*` nếu bật Telegram; `/agentflow:doctor` báo ✗ khi thiếu, kể cả khi token vẫn lấy được từ shell hay `gh`.
 
-Script của plugin (`agentflow-board`, `agentflow-notify`, helper của GitHub MCP) đọc thẳng `env` trong file này, nên giá trị vừa ghi có hiệu lực ngay, không cần restart Claude Code. Lệnh của agent cần secret (vd e2e đăng nhập bằng tài khoản test) chạy qua `agentflow-settings exec -- <lệnh>`: giá trị trong file đè lên env cũ của session và không hiện ra transcript.
+Script của plugin (`agentflow-board`, `agentflow-notify`, helper của GitHub MCP) đọc thẳng `env` trong file này, nên giá trị vừa ghi có hiệu lực ngay, không cần restart Claude Code. Lệnh cần secret trong `env` chạy qua `agentflow-settings exec -- <lệnh>`: giá trị trong file đè lên env cũ của session và không hiện ra transcript.
 
 ## Cài đặt
 

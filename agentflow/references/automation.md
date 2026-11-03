@@ -25,7 +25,7 @@ Chạy local trước khi push: build trỏ staging (PR đổi backend ⇒ stack
 
 - Header: `appId: ${APP_ID}` (mobile, hoặc như flow có sẵn) / `url: ${STAGING_URL}` (web), `name:`, `tags: [af-<n>]`, rồi `---`. Mobile mở đầu `launchApp` với `clearState: true`, `permissions: { all: allow }`.
 - Dò phần tử bằng `maestro hierarchy` khi màn đang mở, đừng đoán.
-- Secret chỉ qua tên biến env của `staging.notes`, truyền bằng `-e` trong `sh -c` để value không lộ: `agentflow-settings exec -- sh -c 'maestro test -e APP_ID="$APP_ID" -e E2E_EMAIL="$<TÊN BIẾN>" --test-output-dir /tmp/af-<n>-maestro <flow>'`.
+- App id, tài khoản test: đọc ở secret folder `staging.notes` của `<repo root>` (không phải worktree). Flow dùng `${VAR}`, value qua `-e`: `maestro test -e APP_ID=<…> --test-output-dir /tmp/af-<n>-maestro <flow>`. Không ghi value vào file, PR, comment.
 - Nhiều thiết bị đang chạy ⇒ `maestro --device <udid> test …`. Chạy 3 lần = lặp lệnh, không `repeat` trong flow. Báo cáo: `--format junit --output /tmp/af-<n>-maestro.xml`.
 
 ## UI/UX

@@ -1,5 +1,5 @@
 # AgentFlow secrets — không bao giờ commit token thật.
-# MỌI secret (GITHUB_TOKEN, TELEGRAM_*, tài khoản test staging) nằm ở block `env` trong
+# Secret của plugin (GITHUB_TOKEN, TELEGRAM_*) nằm ở block `env` trong
 # .claude/settings.local.json — nên dòng ignore dưới đây là load-bearing.
 .env
 .env.*

@@ -44,7 +44,7 @@ Mỗi AC liệt kê case AC chạm trước khi test (`automation.md`). **Regres
 
 **Chưa có `qc_sha` ⇒ lần đầu: verify đủ mọi AC.** Có `qc_sha` ⇒ QC lại: AC bị ảnh hưởng bởi `git diff <qc_sha>..origin/<branch>` + mọi mục ❌ / fail của QC người trước đó + test e2e của ticket, cộng một lượt smoke các AC còn lại.
 
-Staging dùng chung: tài khoản test là biến env tên theo `staging.notes`, lệnh dùng chúng chạy qua `agentflow-settings exec --`, dọn dữ liệu tự tạo nếu có thể, không thao tác hàng loạt.
+Staging dùng chung: app id, tài khoản test đọc trong secret folder của project (`staging.notes`, ở `<repo root>`), không ghi value vào comment/PR/file commit, dọn dữ liệu tự tạo nếu có thể, không thao tác hàng loạt.
 
 ## 3. Test tự động
 
@@ -57,7 +57,7 @@ git worktree add -q --detach "$WT" origin/<branch>
 ```
 
 - Viết/sửa test trong `$WT/<surface path>/<e2e_dir>` (path tuyệt đối). Thiếu deps ⇒ cài theo convention repo trong `$WT` (im lặng, log), không phải infra.
-- Chạy nhắm staging, output vào log: `cd "$WT/<surface path>" && STAGING_URL=<staging.url> agentflow-settings exec -- sh -c '<lệnh>' > /tmp/af-<n>-e2e.log 2>&1; echo "exit $?"; tail -40 /tmp/af-<n>-e2e.log`. `<lệnh>` = runner cho file vừa viết; regression = `surfaces.<key>.e2e`.
+- Chạy nhắm staging, output vào log: `cd "$WT/<surface path>" && STAGING_URL=<staging.url> <lệnh> > /tmp/af-<n>-e2e.log 2>&1; echo "exit $?"; tail -40 /tmp/af-<n>-e2e.log`. `<lệnh>` = runner cho file vừa viết; regression = `surfaces.<key>.e2e`.
 - Có test mới/sửa — kể cả test fail đúng vì bug (bản tái hiện cho DEV) — thì commit trước verdict:
 
 ```bash

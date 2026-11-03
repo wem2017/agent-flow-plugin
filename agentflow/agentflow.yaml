@@ -77,7 +77,7 @@ staging:
   branch: "staging"            # BẮT BUỘC — phải tồn tại trên origin, khác git.base
   url: ""                      # URL API/web của môi trường staging. Trống ⇒ AC API/web thành checklist cho QC người
   build: ""                    # cách lấy bản build cho mobile/QC người, vd "artifact APK của workflow staging-release"
-  notes: ""                    # tài khoản/dữ liệu test: chỉ ghi TÊN biến env, vd "STAGING_TEST_USER, STAGING_TEST_PASSWORD"
+  notes: ""                    # app id, tài khoản/dữ liệu test: path secret folder của project (gitignored), vd "secret/staging/" — agent đọc file trong đó
   timeout_min: 30              # pipeline quá thời gian này ⇒ blocked, báo người
 
 # ── NGƯỜI (GitHub login, để @mention) ────────────────────────────────────────

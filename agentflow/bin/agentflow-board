@@ -711,7 +711,7 @@ def _push_probe(root, base):
 
 def _needed_env(cfg):
     notify = cfg.get("notify") or {}
-    return ["GITHUB_TOKEN"] + (["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"] if notify.get("telegram") else []) + afconfig.staging_env_names(cfg)
+    return ["GITHUB_TOKEN"] + (["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"] if notify.get("telegram") else [])
 
 
 def cmd_preflight(a):
