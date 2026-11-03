@@ -412,7 +412,7 @@ class Doctor(BoardCase):
         os.makedirs(os.path.join(self.repo, ".claude"), exist_ok=True)
         code, out = self.doctor()
         self.assertEqual(code, 0, out)
-        self.assertIn("agentflow-settings allow Bash Read Edit Write", out)
+        self.assertIn("agentflow-settings allow --user Bash Read Edit Write", out)
         self.assertIn("mcp__plugin_agentflow_github", out)
         with open(os.path.join(self.repo, ".claude", "settings.json"), "w") as fh:
             json.dump({"permissions": {"allow": ["Bash", "Read", "Edit", "mcp__plugin_agentflow_github__*"]}}, fh)

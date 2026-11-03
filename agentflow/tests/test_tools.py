@@ -125,6 +125,21 @@ class Settings(RepoCase):
         self.assertEqual(self.read_settings(), {"permissions": {"allow": ["Bash", "Edit", "mcp__plugin_agentflow_github"], "defaultMode": "acceptEdits"}, "env": {"A": "1"}})
         self.assertIn("đã có đủ", tool("agentflow-settings", "allow", "Edit", cwd=self.repo).stdout)
 
+    def test_allow_user_writes_the_user_settings_and_keeps_its_mode(self):
+        cfg = os.path.join(self.repo, "cfg")
+        os.makedirs(cfg)
+        user = os.path.join(cfg, "settings.json")
+        with open(user, "w") as fh:
+            json.dump({"model": "opus", "permissions": {"allow": ["Read"]}}, fh)
+        os.chmod(user, 0o644)
+        res = tool("agentflow-settings", "allow", "--user", "Read", "mcp__plugin_agentflow_github", cwd=self.repo, env={"CLAUDE_CONFIG_DIR": cfg})
+        self.assertEqual(res.returncode, 0, res.stderr)
+        with open(user) as fh:
+            self.assertEqual(json.load(fh), {"model": "opus", "permissions": {"allow": ["Read", "mcp__plugin_agentflow_github"]}})
+        self.assertEqual(stat.S_IMODE(os.stat(user).st_mode), 0o644)
+        self.assertFalse(os.path.exists(self.settings))
+        self.assertEqual(tool("agentflow-settings", "allow", "--user", cwd=self.repo, env={"CLAUDE_CONFIG_DIR": cfg}).returncode, 2)
+
     def test_github_token_is_not_imported_from_gh(self):
         self.assertNotEqual(tool("agentflow-settings", "import", "GITHUB_TOKEN", cwd=self.repo).returncode, 0)
 

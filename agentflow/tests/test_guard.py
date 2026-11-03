@@ -234,7 +234,7 @@ ROLES = [  # role, want, tool, input
     ("reviewer", "ALLOW", "Bash", {"command": 'WT="$HOME/my repo/.claude/worktrees/af-7-staging"; echo "$WT"'}),
     ("dev", "BLOCK", "Edit", {"file_path": ".claude/worktrees/af-7/.claude/settings.json"}), ("dev", "BLOCK", "Write", {"file_path": ".claude/settings.local.json"}),
     ("dev", "BLOCK", "Bash", {"command": "echo '{}' > .claude/settings.json"}), ("dev", "BLOCK", "Bash", {"command": "agentflow-settings set a.b 1"}),
-    ("qc", "BLOCK", "Bash", {"command": "agentflow-settings import TELEGRAM_CHAT_ID"}), ("dev", "BLOCK", "Bash", {"command": "agentflow-settings unset TELEGRAM_BOT_TOKEN"}), ("dev", "BLOCK", "Bash", {"command": "agentflow-settings allow Bash"}),
+    ("qc", "BLOCK", "Bash", {"command": "agentflow-settings import TELEGRAM_CHAT_ID"}), ("dev", "BLOCK", "Bash", {"command": "agentflow-settings unset TELEGRAM_BOT_TOKEN"}), ("dev", "BLOCK", "Bash", {"command": "agentflow-settings allow Bash"}), ("qc", "BLOCK", "Bash", {"command": "agentflow-settings allow --user Bash"}),
     ("dev", "ALLOW", "Bash", {"command": "cd .claude/worktrees/af-7 && agentflow-style origin/master"}),
     ("dev", "ALLOW", "Bash", {"command": "agentflow-board feedback acme/app --issue 7"}),
     ("reviewer", "ALLOW", "Bash", {"command": "agentflow-style origin/master origin/feat/7-x"}),

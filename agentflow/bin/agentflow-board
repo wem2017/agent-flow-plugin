@@ -776,7 +776,7 @@ def cmd_doctor(a):
     gaps = afconfig.missing_allow(root)
     if gaps:
         warn("permissions.allow thiếu %s — agent và subagent sẽ dừng hỏi quyền (Claude Code bỏ qua defaultMode bypassPermissions "
-             "trong settings của project): agentflow-settings allow %s" % (", ".join(gaps), " ".join(gaps)))
+             "trong settings của project): agentflow-settings allow --user %s (mọi repo; bỏ --user = chỉ repo này)" % (", ".join(gaps), " ".join(gaps)))
     else:
         ok("permissions.allow đủ cho agent")
     stale = [n for n in afconfig.GITHUB_TOKEN_ENV if local_env.get(n)]

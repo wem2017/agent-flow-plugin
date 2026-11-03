@@ -106,10 +106,10 @@ Phối hợp hoàn toàn qua GitHub: **Status** trên board (sự thật), **lab
 
 ## Chạy không cần bạn
 
-`/agentflow:init` đề nghị thêm allow rule vào `.claude/settings.local.json` để loop và subagent không dừng hỏi quyền:
+`/agentflow:init` đề nghị thêm allow rule để loop và subagent không dừng hỏi quyền — `--user` ghi vào `~/.claude/settings.json` cho mọi repo, bỏ `--user` thì chỉ `.claude/settings.local.json` của repo này. Plugin không tự cấp quyền được: `settings.json` của plugin và `permissionMode` trong frontmatter agent đều bị bỏ qua.
 
 ```bash
-agentflow-settings allow Bash Read Edit Write WebFetch WebSearch Skill mcp__plugin_agentflow_github mcp__plugin_agentflow_figma
+agentflow-settings allow --user Bash Read Edit Write WebFetch WebSearch Skill mcp__plugin_agentflow_github mcp__plugin_agentflow_figma
 ```
 
 `permissions.defaultMode: "bypassPermissions"` trong settings của project **không có tác dụng**: Claude Code (đo trên 2.1.317) bỏ qua nó và chạy ở `default`, nên mọi tool chưa có trong allow list (vd tool của GitHub MCP) đều dừng hỏi. Muốn bypass hẳn thì mở bằng `claude --permission-mode bypassPermissions`. `/agentflow:doctor` báo ⚠ khi allow list thiếu rule.
