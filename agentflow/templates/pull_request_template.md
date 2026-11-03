@@ -19,6 +19,19 @@
 |---|---|---|
 | AC1 | | |
 
+## Test tự động
+
+| File | AC | Kết quả local |
+|---|---|---|
+| | | pass 3/3 @ |
+
+Ảnh chụp:
+
+## QC tay
+
+<!-- chỉ AC không tự động được: thiết bị thật, dịch vụ ngoài, cảm quan — bỏ mục này nếu không có -->
+- [ ]
+
 ## Cách test cho QC (trên staging)
 
 - Tài khoản / dữ liệu cần:
@@ -29,4 +42,4 @@
 ## Checklist
 
 - [ ] Tự review diff, đã tìm mọi nơi gọi của hàm/kiểu bị đổi
-- [ ] Đã chạy check + test của surface bị chạm
+- [ ] Đã chạy check + test của surface bị chạm, flow mới pass 3 lần liên tiếp

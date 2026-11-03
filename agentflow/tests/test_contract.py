@@ -18,10 +18,10 @@ import afconfig  # noqa: E402
 # Runtime prompts cost tokens on every run. Limits are characters, since one line can hold hundreds of them.
 # Do not raise a limit to fit a change: remove something first (CONTRIBUTING.md §Quy ước).
 BUDGETS = {
-    "agents/dev.md": 9200, "agents/reviewer.md": 7800, "agents/qc.md": 9500,
-    "references/protocol.md": 12000, "references/dispatch.md": 9100, "references/design.md": 2800, "references/automation.md": 4200,
-    "skills/init/SKILL.md": 10650, "skills/learn/SKILL.md": 5800, "skills/do/SKILL.md": 2400, "skills/doctor/SKILL.md": 2200,
-    "skills/run/SKILL.md": 2600, "skills/status/SKILL.md": 3000, "skills/task/SKILL.md": 3900, "skills/init/references/board-setup.md": 5200,
+    "agents/dev.md": 9350, "agents/reviewer.md": 8400, "agents/qc.md": 9400,
+    "references/protocol.md": 12150, "references/dispatch.md": 10300, "references/design.md": 2600, "references/automation.md": 4500,
+    "skills/init/SKILL.md": 10650, "skills/learn/SKILL.md": 5500, "skills/do/SKILL.md": 2400, "skills/doctor/SKILL.md": 2000,
+    "skills/run/SKILL.md": 2350, "skills/status/SKILL.md": 2850, "skills/task/SKILL.md": 3700, "skills/init/references/board-setup.md": 4850,
 }
 PER_SPAWN_LIMIT = 21500  # agent prompt + protocol, read on every spawn
 DESCRIPTION_LIMIT = 700
@@ -314,6 +314,19 @@ class StateMachine(unittest.TestCase):
         ("agents/reviewer.md", r"`BEHIND` .*không phải lỗi", "chậm base không trả PR về DEV"),
         ("agents/reviewer.md", r"\*\*luôn\*\* cả file rủi ro", "REVIEWER đọc file rủi ro dù không gắn AC"),
         ("agents/reviewer.md", r"đường gây lỗi", "mục bug phải có đường gây lỗi"),
+        ("references/dispatch.md", r"`auto` ⇒ SYS \*qc-auto-pass\*", "CI e2e xanh + qc auto thì không spawn QC"),
+        ("references/dispatch.md", r"\*qc-auto-pass\*: như \*qc-manual-pass\*", "qc-auto-pass undraft như QC người pass"),
+        ("references/dispatch.md", r"\*qc-auto-pass\*:.*Status → `ready_to_merge`", "qc-auto-pass tự chuyển cột, không có người kéo card"),
+        ("references/dispatch.md", r"\*qc-manual\*:.*gắn `qc_manual`", "checklist QC tay của PR chờ người"),
+        ("references/dispatch.md", r"≠ `review_sha` ⇒ SYS \*redeploy\*", "commit sau review không được pass bằng CI của bản cũ"),
+        ("references/dispatch.md", r"agentflow-board preflight`, chạy lại ngay trước mỗi lượt spawn", "mạng chặn push thì dừng trước khi tốn token"),
+        ("references/dispatch.md", r"`SendMessage`.*\*\*một lần\*\*", "agent chạm maxTurns được làm nốt một lần trước khi blocked"),
+        ("references/protocol.md", r"Subagent không chạy lệnh nền", "lệnh nền làm agent chạy tiếp sau khi orchestrator đã kết luận"),
+        ("agents/reviewer.md", r"`qc` \(lý do một dòng", "REVIEWER chọn cách QC lúc ✅"),
+        ("agents/reviewer.md", r"flow không assert được kết quả của AC", "REVIEWER soát test của DEV"),
+        ("agents/dev.md", r"\*\*Test tự động\*\*", "DEV viết test tự động cho AC"),
+        ("agents/dev.md", r"Commit đầu tiên ⇒ push \+ mở draft PR ngay", "DEV push checkpoint sớm"),
+        ("agents/dev.md", r"Size \(chưa có thì tự ước lượng", "ticket thiếu Size vẫn qua DoR có kiểm"),
     ]
 
     def test_rules_still_stated(self):

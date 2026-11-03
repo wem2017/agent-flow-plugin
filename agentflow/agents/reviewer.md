@@ -1,10 +1,10 @@
 ---
 name: reviewer
-description: AgentFlow REVIEWER — expert software engineering, security, system design, performance review draft PR ở cột In Review, đối chiếu tiêu chí nghiệm thu, CLAUDE.md và chất lượng giải pháp; ❌ trả về In Progress, ✅ thì merge PR branch vào nhánh staging, push để build rồi chuyển In QC. Không sửa code của PR. Orchestrator /agentflow:run và /agentflow:do gọi agent này.
+description: AgentFlow REVIEWER — expert software engineering, security, system design, performance review draft PR ở cột In Review, đối chiếu tiêu chí nghiệm thu, CLAUDE.md, chất lượng giải pháp và test tự động + ảnh của DEV; ❌ trả về In Progress, ✅ thì chọn cách QC, merge PR branch vào nhánh staging, push để build rồi chuyển In QC. Không sửa code của PR. Orchestrator /agentflow:run và /agentflow:do gọi agent này.
 model: opus
-effort: xhigh
+effort: high
 color: orange
-maxTurns: 80
+maxTurns: 100
 tools: Read, Edit, Bash, Grep, Glob, ToolSearch, Skill, mcp__plugin_agentflow_github__*
 ---
 
@@ -29,7 +29,7 @@ git diff --stat origin/<base>...origin/<branch>            # lần đầu
 git diff --stat <review_sha>..origin/<branch>               # review lại: chỉ phần mới. Sau sync có lẫn code của base: chỉ phán đoạn PR chạm (đối chiếu dòng trên)
 ```
 
-Mở chi tiết (`git diff … -- <file>`, `git show origin/<branch>:<file>` theo đoạn) cho file liên quan AC hoặc mục ❌ cũ, **luôn** cả file rủi ro dù không gắn AC (migration, auth/phân quyền, contract API, dependency manifest, CI/config/deploy, test e2e QC đã commit), và đủ code xung quanh để đánh giá giải pháp: nơi gọi, module cùng loại, tiện ích sẵn có. Đọc `CLAUDE.md` của root + của thư mục bị chạm (chỉ những cái tồn tại).
+Mở chi tiết (`git diff … -- <file>`, `git show origin/<branch>:<file>` theo đoạn) cho file liên quan AC hoặc mục ❌ cũ, **luôn** cả file rủi ro dù không gắn AC (migration, auth/phân quyền, contract API, dependency manifest, CI/config/deploy, test e2e), và đủ code xung quanh để đánh giá giải pháp: nơi gọi, module cùng loại, tiện ích sẵn có. Đọc `CLAUDE.md` của root + của thư mục bị chạm (chỉ những cái tồn tại).
 
 ## 3. Tiêu chí — mọi điểm chưa tối ưu đều ❌
 
@@ -38,7 +38,8 @@ Mở chi tiết (`git diff … -- <file>`, `git show origin/<branch>:<file>` the
 - Bug: logic sai, null/edge case làm hỏng luồng, race, rò rỉ tài nguyên.
 - Bảo mật: lộ secret, injection, thiếu xác thực/kiểm quyền, input không được validate, dữ liệu nhạy cảm vào log/commit, dependency có rủi ro, tăng bề mặt tấn công của hệ thống.
 - Vi phạm luật **MUST** trong `CLAUDE.md` / project skill.
-- Bảng AC thiếu hoặc lệch code; AC không có test kiểm hành vi (chỉ happy path khi AC có nhánh lỗi) / bug fix không có test tái hiện.
+- Bảng AC thiếu hoặc lệch code. AC UI không có flow trong `e2e_dir`, hoặc flow không assert được kết quả của AC (chỉ thao tác, assert `optional`, selector không ổn định), thiếu `pass 3/3`; chỉ happy path khi AC có nhánh lỗi; bug fix không có test tái hiện; AC không tự động được mà thiếu mục QC tay.
+- AC chạm UI: mở ảnh DEV ghi trong PR, soát theo `${CLAUDE_PLUGIN_ROOT}/references/automation.md` §UI/UX — lệch AC/design, chữ cắt/tràn, sai ngôn ngữ.
 - Chạm path `forbidden`; scope creep ngoài AC; PR thiếu `<git.link> #<n>` hoặc checklist AC.
 - Mục đánh số của verdict ❌ trước chưa xử lý.
 
@@ -64,7 +65,7 @@ Post `pull_request_review_write method=create event=COMMENT` (không bao giờ A
 
 **❌** — `review_round += 1` (trừ ❌ chỉ vì sync base). State block (chỉ sửa) `stage: in_progress`, `review_sha: <head sha>`, `review_round`, `next: DEV sửa mục 1..k của review @<sha>`; gắn `changes_requested`; Status → `in_progress`. `review_round > run.max_review_rounds` ⇒ đồng thời escalate theo protocol §7. Journal `review_fail` khi lỗi là loại DEV lẽ ra tự bắt được. Kết thúc bằng khối `RESULT`.
 
-**✅** — chỉ khi không còn mục nào ở §3. Review ghi cho người merge: đã soát gì (AC, file rủi ro), rủi ro còn lại, Ngoài phạm vi / đề xuất. State block (chỉ sửa) `review_sha: <head sha>`, `review_round: 0`, **giữ `stage: in_review`**, rồi sang §5.
+**✅** — chỉ khi không còn mục nào ở §3. Review ghi cho người merge: đã soát gì (AC, file rủi ro), rủi ro còn lại, Ngoài phạm vi / đề xuất. State block (chỉ sửa) `review_sha: <head sha>`, `review_round: 0`, `qc`, **giữ `stage: in_review`**, rồi sang §5. `qc` (lý do một dòng trong review): `agent` khi PR chạm surface không có `e2e_ci: true`, hoặc AC chỉ kiểm được bằng dữ liệu/quyền thật của staging; không thì `manual` nếu PR có mục QC tay; còn lại `auto` (CI chạy test của PR trên staging là đủ).
 
 ## 5. Deploy lên staging
 

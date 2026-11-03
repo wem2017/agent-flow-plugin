@@ -1,4 +1,4 @@
-# Automation test — chỉ QC đọc, khi viết hoặc sửa test e2e
+# Automation test — DEV (viết test cho AC) và QC (khi được gọi) đọc
 
 Luật của repo thắng file này: `CLAUDE.md` của surface, test có sẵn trong `e2e_dir` (đặt tên, selector, subflow), project skill về test. Đọc vài test có sẵn trước khi viết test mới.
 
@@ -15,7 +15,11 @@ Luật của repo thắng file này: `CLAUDE.md` của surface, test có sẵn t
 - Không chờ cố định: `extendedWaitUntil` (`visible:` + `timeout`), `assertVisible` / `assertNotVisible` sau mỗi hành động có kết quả; danh sách dài ⇒ `scrollUntilVisible`.
 - Dùng lại subflow sẵn có (`runFlow:` đăng nhập…); subflow mới chỉ khi ≥ 2 flow dùng.
 - Flow mới phải pass **3 lần liên tiếp** trước khi tính là pass. Fail một lần = flaky: sửa cách chờ, selector, dữ liệu; không thêm `retry` để che.
-- Không thêm dependency, không sửa config framework, CI hay code app (hook chặn). Thiếu id để chọn ổn định ⇒ không sửa app: dùng chữ / label, ghi "đề xuất thêm id" vào verdict.
+- Không thêm dependency, không sửa config framework hay CI. Thiếu id để chọn ổn định ⇒ DEV thêm theo quy ước repo; QC không sửa app (hook chặn): dùng chữ / label, ghi "đề xuất thêm id" vào verdict.
+
+## DEV
+
+Chạy local trước khi push: build trỏ staging (PR đổi backend ⇒ stack local), flow mới pass 3 lần, chụp ảnh từng state AC rồi tự xem (§UI/UX). PR ghi file → AC, `pass 3/3 @<sha>`, path ảnh. Không chạy app chỉ để xem thử. Surface có `e2e_ci` ⇒ CI chạy lại cả suite trên staging; không có ⇒ QC chạy.
 
 ## Maestro
 

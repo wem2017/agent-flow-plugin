@@ -12,7 +12,7 @@ import unittest
 from unittest import mock
 
 GUARD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "guard.py")
-CONFIG = ("schema: 4\ngit:\n  base: master\n  protected: [staging, production]\nstaging:\n  branch: staging\nforbidden: [\"secret/**\"]\n"
+CONFIG = ("schema: 5\ngit:\n  base: master\n  protected: [staging, production]\nstaging:\n  branch: staging\nforbidden: [\"secret/**\"]\n"
           "surfaces:\n  web:\n    path: web/\n    e2e_dir: e2e\n")
 FAKE_PAT = "gh" + "p_" + "a1B2" * 9
 
@@ -458,7 +458,7 @@ class GuardCase(unittest.TestCase):
     def test_worktree_copy_of_config_cannot_weaken_the_guard(self):
         wt = os.path.join(self.repo, ".claude/worktrees/af-7")
         with open(os.path.join(wt, "agentflow.yaml"), "w") as fh:
-            fh.write("schema: 4\ngit:\n  base: nothing\nstaging:\n  branch: nothing\n")
+            fh.write("schema: 5\ngit:\n  base: nothing\nstaging:\n  branch: nothing\n")
         try:
             self.want("BLOCK", "Bash", {"command": "git push origin HEAD:master"}, cwd=wt, agent_type="agentflow:dev")
             self.want("BLOCK", "Bash", {"command": "git push origin HEAD:staging"}, cwd=wt, agent_type="agentflow:dev")

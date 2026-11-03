@@ -100,6 +100,8 @@ class Validate(unittest.TestCase):
             (lambda c: c.update(surfaces={"web": {"path": "web/", "e2e_dir": "../src"}}), "surfaces.web.e2e_dir"),
             (lambda c: c.update(surfaces={"web": {"path": "web/", "e2e_dir": "/abs/e2e"}}), "surfaces.web.e2e_dir"),
             (lambda c: c.update(surfaces={"ci": {"path": "./", "e2e_dir": ".github/e2e"}}), "surfaces.ci.e2e_dir"),
+            (lambda c: c.update(surfaces={"web": {"path": "web/", "e2e_dir": "e2e", "e2e_ci": "yes"}}), "surfaces.web.e2e_ci"),
+            (lambda c: c.update(surfaces={"web": {"path": "web/", "e2e_ci": True}}), "surfaces.web.e2e_ci"),
         ]
         for change, needle in cases:
             cfg = filled_config()
@@ -114,6 +116,11 @@ class Validate(unittest.TestCase):
         warns = [m for level, m in afconfig.validate_config(cfg) if level == "warn"]
         self.assertTrue(any("oops" in m for m in warns))
         self.assertTrue(any("git.protected" in m for m in warns))
+
+    def test_e2e_ci_with_folder_is_valid(self):
+        cfg = filled_config()
+        cfg["surfaces"] = {"web": {"path": "web/", "e2e_dir": ".maestro", "e2e_ci": True}, "api": {"path": "api/", "e2e_ci": False}}
+        self.assertEqual(self.problems(cfg), [])
 
     def test_e2e_without_folder_warns(self):
         cfg = filled_config()
@@ -185,15 +192,15 @@ class Repo(unittest.TestCase):
 
     def test_worktree_lookups_reach_the_main_checkout(self):
         with open(os.path.join(self.repo, "agentflow.yaml"), "w") as fh:
-            fh.write("schema: 4\n")
+            fh.write("schema: 5\n")
         git(self.repo, "worktree", "add", "-q", "wt", "-b", "f")
         wt = os.path.join(self.repo, "wt")
         self.assertEqual(afconfig.main_root(wt), self.repo)
         self.assertEqual(afconfig.main_root(self.repo), self.repo)
-        self.assertEqual(afconfig.load_config(wt), {"schema": 4})
+        self.assertEqual(afconfig.load_config(wt), {"schema": 5})
         with open(os.path.join(wt, "agentflow.yaml"), "w") as fh:
             fh.write("schema: 99\n")
-        self.assertEqual(afconfig.load_config(wt), {"schema": 4})  # an agent writes in its worktree: the main copy wins
+        self.assertEqual(afconfig.load_config(wt), {"schema": 5})  # an agent writes in its worktree: the main copy wins
         self.assertEqual(afconfig.settings_path(wt), os.path.join(self.repo, ".claude", "settings.local.json"))
 
     def test_no_config(self):

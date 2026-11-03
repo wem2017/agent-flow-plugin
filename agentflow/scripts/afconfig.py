@@ -11,7 +11,7 @@ import re
 import subprocess
 
 CONFIG_NAME = "agentflow.yaml"
-SCHEMA = 4
+SCHEMA = 5
 
 DEFAULT_FORBIDDEN = [".claude/settings.local.json", "**/.env", "**/.env.*", "**/*.pem", "**/*.key", "**/*.p12", "**/*.pfx", "**/*.jks", "**/*.keystore",
                      "**/.netrc", "**/.git-credentials", "**/id_rsa", "**/id_ed25519"]
@@ -287,7 +287,12 @@ def validate_config(cfg):
         if e2e_dir and not _test_folder(e2e_dir, str(surface["path"])):
             fail("surfaces.%s.e2e_dir phải là thư mục con của surface, không `.`, `..`, thư mục CI/config như `.github` (đang là %r)" % (key, e2e_dir))
         elif surface.get("e2e") and not e2e_dir:
-            warn("surfaces.%s có e2e mà thiếu e2e_dir — QC chạy được test nhưng không commit được test tự động" % key)
+            warn("surfaces.%s có e2e mà thiếu e2e_dir — test tự động không commit được vào PR" % key)
+        e2e_ci = surface.get("e2e_ci")
+        if e2e_ci is not None and not isinstance(e2e_ci, bool):
+            fail("surfaces.%s.e2e_ci phải là true hoặc false (đang là %r)" % (key, e2e_ci))
+        elif e2e_ci and not e2e_dir:
+            fail("surfaces.%s.e2e_ci: true mà thiếu e2e_dir — CI không có test của PR để chạy, CI xanh không chứng minh AC" % key)
     for key in ("parallel", "max_tasks", "max_review_rounds", "max_qc_rounds"):
         positive_int("run", key)
     positive_int("staging", "timeout_min")

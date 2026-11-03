@@ -25,6 +25,8 @@ Auth: env.GITHUB_TOKEN of .claude/settings.local.json, else $GITHUB_TOKEN, else 
   feedback <owner/repo> --issue N [--issue M ...] [--summary]   people's feedback on the PR of each issue
        (state block `pr`, else the one open PR linked to it); one JSON line per issue
   doctor [--root DIR]                       check agentflow.yaml against GitHub
+  preflight [--root DIR]                    before spawning: can this machine push to origin, which env is missing;
+                                            one JSON line
 """
 
 import argparse
@@ -50,7 +52,7 @@ STATUS_DESC = {
     "ready": "Đủ tiêu chí nghiệm thu, có Priority + Size: DEV agent nhặt từ đây, chỉ PO kéo việc mới vào. Nhãn qc-failed = QC trả về.",
     "in_progress": "DEV đang làm, hoặc đang sửa theo review/QC (nhãn changes-requested / qc-failed).",
     "in_review": "Draft PR đã mở — agent review (Opus) độ đúng, đủ và chất lượng giải pháp; ✅ thì merge vào staging.",
-    "in_qc": "Nhãn deploying = chờ pipeline staging. Sau đó QC agent test trên staging. Nhãn qc-manual = chờ QC người.",
+    "in_qc": "Nhãn deploying = chờ pipeline staging chạy test e2e của PR. CI xanh: undraft, hoặc QC agent test thêm. Nhãn qc-manual = chờ QC người.",
     "ready_to_merge": "Review + QC đã pass, PR đã undraft. Người approve + merge. Muốn sửa: Request changes trên PR.",
     "done": "PR đã merge, issue đã đóng.",
 }
@@ -682,6 +684,51 @@ def _uses_maestro(cfg):
                for s in surfaces.values() if isinstance(s, dict))
 
 
+CREDENTIALS_IN_URL = re.compile(r"(://)[^/@\s]+@")
+
+
+def _push_probe(root, base):
+    """Dry-run push of the base onto itself: needs the push endpoint and push credentials, writes nothing.
+    A network that lets fetch through but blocks push (git-receive-pack) only shows up here."""
+    if not base:
+        return False, "không xác định được base branch"
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+    env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes -o ConnectTimeout=15")
+    ref = "refs/remotes/origin/%s" % base
+    try:
+        subprocess.run(["git", "fetch", "-q", "origin", base], cwd=root, env=env, capture_output=True, timeout=60)
+        res = subprocess.run(["git", "push", "--dry-run", "--porcelain", "origin", "%s:refs/heads/%s" % (ref, base)],
+                             cwd=root, env=env, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return False, "git push --dry-run quá 60 giây — mạng chặn hoặc treo endpoint push"
+    except OSError as err:
+        return False, "không chạy được git (%s)" % err
+    if res.returncode == 0 or "\n!" in "\n" + res.stdout:
+        return True, ""
+    lines = [l.strip() for l in (res.stderr or res.stdout).splitlines() if l.strip()]
+    return False, CREDENTIALS_IN_URL.sub(r"\1", lines[-1] if lines else "exit %d" % res.returncode)[:240]
+
+
+def _needed_env(cfg):
+    notify = cfg.get("notify") or {}
+    return ["GITHUB_TOKEN"] + (["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"] if notify.get("telegram") else []) + afconfig.staging_env_names(cfg)
+
+
+def cmd_preflight(a):
+    root = a.root or afconfig.repo_root() or "."
+    try:
+        cfg = afconfig.load_config(root) or {}
+    except ValueError:
+        cfg = {}
+    base = (cfg.get("git") or {}).get("base") or afconfig.default_branch(root)
+    pushed, why = _push_probe(root, base)
+    local_env = afconfig.settings_env(root)
+    out = {"push": pushed, "missing_env": [n for n in _needed_env(cfg) if not local_env.get(n)]}
+    if not pushed:
+        out["push_error"] = why
+    print(json.dumps(out, ensure_ascii=False))
+
+
 def cmd_doctor(a):
     root = a.root or afconfig.repo_root() or "."
     ok = lambda m: print("✓ " + m)  # noqa: E731
@@ -722,8 +769,7 @@ def cmd_doctor(a):
     tracked = subprocess.run(["git", "ls-files", "--error-unmatch", ".claude/settings.local.json"], cwd=root, capture_output=True).returncode == 0
     (ok if ignored and not tracked else fail)(".claude/settings.local.json gitignored%s" % (" nhưng đang bị TRACK" if tracked else ""))
     local_env = afconfig.settings_env(root)
-    notify = cfg.get("notify") or {}
-    need = ["GITHUB_TOKEN"] + (["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"] if notify.get("telegram") else []) + afconfig.staging_env_names(cfg)
+    need = _needed_env(cfg)
     missing = [n for n in need if not local_env.get(n)]
     (fail if missing else ok)("env của .claude/settings.local.json: %s" % (
         "thiếu " + ", ".join(missing) + " — agentflow-settings import GITHUB_TOKEN (chép token đang dùng) / set-secret <TÊN>" if missing else ", ".join(need)))
@@ -792,6 +838,8 @@ def cmd_doctor(a):
         base = gitc.get("base") or afconfig.default_branch(root)
         if base and afconfig.git(["ls-remote", "--exit-code", "--heads", "origin", base], cwd=root, timeout=20) is not None:
             ok("base branch %s · protected %s" % (base, sorted(afconfig.protected_branches(cfg, root))))
+            pushed, why = _push_probe(root, base)
+            (ok if pushed else fail)("push lên origin%s" % ("" if pushed else " không được: %s — agent không mở PR, deploy hay commit test được" % why))
         else:
             fail("base branch %r không có trên origin" % base)
         stag = afconfig.staging_branch(cfg)
@@ -858,11 +906,12 @@ def main():
     s = sub.add_parser("feedback"); s.add_argument("slug"); s.add_argument("--issue", type=int, action="append", required=True)
     s.add_argument("--summary", action="store_true", help="một dòng mỗi issue: pr + số mục chờ DEV")
     s = sub.add_parser("doctor"); s.add_argument("--root")
+    s = sub.add_parser("preflight"); s.add_argument("--root")
     a = p.parse_args()
     handler = {"whoami": cmd_whoami, "inspect": cmd_inspect, "items": cmd_items, "status-plan": cmd_status_plan,
                "status-apply": cmd_status_apply, "ensure-field": cmd_ensure_field, "create": cmd_create,
                "labels": cmd_labels, "repo": cmd_repo, "issue-types": cmd_issue_types, "metrics": cmd_metrics, "checks": cmd_checks,
-               "feedback": cmd_feedback, "doctor": cmd_doctor}[a.cmd]
+               "feedback": cmd_feedback, "doctor": cmd_doctor, "preflight": cmd_preflight}[a.cmd]
     try:
         handler(a)
     except RuntimeError as err:

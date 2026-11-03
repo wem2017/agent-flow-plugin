@@ -33,10 +33,10 @@ Theo đúng thứ tự section của issue form (heading `### <label của field
 - [ ] … (3–7 dòng, ít nhất một dòng cho đường lỗi)
 ### Ngoài phạm vi
 ### Thiết kế                  (link Figma có node-id / ảnh / path — nếu có UI)
-### Hướng dẫn cho QC          (cần test gì, ở đâu; mục nào cần test tay trên thiết bị)
+### Hướng dẫn cho QC          (cần test gì, ở đâu, dữ liệu/tài khoản cần có)
 ```
 
-Luật AC: mỗi dòng **một** hành vi kiểm được, không mô tả cách hiện thực (không tên file/hàm/thư viện). Tiêu đề: `<động từ> <đối tượng> <ngữ cảnh>`, không nhét `[Type]` vào tiêu đề.
+Luật AC: mỗi dòng **một** hành vi kiểm được, không mô tả cách hiện thực (không tên file/hàm/thư viện). AC chỉ kiểm được trên thiết bị thật, dịch vụ ngoài hay bằng cảm quan ⇒ đuôi `[tay]`; còn lại agent tự động hoá. Tiêu đề: `<động từ> <đối tượng> <ngữ cảnh>`, không nhét `[Type]` vào tiêu đề.
 
 **Trình bản nháp** (tiêu đề + body + type + Priority/Size/Platform gợi ý) → chờ người duyệt hoặc sửa. Chưa duyệt chưa ghi.
 

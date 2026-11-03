@@ -261,7 +261,7 @@ class Metrics(BoardCase):
         self.assertIn("#3 Ready to Merge", out)
 
 
-CONFIG = """schema: 4
+CONFIG = """schema: 5
 board:
   url: %s
   status: {backlog: Backlog, ready: Ready, in_progress: In Progress, in_review: In Review, in_qc: In QC, ready_to_merge: Ready to Merge, done: Done}
@@ -294,9 +294,10 @@ class Doctor(BoardCase):
                 return None if args[-1] in self.missing_branches else "x"
             return real_git(args, cwd=cwd, timeout=timeout)
         self.missing_branches = set()
-        patcher = mock.patch.object(afconfig, "git", fake_git)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        self.push = (True, "")
+        for patcher in (mock.patch.object(afconfig, "git", fake_git), mock.patch.object(board, "_push_probe", lambda root, base: self.push)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.good_github()
 
     def write_config(self, text):
@@ -384,7 +385,7 @@ class Doctor(BoardCase):
         self.assertIn("loại trùng", self.doctor()[1])
 
     def test_schema_mismatch(self):
-        self.write_config(CONFIG.replace("schema: 4", "schema: 3"))
+        self.write_config(CONFIG.replace("schema: 5", "schema: 3"))
         code, out = self.doctor()
         self.assertEqual(code, 1)
         self.assertIn("schema 3", out)
@@ -432,6 +433,66 @@ class Doctor(BoardCase):
         with mock.patch.object(board, "_TOKEN", secret):
             _, out = self.doctor()
         self.assertNotIn(secret, out)
+
+    def test_push_blocked_by_network_fails(self):
+        self.push = (False, "fatal: unable to access 'https://github.com/acme/app.git/': The requested URL returned error: 403")
+        code, out = self.doctor()
+        self.assertEqual(code, 1)
+        self.assertIn("push lên origin không được", out)
+
+    def test_e2e_ci_needs_e2e_dir(self):
+        os.makedirs(os.path.join(self.repo, "web"))
+        self.write_config(CONFIG + 'surfaces:\n  web:\n    path: "web/"\n    check: "true"\n    e2e_ci: true\n')
+        code, out = self.doctor()
+        self.assertEqual(code, 1)
+        self.assertIn("e2e_ci: true mà thiếu e2e_dir", out)
+
+
+class Preflight(unittest.TestCase):
+    """Real git against a local bare remote: the probe passes where push works, fails where it does not, writes nothing."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        base = os.path.realpath(self.tmp.name)
+        self.remote, self.repo = os.path.join(base, "remote.git"), os.path.join(base, "repo")
+
+        def git(*args, cwd=base):
+            return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout
+        self.git = git
+        git("init", "-q", "--bare", "-b", "master", self.remote)
+        git("init", "-q", "-b", "master", self.repo)
+        git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init", cwd=self.repo)
+        git("remote", "add", "origin", self.remote, cwd=self.repo)
+        git("push", "-q", "origin", "HEAD:refs/heads/master", cwd=self.repo)
+        with open(os.path.join(self.repo, "agentflow.yaml"), "w") as fh:
+            fh.write(CONFIG.replace('url: "https://s.example"', 'url: "https://s.example", notes: "E2E_EMAIL"'))
+        os.makedirs(os.path.join(self.repo, ".claude"))
+        with open(os.path.join(self.repo, ".claude", "settings.local.json"), "w") as fh:
+            json.dump({"env": {"GITHUB_TOKEN": "t"}}, fh)
+        self.head = git("rev-parse", "master", cwd=self.remote)
+
+    def preflight(self):
+        out = io.StringIO()
+        with mock.patch.object(sys, "argv", ["agentflow-board", "preflight", "--root", self.repo]), contextlib.redirect_stdout(out):
+            board.main()
+        return json.loads(out.getvalue())
+
+    def test_push_ok_and_missing_env(self):
+        self.assertEqual(self.preflight(), {"push": True, "missing_env": ["E2E_EMAIL"]})
+        self.assertEqual(self.git("rev-parse", "master", cwd=self.remote), self.head)
+
+    def test_push_blocked(self):
+        self.git("remote", "set-url", "--push", "origin", os.path.join(self.tmp.name, "gone.git"), cwd=self.repo)
+        res = self.preflight()
+        self.assertFalse(res["push"])
+        self.assertTrue(res["push_error"])
+
+    def test_credentials_in_url_never_printed(self):
+        self.git("remote", "set-url", "--push", "origin", "https://x-access-token:secretvalue123@127.0.0.1:9/a.git", cwd=self.repo)
+        res = self.preflight()
+        self.assertFalse(res["push"])
+        self.assertNotIn("secretvalue123", json.dumps(res))
 
 
 class Feedback(BoardCase):

@@ -30,7 +30,7 @@ import fake_github  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN = os.path.realpath(os.path.join(HERE, "..", ".."))
-AGENTFLOW_YAML = """schema: 4
+AGENTFLOW_YAML = """schema: 5
 lang: vi
 board:
   url: https://github.com/orgs/acme/projects/3

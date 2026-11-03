@@ -7,6 +7,7 @@ Session chính là **orchestrator**: đọc board, chọn agent cho từng ticke
 1. `git rev-parse --show-toplevel`; `agentflow.yaml` + schema gate. Repo + base từ git (protocol §1).
 2. Nạp tool MCP một lần (protocol §3), `get_me` → `my_login`. Fail → dừng: "GitHub MCP chưa connect — `/agentflow:doctor`."
 3. `projects_get method=get_project` một lần. Fail → dừng, gợi `/agentflow:doctor`.
+4. `agentflow-board preflight`, chạy lại ngay trước mỗi lượt spawn → `push: false` ⇒ dừng lượt, không spawn, không ghi lên ticket, báo `push_error` (mạng chặn push / credential). `missing_env` ⇒ nêu ở báo cáo cuối.
 
 ## 2. Đọc hàng đợi
 
@@ -24,7 +25,7 @@ Mỗi lượt **một lần**:
 
 ## 3. Bảng hành động
 
-`A` = có label `labels.agent`. Ticket **không** `A` mà assign cho người khác → bỏ qua (ticket của người). Ticket `A` thì **bỏ qua assignee** (QC/reviewer người hay tự assign để làm việc của họ).
+`A` = có label `labels.agent`. Ticket **không** `A` mà assign cho người khác → bỏ qua (ticket của người). Ticket `A` thì **bỏ qua assignee** (người hay tự assign để làm việc của họ).
 
 | Status | Điều kiện | Hành động | Hạng |
 |---|---|---|---|
@@ -48,6 +49,8 @@ Mỗi lượt **một lần**:
 - *done*: Status → `done`, comment `[AF:SYS] done`, gỡ `qc_manual`; xoá worktree (§7).
 - *feedback*: state `stage: in_progress`, `next: DEV xử lý góp ý trên PR #<m>`; comment `[AF:SYS] feedback`; gắn `changes_requested`, gỡ `qc_manual`, `deploying`; `update_pull_request draft=true` nếu PR chưa draft (chưa qua QC thì chưa merge được); Status → `in_progress`. Không tăng round.
 - *qc-manual-pass*: state `stage: ready_to_merge`, `review_round: 0`, `qc_round: 0`; comment `[AF:SYS] qc-manual-pass`; `update_pull_request draft=false` rồi mới gỡ `qc_manual`, `qc_failed` (lỗi giữa chừng còn chạy lại được). Không spawn.
+- *qc-auto-pass*: như *qc-manual-pass*, thêm `qc_sha: <head PR>` vào state, comment `[AF:SYS] qc-auto-pass @<sha staging>`, gỡ cả `deploying`; Status → `ready_to_merge`; mention `people.reviewers`, `agentflow-notify ready_to_merge …`.
+- *qc-manual*: state `qc_sha: <head PR>`, `next: QC người test mục QC tay của PR #<m>`; comment `[AF:SYS] qc-manual @<sha staging>` + link mục "QC tay" của PR + "Pass: tick rồi kéo card sang <board.status.ready_to_merge>; fail: gắn `<labels.qc_failed>` + comment lỗi", mention `people.qc`; gỡ `deploying`, gắn `qc_manual`; `agentflow-notify qc_manual …`; giữ `in_qc`.
 - *qc-failed*: `qc_round += 1` (vượt `max_qc_rounds` → escalate theo protocol §7 và không spawn DEV); comment `[AF:SYS] qc-failed`; gỡ `qc_manual`, giữ `qc_failed`; state `stage: ready`; Status → `ready`.
 
 ## 3b. Kiểm pipeline staging
@@ -64,7 +67,7 @@ Luôn xét **head** của staging: merge dồn nên head chứa `deploy_sha` là
 | Kết quả | Hành động |
 |---|---|
 | `contains: false` | Người đã reset staging. SYS *redeploy*: gỡ `deploying`, state `stage: in_review`, `next: Deploy lại lên staging`, comment `[AF:SYS] redeploy — staging không còn chứa <deploy_sha>`, Status → `in_review` (verdict ✅ còn đó nên REVIEWER đi thẳng tới bước deploy) |
-| `success` | SYS *pipeline-ok*: gỡ `deploying`, comment `[AF:SYS] pipeline-ok @<sha>`, state `next: QC test trên staging`, rồi spawn QC |
+| `success` | Head PR (`pull_request_read method=get`) ≠ `review_sha` ⇒ SYS *redeploy*, lý do "commit mới sau review". Không thì theo `qc` của state: `auto` ⇒ SYS *qc-auto-pass* · `manual` ⇒ SYS *qc-manual* · `agent`/thiếu ⇒ SYS *pipeline-ok*: gỡ `deploying`, comment `[AF:SYS] pipeline-ok @<sha>`, state `next: QC test trên staging`, rồi spawn QC |
 | `failure` | Spawn QC, thêm vào prompt `PIPELINE: failed <sha> <name + url của các check fail>` (QC phân loại) |
 | `pending`, chưa quá `staging.timeout_min` từ `deploy_at` | Không spawn: ticket vào danh sách đang build |
 | `pending`, đã quá | SYS *pipeline-timeout*: state `deploy_at: <bây giờ>` (bỏ `blocked` là tính lại từ đầu), gắn `blocked`, comment `[AF:SYS] pipeline-timeout` + `sha`, mention `people.po`, `agentflow-notify blocked …` (head không có check nào cũng rơi vào đây) |
@@ -75,7 +78,7 @@ Không còn gì để spawn mà danh sách đang build chưa rỗng: chạy lệ
 
 Sắp theo **hạng** tăng dần, rồi vị trí option Priority (option đầu = cao nhất; không có = cuối), rồi số issue tăng dần.
 
-Model: DEV = `run.models.dev[<Size>]` nếu có, không thì `run.models.dev.default`; REVIEWER = `run.models.reviewer` (mặc định opus); QC = `run.models.qc` (mặc định opus: QC viết test tự động).
+Model: DEV = `run.models.dev[<Size>]` nếu có, không thì `run.models.dev.default`; REVIEWER = `run.models.reviewer` (mặc định opus); QC = `run.models.qc` (mặc định opus).
 
 ## 5. Spawn
 
@@ -89,7 +92,7 @@ Agent(subagent_type="agentflow:<dev|reviewer|qc>", model=<model>,
 
 ## 6. Sau mỗi kết quả
 
-1. Đọc khối `RESULT` (bỏ qua narrative). Đọc lại Status bằng `get_project_item` (`field_names: ["Status"]`) — **Status là sự thật**. Không có `RESULT` (agent chạm `maxTurns` hoặc chết giữa chừng) ⇒ gắn `blocked`, comment `[AF:SYS] stuck — <agent> dừng không có RESULT, ticket ở <stage>`, journal `tool_error`, dừng ticket.
+1. Đọc khối `RESULT` (bỏ qua narrative). Đọc lại Status bằng `get_project_item` (`field_names: ["Status"]`) — **Status là sự thật**. Không có `RESULT`: thông báo nói agent còn chạy nền ⇒ chờ thông báo kế. Đã dừng hẳn (`maxTurns`, chết giữa chừng) ⇒ `SendMessage` (ToolSearch) cho chính agent đó **một lần** "làm nốt, kết thúc bằng khối RESULT" (tính một spawn); vẫn không có ⇒ gắn `blocked`, comment `[AF:SYS] stuck — <agent> dừng không có RESULT, ticket ở <stage>`, journal `tool_error`, dừng ticket.
 2. RESULT ≠ `ok` (`waiting_human`, `needs_info`, `blocked`, `escalated`, `abort`) → **dừng ticket**, đếm là 1 ticket xong.
 3. RESULT `ok` + tới `ready_to_merge` → dừng ticket, đếm 1.
 4. RESULT `ok` + stage mới do agent sở hữu → **đi tiếp ngay ticket đó** ở lượt spawn kế (chain DEV → REVIEWER → pipeline → QC; QC ❌ → DEV `MODE=rework` → REVIEWER …). REVIEWER xong ⇒ §3b, không spawn QC ngay.

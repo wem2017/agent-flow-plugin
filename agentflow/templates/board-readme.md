@@ -10,9 +10,9 @@ Board chung của PO, Dev, QC — có agent AgentFlow làm Dev, Reviewer và QC 
 |---|---|---|
 | {{BACKLOG}} | PO | Viết tiêu chí nghiệm thu, đặt Priority + Size, rồi **kéo sang {{READY}}** |
 | {{READY}} | Agent DEV | Nhận việc, tạo nhánh, code. Nhãn `{{QC_FAILED}}` = QC trả về, sửa trước việc mới |
-| {{IN_PROGRESS}} | Agent DEV | Code, chạy check, mở draft PR; sửa theo review |
-| {{IN_REVIEW}} | Agent Reviewer | Review độ đúng, đủ và chất lượng giải pháp; ✅ thì merge lên staging |
-| {{IN_QC}} | Agent QC (+ QC người) | Nhãn `{{DEPLOYING}}` = chờ pipeline staging. Sau đó test trên staging, viết test e2e tự động và commit vào PR; nhãn `{{QC_MANUAL}}` = chờ QC người test tay theo checklist |
+| {{IN_PROGRESS}} | Agent DEV | Code + test tự động cho từng tiêu chí (flow e2e chạy thử, ảnh chụp), chạy check, mở draft PR; sửa theo review |
+| {{IN_REVIEW}} | Agent Reviewer | Review độ đúng, đủ, chất lượng giải pháp, cả test và ảnh của DEV; ✅ thì chọn cách QC và merge lên staging |
+| {{IN_QC}} | CI, Agent QC khi cần (+ QC người) | Nhãn `{{DEPLOYING}}` = chờ pipeline staging chạy test e2e của PR. CI xanh thì undraft PR; ticket chạm phần CI không phủ thì agent QC test thêm trên staging; nhãn `{{QC_MANUAL}}` = chờ QC người test tay theo checklist |
 | {{READY_TO_MERGE}} | Người | PR đã undraft. Approve + merge. Muốn sửa: comment trên dòng code của PR, Request changes, hoặc gắn `{{CHANGES_REQUESTED}}` |
 | {{DONE}} | — | PR đã merge, issue tự đóng |
 
@@ -32,7 +32,7 @@ Comment trên dòng code của PR (hoặc Request changes) khi ticket ở {{IN_R
 
 ## QC người
 
-Agent comment checklist `[AF:QC] 🧪`, test trên staging. Pass: tick hết rồi kéo card sang **{{READY_TO_MERGE}}** (lượt agent kế tiếp sẽ undraft PR). Fail: gắn `{{QC_FAILED}}` + comment lỗi — agent tự sửa.
+Agent comment checklist (`[AF:QC] 🧪`, hoặc `[AF:SYS] qc-manual` trỏ tới mục QC tay của PR), test trên staging. Pass: tick hết rồi kéo card sang **{{READY_TO_MERGE}}** (lượt agent kế tiếp sẽ undraft PR). Fail: gắn `{{QC_FAILED}}` + comment lỗi — agent tự sửa.
 
 ## Lệnh (Claude Code, trong repo)
 

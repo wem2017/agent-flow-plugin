@@ -11,7 +11,7 @@ git config user.name t
 git remote add origin "file://$BARE"
 printf '.origin/\n.claude/settings.local.json\n.claude/worktrees/\n.env\n' > .gitignore
 cat > agentflow.yaml <<'YAML'
-schema: 4
+schema: 5
 lang: vi
 board:
   url: https://github.com/orgs/acme/projects/3

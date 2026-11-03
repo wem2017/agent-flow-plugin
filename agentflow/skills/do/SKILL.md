@@ -1,6 +1,6 @@
 ---
 name: do
-description: Xử lý MỘT issue chỉ định (#n) qua các stage agent làm được — DEV → REVIEWER → pipeline staging → QC — cho tới khi nó dừng ở cổng của người (Ready to Merge, QC tay, cần thông tin, bị chặn).
+description: Xử lý MỘT issue chỉ định (#n) qua các stage agent làm được — DEV (code + test) → REVIEWER → pipeline staging (CI chạy test) → QC khi cần — cho tới khi nó dừng ở cổng của người (Ready to Merge, QC tay, cần thông tin, bị chặn).
 argument-hint: "#<số issue> [--model sonnet|opus]"
 disable-model-invocation: true
 ---

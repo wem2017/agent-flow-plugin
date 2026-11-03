@@ -2,7 +2,7 @@
 # Commit được: KHÔNG BAO GIỜ chứa secret (secret nằm ở env của .claude/settings.local.json).
 # Mỗi key chỉ giữ thứ không suy ra được từ git. Kiểm tra: /agentflow:doctor
 
-schema: 4                      # version của file này, không phải của plugin
+schema: 5                      # version của file này, không phải của plugin
 lang: vi                       # ngôn ngữ agent viết issue/comment/PR
 
 # ── BOARD ────────────────────────────────────────────────────────────────────
@@ -57,9 +57,11 @@ git:
 #     platform: "Web"          # option của field Platform ứng với surface
 #     check: "pnpm typecheck && pnpm lint"
 #     test: "pnpm test"
-#     e2e: ""                  # tuỳ chọn — QC chạy nhắm vào staging, có env STAGING_URL, vd "BASE_URL=$STAGING_URL pnpm e2e"
-#     e2e_dir: ""              # tuỳ chọn — thư mục test e2e trong surface, vd ".maestro" (Maestro, QC ưu tiên cho UI) hoặc "e2e": QC viết test tự động
-#                              # và commit vào PR, chỉ trong thư mục này (hook chặn file khác). Trống ⇒ QC không commit test
+#     e2e: ""                  # tuỳ chọn — lệnh chạy cả suite e2e nhắm vào staging, có env STAGING_URL, vd "BASE_URL=$STAGING_URL pnpm e2e"
+#     e2e_dir: ""              # tuỳ chọn — thư mục test e2e trong surface, vd ".maestro" (Maestro, ưu tiên cho UI) hoặc "e2e": DEV viết test
+#                              # cho AC và commit vào PR; QC chỉ commit trong thư mục này (hook chặn file khác)
+#     e2e_ci: false            # true = CI chạy cả suite e2e_dir trên staging sau mỗi release và báo check lên commit staging:
+#                              # CI xanh là đủ QC cho surface này (không spawn QC agent). Cần e2e_dir
 
 # Glob agent KHÔNG được sửa hay in nội dung (hợp với mặc định của plugin: .env*, *.pem, *.key, *.p12, *.pfx, *.jks, *.keystore, .netrc, .git-credentials, id_rsa, id_ed25519).
 forbidden: []
@@ -93,7 +95,7 @@ run:
   models:
     dev: { default: opus }        # thêm key theo Size để đổi model, vd L: fable. Effort nằm ở frontmatter của agent
     reviewer: opus
-    qc: opus                     # QC viết test tự động (Playwright, Maestro…)
+    qc: opus                     # QC chỉ chạy khi REVIEWER chọn qc: agent hoặc pipeline staging fail
 
 # ── NOTIFY ───────────────────────────────────────────────────────────────────
 notify:
