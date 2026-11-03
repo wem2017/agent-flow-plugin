@@ -773,6 +773,12 @@ def cmd_doctor(a):
     if need:
         (fail if missing else ok)("env của .claude/settings.local.json: %s" % (
             "thiếu " + ", ".join(missing) + " — agentflow-settings set-secret <TÊN>" if missing else ", ".join(need)))
+    gaps = afconfig.missing_allow(root)
+    if gaps:
+        warn("permissions.allow thiếu %s — agent và subagent sẽ dừng hỏi quyền (Claude Code bỏ qua defaultMode bypassPermissions "
+             "trong settings của project): agentflow-settings allow %s" % (", ".join(gaps), " ".join(gaps)))
+    else:
+        ok("permissions.allow đủ cho agent")
     stale = [n for n in afconfig.GITHUB_TOKEN_ENV if local_env.get(n)]
     if stale:
         warn("env.%s trong .claude/settings.local.json: plugin dùng token của gh, nhưng Claude Code đưa biến này vào session nên gh "

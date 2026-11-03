@@ -106,7 +106,15 @@ Phối hợp hoàn toàn qua GitHub: **Status** trên board (sự thật), **lab
 
 ## Chạy không cần bạn
 
-`/agentflow:init` đề nghị `permissions.defaultMode: "bypassPermissions"` trong `.claude/settings.local.json` để loop không dừng hỏi quyền. Khi đó lớp chặn là **hook guard** của plugin (luôn chạy, kể cả bypass; thiếu Python hoặc quá giờ thì chặn; guard lỗi nội bộ thì chặn nếu lệnh có từ khoá rủi ro). Guard đọc cấu trúc lệnh nhưng không thấy thứ chỉ lộ ra lúc chạy (`make deploy`, script sinh động) — best-effort, không phải ranh giới bảo mật tuyệt đối; branch protection phía GitHub vẫn là lớp chắc nhất nếu gói của bạn có, `/agentflow:doctor` báo khi base chưa bật.
+`/agentflow:init` đề nghị thêm allow rule vào `.claude/settings.local.json` để loop và subagent không dừng hỏi quyền:
+
+```bash
+agentflow-settings allow Bash Read Edit Write WebFetch WebSearch Skill mcp__plugin_agentflow_github mcp__plugin_agentflow_figma
+```
+
+`permissions.defaultMode: "bypassPermissions"` trong settings của project **không có tác dụng**: Claude Code (đo trên 2.1.317) bỏ qua nó và chạy ở `default`, nên mọi tool chưa có trong allow list (vd tool của GitHub MCP) đều dừng hỏi. Muốn bypass hẳn thì mở bằng `claude --permission-mode bypassPermissions`. `/agentflow:doctor` báo ⚠ khi allow list thiếu rule.
+
+Khi đó lớp chặn là **hook guard** của plugin (luôn chạy, kể cả bypass; thiếu Python hoặc quá giờ thì chặn; guard lỗi nội bộ thì chặn nếu lệnh có từ khoá rủi ro). Guard đọc cấu trúc lệnh nhưng không thấy thứ chỉ lộ ra lúc chạy (`make deploy`, script sinh động) — best-effort, không phải ranh giới bảo mật tuyệt đối; branch protection phía GitHub vẫn là lớp chắc nhất nếu gói của bạn có, `/agentflow:doctor` báo khi base chưa bật.
 
 ## Tự học
 

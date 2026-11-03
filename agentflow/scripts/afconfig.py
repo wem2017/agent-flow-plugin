@@ -227,6 +227,36 @@ def settings_path(cwd=None):
     return os.path.join(root, ".claude", "settings.local.json")
 
 
+# Rules /agentflow:init writes so the loop and its subagents never stop at a permission prompt. Claude Code
+# 2.1.317 ignores `defaultMode: "bypassPermissions"` in project and local settings (falls back to default),
+# so allow rules are the only file-based way; the guard hook stays the blocking layer.
+AGENT_ALLOW = ("Bash", "Read", "Edit", "Write", "WebFetch", "WebSearch", "Skill",
+               "mcp__plugin_agentflow_github", "mcp__plugin_agentflow_figma")
+
+
+def user_settings_path():
+    return os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "settings.json")
+
+
+def allow_rules(cwd=None):
+    """permissions.allow of user, project and local settings, merged. MCP rules normalised to the server name."""
+    root = os.path.dirname(os.path.dirname(settings_path(cwd)))
+    rules = set()
+    for p in (user_settings_path(), os.path.join(root, ".claude", "settings.json"), settings_path(cwd)):
+        try:
+            with open(p, encoding="utf-8") as fh:
+                allow = ((json.load(fh) or {}).get("permissions") or {}).get("allow") or []
+        except (OSError, ValueError, AttributeError):
+            continue
+        rules.update(r[:-3] if r.startswith("mcp__") and r.endswith("__*") else r for r in allow if isinstance(r, str))
+    return rules
+
+
+def missing_allow(cwd=None):
+    have = allow_rules(cwd)
+    return [r for r in AGENT_ALLOW if r not in have]
+
+
 def settings_key_locked(key, value):
     """Keys of settings.local.json that could switch the guard off."""
     head = key.split(".", 1)[0]

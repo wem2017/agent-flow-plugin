@@ -23,7 +23,7 @@ Chỉ đọc. Chạy lần lượt, gom kết quả thành **một** bảng ✓ 
    ```
 
    Phải `exit 2`. Khác → hook không hoạt động: kiểm `python3`, plugin đã enable chưa.
-5. **Permission mode**: `agentflow-settings show` → `permissions.defaultMode` — `bypassPermissions` ⇒ loop chạy không hỏi; khác ⇒ loop sẽ dừng hỏi quyền (ghi ⚠, không phải lỗi).
+5. **Quyền**: dòng `permissions.allow` ở bước 1. ⚠ thiếu ⇒ loop và subagent dừng hỏi quyền: chạy lệnh nó in ra. `defaultMode: bypassPermissions` trong settings project bị Claude Code bỏ qua.
 6. **Worktree**: `git check-ignore -q .claude/worktrees/` — chưa ignore → ✗ (worktree của agent sẽ lọt vào `git status`).
 7. **Journal**: `agentflow-journal stats` — ≥ 5 entry mới → ⚠ gợi `/agentflow:learn`.
 

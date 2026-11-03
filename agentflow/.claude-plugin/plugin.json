@@ -1,6 +1,6 @@
 {
   "name": "agentflow",
-  "version": "2.2.1",
+  "version": "2.3.0",
   "description": "Agent team cho mọi repo GitHub: DEV (code + test tự động) · Reviewer (Opus) · CI chạy test trên staging · QC khi cần, tự chạy ticket trên GitHub Projects board (Backlog → Ready → In Progress → In Review → staging → In QC → Ready to Merge → Done) tới cổng của người; tối ưu token, song song qua worktree, tự học qua /agentflow:learn. Con người giữ quyền chốt việc, QC tay và merge.",
   "author": {
     "name": "Wem",

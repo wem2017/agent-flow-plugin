@@ -116,6 +116,15 @@ class Settings(RepoCase):
         self.assertEqual(self.read_settings()["env"], {"TELEGRAM_BOT_TOKEN": FAKE_PAT, "STAGING_TEST_USER": "qa@x"})
         self.assertEqual(stat.S_IMODE(os.stat(self.settings).st_mode), 0o600)
 
+    def test_allow_appends_unique_rules_and_keeps_the_rest(self):
+        os.makedirs(os.path.dirname(self.settings))
+        with open(self.settings, "w") as fh:
+            json.dump({"permissions": {"allow": ["Bash"], "defaultMode": "acceptEdits"}, "env": {"A": "1"}}, fh)
+        res = tool("agentflow-settings", "allow", "Bash", "Edit", "mcp__plugin_agentflow_github", "Edit", cwd=self.repo)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(self.read_settings(), {"permissions": {"allow": ["Bash", "Edit", "mcp__plugin_agentflow_github"], "defaultMode": "acceptEdits"}, "env": {"A": "1"}})
+        self.assertIn("đã có đủ", tool("agentflow-settings", "allow", "Edit", cwd=self.repo).stdout)
+
     def test_github_token_is_not_imported_from_gh(self):
         self.assertNotEqual(tool("agentflow-settings", "import", "GITHUB_TOKEN", cwd=self.repo).returncode, 0)
 

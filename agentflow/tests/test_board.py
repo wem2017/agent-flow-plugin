@@ -294,7 +294,9 @@ class Doctor(BoardCase):
             return real_git(args, cwd=cwd, timeout=timeout)
         self.missing_branches = set()
         self.push = (True, "")
-        for patcher in (mock.patch.object(afconfig, "git", fake_git), mock.patch.object(board, "_push_probe", lambda root, base: self.push)):
+        user_settings = os.path.join(self.repo, "no-user-settings.json")
+        for patcher in (mock.patch.object(afconfig, "git", fake_git), mock.patch.object(board, "_push_probe", lambda root, base: self.push),
+                        mock.patch.object(afconfig, "user_settings_path", lambda: user_settings)):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.good_github()
@@ -405,6 +407,20 @@ class Doctor(BoardCase):
         code, out = self.doctor()
         self.assertEqual(code, 0, out)
         self.assertNotIn("env của .claude/settings.local.json", out)
+
+    def test_missing_allow_rules_warn_with_the_fix(self):
+        os.makedirs(os.path.join(self.repo, ".claude"), exist_ok=True)
+        code, out = self.doctor()
+        self.assertEqual(code, 0, out)
+        self.assertIn("agentflow-settings allow Bash Read Edit Write", out)
+        self.assertIn("mcp__plugin_agentflow_github", out)
+        with open(os.path.join(self.repo, ".claude", "settings.json"), "w") as fh:
+            json.dump({"permissions": {"allow": ["Bash", "Read", "Edit", "mcp__plugin_agentflow_github__*"]}}, fh)
+        with open(os.path.join(self.repo, ".claude", "settings.local.json"), "w") as fh:
+            json.dump({"permissions": {"allow": ["Write", "WebFetch", "WebSearch", "Skill", "mcp__plugin_agentflow_figma"], "defaultMode": "bypassPermissions"}}, fh)
+        code, out = self.doctor()
+        self.assertEqual(code, 0, out)
+        self.assertIn("✓ permissions.allow đủ cho agent", out)
 
     def test_stale_github_token_in_settings_warns(self):
         self.write_settings_env({"GITHUB_TOKEN": "old"})

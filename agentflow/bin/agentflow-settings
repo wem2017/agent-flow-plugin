@@ -7,6 +7,7 @@ written with mode 600. Worktrees share the settings of the main checkout.
 
   show                         key tree; values under `env` and secret-looking keys are masked
   set <dotted.key> <json>      e.g. set enabledPlugins.agentflow@agent-flow-plugins true
+  allow <rule> [rule…]         append to permissions.allow, skipping rules already there
   set-secret <ENV_NAME>        value read from stdin into env.<ENV_NAME> (never echoed)
   import <ENV_NAME>            copy the value of the process env into env.<ENV_NAME> (never echoed)
   unset <ENV_NAME>             remove env.<ENV_NAME>
@@ -87,6 +88,16 @@ def main():
             cur[parts[-1]] = args[2]
         save(data)
         print("set %s" % args[1])
+    elif args[0] == "allow" and len(args) >= 2:
+        perms = data.setdefault("permissions", {})
+        allow = perms.setdefault("allow", [])
+        if not isinstance(perms, dict) or not isinstance(allow, list):
+            sys.exit("agentflow-settings: permissions.allow không phải list")
+        added = [r for r in dict.fromkeys(args[1:]) if r not in allow]
+        allow.extend(added)
+        if added:
+            save(data)
+        print("allow +%d%s" % (len(added), (": " + ", ".join(added)) if added else " (đã có đủ)"))
     elif args[0] == "set-secret" and len(args) == 2:
         value = sys.stdin.readline().strip()
         if not value:
