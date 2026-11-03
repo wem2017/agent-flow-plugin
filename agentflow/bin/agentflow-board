@@ -799,6 +799,9 @@ def cmd_doctor(a):
         broad = [s for s in scopes if s in BROAD_SCOPES]
         if broad:
             warn("token có scope quá rộng: %s — nên tạo token mới chỉ với %s" % (", ".join(broad), ", ".join(sorted(need))))
+        if "project" in missing:  # every board query below fails without it, each with a long GraphQL error
+            print("KẾT QUẢ: %d lỗi — dừng trước khi đọc board" % len(bad))
+            sys.exit(1)
     proj = get_project(board["url"])
     ok("board %s (%d item)" % (proj["title"], proj["items"]["totalCount"]))
     st = field(proj, "Status") or {"options": []}

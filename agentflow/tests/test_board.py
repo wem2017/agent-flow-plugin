@@ -417,6 +417,7 @@ class Doctor(BoardCase):
         code, out = self.doctor()
         self.assertEqual(code, 1)
         self.assertIn("gh auth refresh -s project", out)
+        self.assertFalse([c for c in self.gh.calls if c[0] == "POST"], "board không được query khi thiếu scope project")
 
     def test_telegram_needs_its_env_staging_notes_does_not(self):
         self.write_config(CONFIG.replace('url: "https://s.example"', 'url: "https://s.example", notes: "secret/staging/ APP_ID, E2E_EMAIL, E2E_PASSWORD"')
