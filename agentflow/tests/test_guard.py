@@ -121,7 +121,7 @@ NOT_OVERBLOCKED = [
     'curl -u "$STAGING_USER:$STAGING_PASSWORD" https://staging.example.com/api', 'python3 -c "print(1)"', "bash -c 'pnpm lint && pnpm test'", "for f in a b; do echo $f; done",
     "for p in .claude/settings.local.json .claude/worktrees/; do git check-ignore -q \"$p\"; done", 'gh pr create --draft --title "chore: x"', "gh auth status", 'echo "use $(date)"', "git config user.name x",
     'python3 -I tests/test_guard.py', "agentflow-board doctor", "agentflow-settings set enabledPlugins.agentflow@x true", 'agentflow-settings set permissions.defaultMode \'"bypassPermissions"\'',
-    'printf \'%s\\n\' "$T" | agentflow-settings set-secret GITHUB_TOKEN', "git log --oneline -5", "git diff --stat origin/master...HEAD", "git fetch -q origin master", "cat README.md | head -5", "sed -n 1,5p README.md",
+    'printf \'%s\\n\' "$T" | agentflow-settings set-secret TELEGRAM_BOT_TOKEN', "git log --oneline -5", "git diff --stat origin/master...HEAD", "git fetch -q origin master", "cat README.md | head -5", "sed -n 1,5p README.md",
     "git push origin feat/1:feat/1", "git push -o ci.skip origin feat/1", "gh pr ready 12", "gh pr ready 12 --undo", "echo done",
     # Blocked by mistake until the same red-team pass: an unattended loop stalls on these.
     "flutter build web --dart-define-from-file=.env.staging", "dotenv -e .env.test -- pnpm test", "jq .env package.json", "grep -e .env .gitignore", "grep -A 3 .env README.md",
@@ -139,7 +139,7 @@ NOT_OVERBLOCKED = [
     "sed -n 2p README.md", 'WT="/tmp/my repo"; git -C "$WT" status', 'curl -s -o out.json -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/user', "git remote -v", "git rebase origin/master",
     "rg -t ts .env src", "grep --include '*.ts' -rn .env src", "tree -I .env", "zip -x .env -r a.zip .", "eslint --ignore-pattern .env .", "git add -A -- . ':!.env'", "git add -A -- . ':(exclude).env'",
     'python3 -c "import os; print(\'API_KEY\' in os.environ)"', 'docker login --password-stdin <<< "$TOKEN"', "declare -x FOO=bar", "export FOO=bar", 'MSG="fix: gh pr merge note"; git commit -m "$MSG"',
-    "agentflow-settings has TELEGRAM_BOT_TOKEN", "agentflow-settings import GITHUB_TOKEN","STAGING_URL=https://s.example agentflow-settings exec -- sh -c 'BASE_URL=$STAGING_URL pnpm e2e'",
+    "agentflow-settings has TELEGRAM_BOT_TOKEN", "agentflow-settings import TELEGRAM_CHAT_ID", "agentflow-settings unset GITHUB_TOKEN", "STAGING_URL=https://s.example agentflow-settings exec -- sh -c 'BASE_URL=$STAGING_URL pnpm e2e'",
 ]
 FILES = [
     ("BLOCK", "Edit", "secret/staging/app.env"), ("BLOCK", "Read", "server.pem"), ("BLOCK", "Read", ".env"), ("BLOCK", "Read", ".ENV"),
@@ -234,7 +234,7 @@ ROLES = [  # role, want, tool, input
     ("reviewer", "ALLOW", "Bash", {"command": 'WT="$HOME/my repo/.claude/worktrees/af-7-staging"; echo "$WT"'}),
     ("dev", "BLOCK", "Edit", {"file_path": ".claude/worktrees/af-7/.claude/settings.json"}), ("dev", "BLOCK", "Write", {"file_path": ".claude/settings.local.json"}),
     ("dev", "BLOCK", "Bash", {"command": "echo '{}' > .claude/settings.json"}), ("dev", "BLOCK", "Bash", {"command": "agentflow-settings set a.b 1"}),
-    ("qc", "BLOCK", "Bash", {"command": "agentflow-settings import GITHUB_TOKEN"}),
+    ("qc", "BLOCK", "Bash", {"command": "agentflow-settings import TELEGRAM_CHAT_ID"}), ("dev", "BLOCK", "Bash", {"command": "agentflow-settings unset TELEGRAM_BOT_TOKEN"}),
     ("dev", "ALLOW", "Bash", {"command": "cd .claude/worktrees/af-7 && agentflow-style origin/master"}),
     ("dev", "ALLOW", "Bash", {"command": "agentflow-board feedback acme/app --issue 7"}),
     ("reviewer", "ALLOW", "Bash", {"command": "agentflow-style origin/master origin/feat/7-x"}),

@@ -37,22 +37,24 @@ Tên cột thật của board được map trong `agentflow.yaml` → `board.sta
 | Claude Code ≥ 2.1.295 | plugin dùng skills, `bin/`, hooks `onFailure` (đã test trên 2.1.314) |
 | `git`, `python3` ≥ 3.9, `jq` | `jq` cho `/agentflow:learn` và init |
 | Nhánh staging + pipeline | Push vào staging phải chạy pipeline và báo check về commit (GitHub Actions hoặc CI ngoài có commit status) |
-| GitHub **classic PAT** | `repo`, `project`, `read:org` (board của org), `workflow` nếu agent được sửa CI. Chỉ cấp đúng chừng đó |
+| GitHub CLI `gh` đã đăng nhập | Plugin dùng token của `gh`, không lưu bản sao. Cần scope `repo`, `project`, `read:org` (board của org), `workflow` nếu agent được sửa CI: `gh auth login -s project,read:org`, đã đăng nhập thì `gh auth refresh -s project,read:org` |
 | Maestro (khuyến nghị) | DEV và QC dùng để test UI mobile và web như người dùng: `curl -fsSL https://get.maestro.mobile.dev \| bash`, `maestro` phải nằm trong PATH; mobile cần emulator/simulator đang chạy. `/agentflow:doctor` báo khi thiếu |
 | Figma (tuỳ chọn) | MCP chính thức, OAuth: `/mcp` → figma → Authenticate |
 | Telegram (tuỳ chọn) | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` |
 
-Mọi secret nằm trong block `env` của **`.claude/settings.local.json`** của từng repo (gitignored — init kiểm trước khi nói tới token). Ghi bằng tool đi kèm để value không bao giờ hiện ra (guard chặn agent Read/Edit file này):
+**Token GitHub là token của `gh`** (`$GH_TOKEN`, `$GITHUB_TOKEN`, rồi `gh auth token` — đúng thứ tự của `gh`), dùng chung cho script và GitHub MCP. MCP lấy nó qua `headersHelper` (`scripts/mcp-headers.py`) mỗi lần connect: đổi tài khoản hoặc thêm scope bằng `gh auth login` / `gh auth refresh` → `/mcp` → `plugin:agentflow:github` → **Reconnect**, không cần restart.
+
+Secret còn lại của plugin (Telegram) nằm trong block `env` của **`.claude/settings.local.json`** của từng repo (gitignored — init kiểm trước). Ghi bằng tool đi kèm để value không bao giờ hiện ra (guard chặn agent Read/Edit file này):
 
 ```bash
-read -s T && printf '%s\n' "$T" | agentflow-settings set-secret GITHUB_TOKEN     # tương tự TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
-agentflow-settings import GITHUB_TOKEN                                            # hoặc chép token đang dùng (env của shell, gh) vào file
-agentflow-settings show                                                           # cây key, value bị che
+read -s T && printf '%s\n' "$T" | agentflow-settings set-secret TELEGRAM_BOT_TOKEN   # tương tự TELEGRAM_CHAT_ID
+agentflow-settings show                                                             # cây key, value bị che
+agentflow-settings unset GITHUB_TOKEN                                               # xoá token cũ từ bản < 2.2
 ```
 
-GitHub MCP lấy token qua `headersHelper` (`scripts/mcp-headers.py`): đọc file settings → env → `gh auth token`. Đổi token → `/mcp` → `plugin:agentflow:github` → **Reconnect**, không cần restart.
+`env.GITHUB_TOKEN` / `env.GH_TOKEN` trong file này không còn được plugin đọc, nhưng Claude Code vẫn đưa chúng vào env của session nên chúng thắng tài khoản `gh` — `/agentflow:doctor` báo ⚠ khi còn.
 
-App id và tài khoản test của staging **không** nằm trong `env`: agent đọc chúng trong secret folder của project (gitignored, vd `secret/staging/`), path ghi ở `staging.notes`; folder này không được nằm trong `forbidden`. Init chỉ xong khi file có đủ `env`: `GITHUB_TOKEN` và cặp `TELEGRAM_*` nếu bật Telegram; `/agentflow:doctor` báo ✗ khi thiếu, kể cả khi token vẫn lấy được từ shell hay `gh`.
+App id và tài khoản test của staging **không** nằm trong `env`: agent đọc chúng trong secret folder của project (gitignored, vd `secret/staging/`), path ghi ở `staging.notes`; folder này không được nằm trong `forbidden`. Bật Telegram thì init chỉ xong khi file có cặp `TELEGRAM_*`; `/agentflow:doctor` báo ✗ khi thiếu.
 
 Script của plugin (`agentflow-board`, `agentflow-notify`, helper của GitHub MCP) đọc thẳng `env` trong file này, nên giá trị vừa ghi có hiệu lực ngay, không cần restart Claude Code. Lệnh cần secret trong `env` chạy qua `agentflow-settings exec -- <lệnh>`: giá trị trong file đè lên env cũ của session và không hiện ra transcript.
 

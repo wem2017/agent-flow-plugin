@@ -19,7 +19,7 @@ Không bump version thì `update` báo *already at latest* và không refresh. L
 ```bash
 python3 -I -m unittest discover -s agentflow/tests             # script + contract, không cần mạng, không tốn token
 claude plugin validate ./agentflow
-GITHUB_TOKEN=… python3 -I agentflow/bin/agentflow-board doctor --root <repo đã init>   # kiểm với GitHub thật
+python3 -I agentflow/bin/agentflow-board doctor --root <repo đã init>   # kiểm với GitHub thật, token của gh
 agentflow/evals/run.sh --runs 1 --max-cost-usd 5               # hành vi của agent, tốn token — xem evals/README.md
 ```
 

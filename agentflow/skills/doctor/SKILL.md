@@ -13,7 +13,7 @@ Chỉ đọc. Chạy lần lượt, gom kết quả thành **một** bảng ✓ 
    agentflow-board doctor
    ```
 
-2. **GitHub MCP**: nạp `get_me` bằng ToolSearch rồi gọi. Fail mà bước 1 qua → `/mcp` → `plugin:agentflow:github` → Reconnect (không phải lỗi token). Thiếu tool `projects_*` → token thiếu scope `project`, hoặc `X-MCP-Toolsets` trong `scripts/mcp-headers.py` bị sửa.
+2. **GitHub MCP**: nạp `get_me` bằng ToolSearch rồi gọi. Fail mà bước 1 qua → `/mcp` → `plugin:agentflow:github` → Reconnect (không phải lỗi token). Thiếu tool `projects_*` → token của `gh` thiếu scope `project` (`! gh auth refresh -s project` rồi Reconnect), hoặc `X-MCP-Toolsets` trong `scripts/mcp-headers.py` bị sửa.
 3. **Figma** (chỉ khi `design.figma: true`): tool MCP `figma` có trong session? Không có / lỗi auth → `/mcp` → figma → Authenticate.
 4. **Hook guard**:
 

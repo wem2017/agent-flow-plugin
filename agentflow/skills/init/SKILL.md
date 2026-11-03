@@ -31,10 +31,11 @@ Chưa `ignored` + `untracked` → **dừng**.
 
 ## 3. Token + quyền
 
-`agentflow-board whoami`. Token tìm theo thứ tự: `env.GITHUB_TOKEN` trong `.claude/settings.local.json` → env của process → `gh auth token` (cùng một hàm cho script và cho MCP — `scripts/mcp-headers.py` là `headersHelper` của GitHub MCP).
-- Không có token → classic PAT, scope `repo`, `project`, `read:org` nếu board của org, `workflow` nếu agent được sửa CI. Ghi **chỉ** bằng `agentflow-settings set-secret GITHUB_TOKEN` (value qua stdin) — guard chặn Read/Edit file settings để token không vào transcript. Tốt nhất người tự chạy: `! read -s T && printf '%s\n' "$T" | agentflow-settings set-secret GITHUB_TOKEN`. Người đã dán token vào chat → pipe giúp, rồi khuyên rotate.
-- Token đến từ env của process hoặc `gh` (`agentflow-settings has GITHUB_TOKEN` fail) → **vẫn phải ghi vào file**, hỏi: chép token đang dùng (`agentflow-settings import GITHUB_TOKEN`) hay PAT hẹp qua `set-secret` (đề xuất khi token quá rộng). Xong bước này `has GITHUB_TOKEN` phải exit 0.
-- Có `WARN token quá rộng` → nhắc tạo token hẹp hơn (không chặn).
+`agentflow-board whoami`. Token là token của `gh`: `$GH_TOKEN` → `$GITHUB_TOKEN` → `gh auth token` (cùng một hàm cho script và cho MCP — `scripts/mcp-headers.py` là `headersHelper` của GitHub MCP). Plugin không lưu token vào file nào.
+- `gh chưa có token` → người tự chạy `! gh auth login -s project,read:org` (thêm `workflow` nếu agent được sửa CI). Không đọc, in hay ghi token hộ — guard chặn `gh auth token`.
+- Thiếu scope (`project`, `read:org` nếu board của org) → `! gh auth refresh -s project,read:org`, rồi chạy lại `whoami`.
+- `agentflow-settings has GITHUB_TOKEN` exit 0 (token cũ từ bản < 2.2) → đề nghị `agentflow-settings unset GITHUB_TOKEN` (tương tự `GH_TOKEN`): biến trong `env` được Claude Code đưa vào session và thắng tài khoản `gh`. Người muốn giữ thì để, doctor chỉ báo ⚠.
+- Có `WARN token quá rộng` → nhắc thu hẹp scope (không chặn).
 - Probe MCP `get_me` (tool deferred — nạp bằng ToolSearch trước). Fail mà script chạy được → `/mcp` → `plugin:agentflow:github` → Reconnect (helper đọc lại token mỗi lần connect, không cần restart).
 
 ## 4. Repo + convention (đọc từ repo, đề xuất, người chốt)
@@ -86,11 +87,11 @@ Chi tiết + lệnh: `${CLAUDE_PLUGIN_ROOT}/skills/init/references/board-setup.m
    - `agentflow-settings set enabledPlugins.<id> true` — id: `jq -r '.plugins|keys[]|select(startswith("agentflow@"))' ~/.claude/plugins/installed_plugins.json`.
    - `agentflow-settings set extraKnownMarketplaces.<marketplace>.source '<json>'` = source đang đăng ký trong `~/.claude/plugins/known_marketplaces.json` (không đọc được → bỏ, đừng bịa).
    - `agentflow-settings set permissions.defaultMode '"bypassPermissions"'` **chỉ khi người đồng ý** chạy loop không hỏi quyền. Nói rõ: lớp chặn khi đó là hook của plugin (merge/approve PR, force-push, push nhánh protected, đọc/sửa `forbidden`). Hook đọc cấu trúc lệnh và mở lệnh bọc, nhưng không thấy được thứ chỉ lộ ra lúc chạy (script sinh sau, `make deploy`) — không tuyệt đối. Branch protection trên GitHub vẫn là lớp chắc nhất, doctor báo nếu base chưa có.
-3. Repo nhiều người: `agentflow.yaml` commit được; mỗi người tự chạy `/agentflow:init` để có settings local + token riêng.
+3. Repo nhiều người: `agentflow.yaml` commit được; mỗi người tự chạy `/agentflow:init` để có settings local riêng, và đăng nhập `gh` bằng tài khoản của mình.
 
 ## 10. Verify
 
-1. `agentflow-board doctor` — phải `KẾT QUẢ: OK` (⚠ được phép), kể cả dòng `env của .claude/settings.local.json`. ✗ → sửa theo dòng báo rồi chạy lại.
+1. `agentflow-board doctor` — phải `KẾT QUẢ: OK` (⚠ được phép), kể cả dòng `env của .claude/settings.local.json` khi bật Telegram. ✗ → sửa theo dòng báo rồi chạy lại.
 2. **Smoke test đường runtime (MCP)** — bắt buộc, không cần hỏi: tạo issue `AgentFlow setup check` → `add_project_item` → `update_project_item` Status = `backlog` → `get_project_item` (`field_names:["Status"]`) assert = `backlog` → đổi sang `ready` và đọc lại → **dọn dẹp kể cả khi fail**: `delete_project_item` + đóng issue. Fail → bảng nguyên nhân trong reference §Smoke.
 3. Guard: `printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git push --force"},"cwd":"'"$PWD"'"}' | python3 "${CLAUDE_PLUGIN_ROOT}/scripts/guard.py"; echo $?` → phải `2`.
 4. Telegram bật → `agentflow-notify blocked "AgentFlow: notify OK (setup check)"`.

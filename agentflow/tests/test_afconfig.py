@@ -222,15 +222,19 @@ class Repo(unittest.TestCase):
         git(self.repo, "remote", "set-head", "origin", "master")
         self.assertEqual(afconfig.protected_branches({"git": {"base": "develop"}}, self.repo), {"develop", "master"})
 
-    def test_token_order(self):
+    def test_token_is_gh_s_never_the_settings_file(self):
         os.makedirs(os.path.join(self.repo, ".claude"))
         with open(os.path.join(self.repo, ".claude", "settings.local.json"), "w") as fh:
             fh.write('{"env": {"GITHUB_TOKEN": "from-settings"}}')
-        with mock.patch.dict(os.environ, {"GITHUB_TOKEN": "from-env"}):
-            self.assertEqual(afconfig.github_token(self.repo), "from-settings")
-        empty = os.path.realpath(tempfile.mkdtemp(dir=self.repo))
-        with mock.patch.object(afconfig, "settings_path", return_value=os.path.join(empty, "none")), mock.patch.dict(os.environ, {"GITHUB_TOKEN": "from-env"}):
-            self.assertEqual(afconfig.github_token(self.repo), "from-env")
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "gh-env", "GITHUB_TOKEN": "github-env"}):
+            self.assertEqual(afconfig.github_token(), "gh-env")
+        with mock.patch.dict(os.environ, {"GITHUB_TOKEN": "github-env"}), mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("GH_TOKEN", None)
+            self.assertEqual(afconfig.github_token(), "github-env")
+        ran = mock.Mock(return_value=mock.Mock(stdout="from-gh\n"))
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(afconfig.subprocess, "run", ran):
+            self.assertEqual(afconfig.github_token(), "from-gh")
+        self.assertEqual(ran.call_args[0][0], ["gh", "auth", "token"])
 
     def test_env_value_reads_the_settings_file_first(self):
         os.makedirs(os.path.join(self.repo, ".claude"))

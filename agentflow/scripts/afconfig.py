@@ -531,12 +531,15 @@ def env_value(name, cwd=None):
     return os.environ.get(name, "")
 
 
-def github_token(cwd=None):
-    """GitHub token, first hit wins: env.GITHUB_TOKEN of the settings file, process GITHUB_TOKEN / GH_TOKEN,
-    then `gh auth token`. Returns "" when nothing is configured."""
-    tok = env_value("GITHUB_TOKEN", cwd) or os.environ.get("GH_TOKEN")
-    if tok:
-        return tok
+GITHUB_TOKEN_ENV = ("GH_TOKEN", "GITHUB_TOKEN")
+
+
+def github_token():
+    """The token `gh` uses: GH_TOKEN / GITHUB_TOKEN of the process (gh's own precedence, checked here so no
+    subprocess runs), else `gh auth token`. Never read from .claude/settings.local.json. "" when gh has none."""
+    for name in GITHUB_TOKEN_ENV:
+        if os.environ.get(name):
+            return os.environ[name]
     try:
         return subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=10).stdout.strip()
     except (OSError, subprocess.SubprocessError):

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """headersHelper for the plugin's GitHub MCP server: prints the auth headers as JSON.
 
-Token resolution: afconfig.github_token(). Runs at every (re)connect, so `/mcp` → reconnect picks up a
-changed token without restarting Claude Code. Prints nothing but the JSON object.
+Token: the one `gh` uses (afconfig.github_token()). Runs at every (re)connect, so `gh auth login` /
+`gh auth refresh` then `/mcp` → reconnect picks up the new token without restarting Claude Code.
+Prints nothing but the JSON object.
 """
 
 import json

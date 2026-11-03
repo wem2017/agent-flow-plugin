@@ -283,7 +283,6 @@ class Doctor(BoardCase):
         subprocess.run(["git", "init", "-q", "-b", "master"], cwd=self.repo, check=True)
         with open(os.path.join(self.repo, ".gitignore"), "w") as fh:
             fh.write(".claude/settings.local.json\n")
-        self.write_settings_env({"GITHUB_TOKEN": "t"})
         self.write_config(CONFIG)
         real_git = afconfig.git
 
@@ -402,20 +401,31 @@ class Doctor(BoardCase):
         self.assertEqual(code, 1)
         self.assertIn("/agentflow:init", out)
 
-    def test_token_only_in_process_env_or_gh_fails(self):
-        self.write_settings_env({})
+    def test_token_from_gh_needs_no_settings_env(self):
+        code, out = self.doctor()
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("env của .claude/settings.local.json", out)
+
+    def test_stale_github_token_in_settings_warns(self):
+        self.write_settings_env({"GITHUB_TOKEN": "old"})
+        code, out = self.doctor()
+        self.assertEqual(code, 0, out)
+        self.assertIn("agentflow-settings unset GITHUB_TOKEN", out)
+
+    def test_missing_project_scope_names_the_gh_fix(self):
+        self.gh.routes.insert(0, ("GET", "/user", {"login": "me"}, 200, {"x-oauth-scopes": "repo, read:org, gist"}))
         code, out = self.doctor()
         self.assertEqual(code, 1)
-        self.assertIn("thiếu GITHUB_TOKEN", out)
+        self.assertIn("gh auth refresh -s project", out)
 
     def test_telegram_needs_its_env_staging_notes_does_not(self):
         self.write_config(CONFIG.replace('url: "https://s.example"', 'url: "https://s.example", notes: "secret/staging/ APP_ID, E2E_EMAIL, E2E_PASSWORD"')
                           + "notify: {telegram: true, events: [blocked]}\n")
-        self.write_settings_env({"GITHUB_TOKEN": "t", "TELEGRAM_CHAT_ID": "1"})
+        self.write_settings_env({"TELEGRAM_CHAT_ID": "1"})
         code, out = self.doctor()
         self.assertEqual(code, 1)
         self.assertIn("thiếu TELEGRAM_BOT_TOKEN —", out)
-        self.write_settings_env({"GITHUB_TOKEN": "t", "TELEGRAM_CHAT_ID": "1", "TELEGRAM_BOT_TOKEN": "b"})
+        self.write_settings_env({"TELEGRAM_CHAT_ID": "1", "TELEGRAM_BOT_TOKEN": "b"})
         code, out = self.doctor()
         self.assertEqual(code, 0, out)
 
@@ -469,7 +479,7 @@ class Preflight(unittest.TestCase):
             fh.write(CONFIG.replace('url: "https://s.example"', 'url: "https://s.example", notes: "secret/staging/ E2E_EMAIL"'))
         os.makedirs(os.path.join(self.repo, ".claude"))
         with open(os.path.join(self.repo, ".claude", "settings.local.json"), "w") as fh:
-            json.dump({"env": {"GITHUB_TOKEN": "t"}}, fh)
+            json.dump({"env": {}}, fh)
         self.head = git("rev-parse", "master", cwd=self.remote)
 
     def preflight(self):

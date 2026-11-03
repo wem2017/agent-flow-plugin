@@ -11,7 +11,8 @@ AgentFlow chạy trên máy của bạn, bằng token của bạn. Plugin không
 
 **Lưu trên máy**
 
-- Token: block `env` trong `.claude/settings.local.json` của từng repo (gitignored, mode 600).
+- Token GitHub: do `gh` giữ (keychain của hệ điều hành hoặc config của `gh`); plugin chỉ hỏi `gh` lúc cần, không lưu bản sao.
+- Secret khác (Telegram): block `env` trong `.claude/settings.local.json` của từng repo (gitignored, mode 600).
 - Journal friction: `~/.claude/agentflow/journal.jsonl`, một dòng cho mỗi friction, chuỗi giống token bị thay bằng `<secret>` trước khi ghi. Xoá file bất cứ lúc nào.
 - Log build/test: `/tmp/af-<n>*.log`.
 

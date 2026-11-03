@@ -4,8 +4,7 @@
 Runtime ticket work goes through GitHub MCP; this tool covers what MCP cannot do (edit Status
 options, create fields/views, link repo) and read-only reports that would be expensive via MCP
 (pipeline checks, people's feedback on a PR).
-Auth: env.GITHUB_TOKEN of .claude/settings.local.json, else $GITHUB_TOKEN, else $GH_TOKEN, else
-`gh auth token`. Never prints the token.
+Auth: the token `gh` uses ($GH_TOKEN, $GITHUB_TOKEN, else `gh auth token`). Never prints the token.
 
   whoami                                    login + token scopes (+ warnings)
   inspect <board-url> [--done NAME] [--repo O/R]   fields/options/views/repos + item count per Status
@@ -72,7 +71,7 @@ def token():
     if _TOKEN is None:
         _TOKEN = afconfig.github_token()
         if not _TOKEN:
-            die("không có token — agentflow-settings set-secret GITHUB_TOKEN (hoặc gh auth login)", 3)
+            die("gh chưa có token — gh auth login -s project,read:org", 3)
     return _TOKEN
 
 
@@ -711,7 +710,7 @@ def _push_probe(root, base):
 
 def _needed_env(cfg):
     notify = cfg.get("notify") or {}
-    return ["GITHUB_TOKEN"] + (["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"] if notify.get("telegram") else [])
+    return ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"] if notify.get("telegram") else []
 
 
 def cmd_preflight(a):
@@ -771,8 +770,16 @@ def cmd_doctor(a):
     local_env = afconfig.settings_env(root)
     need = _needed_env(cfg)
     missing = [n for n in need if not local_env.get(n)]
-    (fail if missing else ok)("env của .claude/settings.local.json: %s" % (
-        "thiếu " + ", ".join(missing) + " — agentflow-settings import GITHUB_TOKEN (chép token đang dùng) / set-secret <TÊN>" if missing else ", ".join(need)))
+    if need:
+        (fail if missing else ok)("env của .claude/settings.local.json: %s" % (
+            "thiếu " + ", ".join(missing) + " — agentflow-settings set-secret <TÊN>" if missing else ", ".join(need)))
+    stale = [n for n in afconfig.GITHUB_TOKEN_ENV if local_env.get(n)]
+    if stale:
+        warn("env.%s trong .claude/settings.local.json: plugin dùng token của gh, nhưng Claude Code đưa biến này vào session nên gh "
+             "và MCP dùng nó thay tài khoản gh — xoá: agentflow-settings unset %s" % (", env.".join(stale), " ".join(stale)))
+    src = next((n for n in afconfig.GITHUB_TOKEN_ENV if os.environ.get(n)), None)
+    if src:
+        warn("token lấy từ $%s, không phải tài khoản đăng nhập của gh" % src)
     try:
         user, headers = http("GET", "/user", want_headers=True)
     except (RuntimeError, SystemExit) as err:
@@ -788,7 +795,7 @@ def cmd_doctor(a):
     need = {"repo", "project"} | ({"read:org"} if ref["owner_type"] == "org" else set())
     if scopes:
         missing = [s for s in need if s not in scopes and not (s == "read:org" and "admin:org" in scopes)]
-        (fail if missing else ok)("scopes cần %s%s" % (", ".join(sorted(need)), (" — thiếu " + ", ".join(missing)) if missing else ""))
+        (fail if missing else ok)("scopes cần %s%s" % (", ".join(sorted(need)), (" — thiếu %s: gh auth refresh -s %s" % (", ".join(missing), ",".join(missing))) if missing else ""))
         broad = [s for s in scopes if s in BROAD_SCOPES]
         if broad:
             warn("token có scope quá rộng: %s — nên tạo token mới chỉ với %s" % (", ".join(broad), ", ".join(sorted(need))))

@@ -108,13 +108,25 @@ class Settings(RepoCase):
                 self.assertNotIn("from-file", res.stdout + res.stderr)
 
     def test_import_copies_the_value_in_use_without_echo(self):
-        res = tool("agentflow-settings", "import", "GITHUB_TOKEN", cwd=self.repo, env={"GH_TOKEN": FAKE_PAT})
+        res = tool("agentflow-settings", "import", "TELEGRAM_BOT_TOKEN", cwd=self.repo, env={"TELEGRAM_BOT_TOKEN": FAKE_PAT})
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertNotIn(FAKE_PAT, res.stdout + res.stderr)
         res = tool("agentflow-settings", "import", "STAGING_TEST_USER", cwd=self.repo, env={"STAGING_TEST_USER": "qa@x"})
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertEqual(self.read_settings()["env"], {"GITHUB_TOKEN": FAKE_PAT, "STAGING_TEST_USER": "qa@x"})
+        self.assertEqual(self.read_settings()["env"], {"TELEGRAM_BOT_TOKEN": FAKE_PAT, "STAGING_TEST_USER": "qa@x"})
         self.assertEqual(stat.S_IMODE(os.stat(self.settings).st_mode), 0o600)
+
+    def test_github_token_is_not_imported_from_gh(self):
+        self.assertNotEqual(tool("agentflow-settings", "import", "GITHUB_TOKEN", cwd=self.repo).returncode, 0)
+
+    def test_unset_removes_one_env_key(self):
+        tool("agentflow-settings", "set-secret", "GITHUB_TOKEN", cwd=self.repo, stdin="old\n")
+        tool("agentflow-settings", "set-secret", "TELEGRAM_CHAT_ID", cwd=self.repo, stdin="1\n")
+        res = tool("agentflow-settings", "unset", "GITHUB_TOKEN", cwd=self.repo)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(self.read_settings()["env"], {"TELEGRAM_CHAT_ID": "1"})
+        self.assertEqual(stat.S_IMODE(os.stat(self.settings).st_mode), 0o600)
+        self.assertEqual(tool("agentflow-settings", "unset", "GITHUB_TOKEN", cwd=self.repo).returncode, 0)
 
     def test_import_without_a_value_writes_nothing(self):
         self.assertNotEqual(tool("agentflow-settings", "import", "STAGING_TEST_USER", cwd=self.repo).returncode, 0)
@@ -310,12 +322,12 @@ class Style(RepoCase):
 
 
 class McpHeaders(RepoCase):
-    def test_token_from_settings(self):
+    def test_settings_file_token_is_ignored(self):
         os.makedirs(os.path.dirname(self.settings))
         with open(self.settings, "w") as fh:
             json.dump({"env": {"GITHUB_TOKEN": "abc"}}, fh)
         out = json.loads(tool("mcp-headers.py", cwd=self.repo).stdout)
-        self.assertEqual(out["Authorization"], "Bearer abc")
+        self.assertNotIn("Authorization", out)
         self.assertIn("projects", out["X-MCP-Toolsets"])
 
     def test_token_from_env(self):
