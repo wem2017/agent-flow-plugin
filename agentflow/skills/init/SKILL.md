@@ -98,4 +98,4 @@ Chi tiết + lệnh: `${CLAUDE_PLUGIN_ROOT}/skills/init/references/board-setup.m
 
 ## 11. Tóm tắt (≤ 15 dòng)
 
-Repo · board (URL, map 7 stage) · base/protected · staging (branch, url, pipeline) · surfaces · labels · type mode · Figma · Telegram · people · permission mode · file đã ghi · việc tay còn lại (workflow board, Figma OAuth). Kết thúc: `Tiếp: /agentflow:task <mô tả> để tạo việc, PO kéo sang Ready, rồi /agentflow:run (hoặc /agentflow:do #n).`
+Repo · board (URL, map 7 stage) · base/protected · staging (branch, url, pipeline) · surfaces · labels · type mode · Figma · Telegram · people · permission mode · file đã ghi · việc tay còn lại (workflow board, Figma OAuth). Kết thúc: `Tiếp: /agentflow:task <mô tả> để tạo việc + chuyển Ready, rồi /agentflow:run (hoặc /agentflow:do #n).`

@@ -1,6 +1,6 @@
 # AgentFlow
 
-Plugin Claude Code biến một repo GitHub thành **team agent có kỷ luật**: **DEV** (Opus) code kèm test e2e tự động cho từng tiêu chí (ưu tiên Maestro cho mobile và web), **REVIEWER** (Opus) soát code, giải pháp, test và ảnh chụp UI, **CI** chạy lại test trên staging, **QC** (Opus) chỉ vào cuộc khi CI không phủ hết — tự chạy ticket trên GitHub Projects board **tới cổng của con người**. Bạn chỉ làm ba việc: **chốt việc** (PO kéo Backlog → Ready), **QC tay** khi cần, và **merge**.
+Plugin Claude Code biến một repo GitHub thành **team agent có kỷ luật**: **DEV** (Opus) code kèm test e2e tự động cho từng tiêu chí (ưu tiên Maestro cho mobile và web), **REVIEWER** (Opus) soát code, giải pháp, test và ảnh chụp UI, **CI** chạy lại test trên staging, **QC** (Opus) chỉ vào cuộc khi CI không phủ hết — tự chạy ticket trên GitHub Projects board **tới cổng của con người**. Bạn chỉ làm ba việc: **chốt việc** (PO kéo Backlog → Ready, hoặc xác nhận ngay trong `/agentflow:task`), **QC tay** khi cần, và **merge**.
 
 - **Một plugin, nhiều repo** — tên cột, label, nhánh, lệnh check của từng repo nằm trong `agentflow.yaml`; plugin chỉ giữ ngữ nghĩa.
 - **Tối ưu token** — lệnh chỉ load khi gọi, mỗi ticket một subagent (session chính chỉ giữ 3 dòng kết quả), CI xanh thì không spawn QC, review/QC lặp lại chỉ soát diff mới, chờ pipeline không tốn token, lệnh check lưu sẵn trong config, output dài vào log.
@@ -76,7 +76,7 @@ claude plugin enable  agentflow@agent-flow-plugins --scope local
 | Lệnh | Việc |
 |---|---|
 | `/agentflow:init` | Wizard: token + scope, link board có sẵn (map cột, thêm cột thiếu mà **không mất card**) hoặc tạo board theo preset, label, issue type, issue form + PR template, convention git + lệnh check đọc từ repo, Figma, Telegram, people, permission mode; smoke test |
-| `/agentflow:task <mô tả>` | Hỏi đáp chốt AC → tạo issue theo issue form của repo vào **Backlog** (PO kéo Ready). `#n` = hoàn thiện spec một issue ở Backlog |
+| `/agentflow:task <mô tả>` | PO tạo ticket bằng hỏi đáp tới khi đủ: đọc code, Figma, ảnh để hỏi sát, tìm issue trùng, checklist theo type (đường lỗi, quyền, dữ liệu cũ, tracking/hiệu năng/bảo mật) → issue theo issue form vào **Backlog**. Đạt cổng Ready (AC kiểm được, Priority, Size, Platform, assignee, milestone nếu repo có) thì hỏi PO chuyển **Ready**, rồi hỏi chạy `/agentflow:do`. Nhiều việc làm lần lượt, việc lớn tách sub-issue. `#n` = hoàn thiện issue ở Backlog, hoặc ở Ready chưa ai nhận (kể cả needs-info) |
 | `/agentflow:do #n` | Xử lý **một** ticket qua DEV → REVIEWER → pipeline staging (CI chạy test) → QC khi cần, tới cổng của người |
 | `/agentflow:run` | Chạy **cả hàng đợi**: việc dở trước (feedback → QC → review → rework), rồi Ready theo Priority; song song `run.parallel` ticket; dừng khi hết việc hoặc đủ `run.max_tasks`. Chạy định kỳ: `/loop 30m /agentflow:run` |
 | `/agentflow:status` | Đếm theo stage, việc chờ người, bất thường. `--metrics`: cycle time, first-pass yield, số lần fail, aging + thống kê journal |
@@ -96,7 +96,7 @@ claude plugin enable  agentflow@agent-flow-plugins --scope local
 | `skills/*` | 7 lệnh (`disable-model-invocation` — không tốn context khi không gọi) |
 | `hooks/hooks.json` + `scripts/guard.py` · `shellparse.py` | Hook chặn (best-effort, xem §Chạy không cần bạn), kể cả qua lệnh bọc (`bash -c`, `env`, `timeout`, `$(…)`, `xargs`, `eval`, code Python/Node): merge/approve PR, dispatch workflow, force-push, xoá nhánh remote, push nhánh protected/base, đọc/sửa/in path `forbidden`, token trong tham số. Thêm luật theo role: QC chỉ sửa, commit và `push origin HEAD:<branch>` test trong `e2e_dir` của worktree QC (allow-list lệnh git, kiểm từng commit sắp push), REVIEWER chỉ push staging, DEV không đụng staging |
 | `scripts/result-check.py` | Hook `SubagentStop`: subagent phải kết thúc bằng khối `RESULT` |
-| `bin/agentflow-board` | Setup + chẩn đoán qua GraphQL (Status option, field, view, label, issue type, doctor, metrics) + đọc check pipeline staging + gom góp ý của người trên PR (`feedback`) |
+| `bin/agentflow-board` | Setup + chẩn đoán qua GraphQL (Status option, field, view, label, issue type, doctor, metrics) + đọc check pipeline staging + gom góp ý của người trên PR (`feedback`) + milestone mở cho `/agentflow:task` (`milestones`) |
 | `bin/agentflow-journal` · `agentflow-notify` · `agentflow-settings` | Journal tự học (`~/.claude/agentflow/journal.jsonl`) · ping Telegram · sửa settings local và chạy lệnh với `env` của nó, không lộ secret |
 | `scripts/mcp-headers.py` | `headersHelper` cấp token cho GitHub MCP lúc connect |
 | `templates/` | Issue form, PR template, README board |

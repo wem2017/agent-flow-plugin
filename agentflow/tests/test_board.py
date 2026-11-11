@@ -522,6 +522,24 @@ class Preflight(unittest.TestCase):
         self.assertNotIn("secretvalue123", json.dumps(res))
 
 
+class Milestones(BoardCase):
+    def test_nearest_due_first_undated_last(self):
+        self.gh.on("GET", "/milestones?state=open", [
+            {"number": 4, "title": "Backlog sau", "due_on": None, "open_issues": 2},
+            {"number": 7, "title": "Sprint 12", "due_on": "2026-11-28T07:00:00Z", "open_issues": 5},
+            {"number": 6, "title": "Sprint 11", "due_on": "2026-11-14T07:00:00Z", "open_issues": 9},
+        ])
+        code, out = self.run_cmd("milestones", "acme/app")
+        self.assertEqual(code, 0)
+        self.assertEqual(out.splitlines(), ["#6 Sprint 11 due=2026-11-14 open=9", "#7 Sprint 12 due=2026-11-28 open=5",
+                                            "#4 Backlog sau due=- open=2"])
+
+    def test_none_open(self):
+        self.gh.on("GET", "/milestones?state=open", [])
+        code, out = self.run_cmd("milestones", "acme/app")
+        self.assertEqual((code, out.strip()), (0, "(không có milestone mở)"))
+
+
 class Feedback(BoardCase):
     STATE = "Spec\n\n<!-- agentflow:state\nstage: ready_to_merge\npr: 57\nbranch: feat/42-x\nfb: 2026-10-30T08:00:00Z\n-->"
 

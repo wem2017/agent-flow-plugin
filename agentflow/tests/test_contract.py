@@ -21,7 +21,7 @@ BUDGETS = {
     "agents/dev.md": 9350, "agents/reviewer.md": 8400, "agents/qc.md": 9400,
     "references/protocol.md": 12150, "references/dispatch.md": 10300, "references/design.md": 2600, "references/automation.md": 4500,
     "skills/init/SKILL.md": 10650, "skills/learn/SKILL.md": 5500, "skills/do/SKILL.md": 2400, "skills/doctor/SKILL.md": 2000,
-    "skills/run/SKILL.md": 2350, "skills/status/SKILL.md": 2850, "skills/task/SKILL.md": 3700, "skills/init/references/board-setup.md": 4850,
+    "skills/run/SKILL.md": 2350, "skills/status/SKILL.md": 2850, "skills/task/SKILL.md": 8400, "skills/init/references/board-setup.md": 4850,
 }
 PER_SPAWN_LIMIT = 21500  # agent prompt + protocol, read on every spawn
 DESCRIPTION_LIMIT = 700

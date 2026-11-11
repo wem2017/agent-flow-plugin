@@ -8,7 +8,7 @@ Board chung của PO, Dev, QC — có agent AgentFlow làm Dev, Reviewer và QC 
 
 | Cột | Ai | Việc |
 |---|---|---|
-| {{BACKLOG}} | PO | Viết tiêu chí nghiệm thu, đặt Priority + Size, rồi **kéo sang {{READY}}** |
+| {{BACKLOG}} | PO | Viết tiêu chí nghiệm thu, đặt Priority + Size, rồi **kéo sang {{READY}}** — hoặc dùng `/agentflow:task`: hỏi đáp tới khi đủ, bạn xác nhận thì nó chuyển giúp |
 | {{READY}} | Agent DEV | Nhận việc, tạo nhánh, code. Nhãn `{{QC_FAILED}}` = QC trả về, sửa trước việc mới |
 | {{IN_PROGRESS}} | Agent DEV | Code + test tự động cho từng tiêu chí (flow e2e chạy thử, ảnh chụp), chạy check, mở draft PR; sửa theo review |
 | {{IN_REVIEW}} | Agent Reviewer | Review độ đúng, đủ, chất lượng giải pháp, cả test và ảnh của DEV; ✅ thì chọn cách QC và merge lên staging |

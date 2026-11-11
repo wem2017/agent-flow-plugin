@@ -14,7 +14,7 @@ Contract chung cho mọi agent và lệnh `/agentflow:*`. Lý do ở `DESIGN-NOT
 
 | Stage | Ai làm | Ra khỏi stage |
 |---|---|---|
-| `backlog` | PO | Chỉ PO kéo sang `ready`. Agent chỉ tạo issue vào đây (`/agentflow:task`). |
+| `backlog` | PO | Chỉ PO đưa sang `ready`: tự kéo, hoặc xác nhận trong `/agentflow:task`. |
 | `ready` | DEV | DEV nhận → `in_progress`. Có `qc_failed` = QC trả về, DEV sửa trước việc mới |
 | `in_progress` | DEV | Code + test tự động, mở/cập nhật draft PR → `in_review` |
 | `in_review` | REVIEWER | ✅ (chọn `qc`, §4) → merge vào staging → `in_qc` + `deploying` · ❌ → `in_progress` + `changes_requested` |

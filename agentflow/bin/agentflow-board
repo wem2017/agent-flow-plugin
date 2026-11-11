@@ -17,6 +17,7 @@ Auth: the token `gh` uses ($GH_TOKEN, $GITHUB_TOKEN, else `gh auth token`). Neve
   create --owner O --owner-type org|user --title T --repo O/R --want A,B,..
        [--field Name=a,b,..]... [--sprint DAYS] [--description TXT] [--readme FILE]
   repo <owner/repo>                         canonical name, owner type, default branch
+  milestones <owner/repo>                   open milestones, nearest due date first (/agentflow:task)
   labels --repo O/R --label name|color|description ...   create or update
   issue-types --org O [--ensure Name|description ...]
   metrics <board-url> [--days N] [--stages k=v,...] [--parked l1,l2,...]
@@ -395,6 +396,24 @@ def cmd_repo(a):
     print(json.dumps({"full_name": r["full_name"], "owner_type": "org" if r["owner"]["type"] == "Organization" else "user",
                       "default_branch": r["default_branch"], "private": r["private"], "redirected": r["full_name"].lower() != a.slug.lower(),
                       "permissions": r.get("permissions")}, ensure_ascii=False))
+
+
+def cmd_milestones(a):
+    rows = []
+    page = 1
+    while True:
+        batch = http("GET", "/repos/%s/milestones?state=open&per_page=100&page=%d" % (a.slug, page))
+        rows += batch
+        if len(batch) < 100:
+            break
+        page += 1
+    if not rows:
+        print("(không có milestone mở)")
+        return
+    rows.sort(key=lambda m: (m.get("due_on") is None, m.get("due_on") or "", m["number"]))
+    for m in rows:
+        due = (m.get("due_on") or "-")[:10]
+        print("#%d %s due=%s open=%d" % (m["number"], m["title"], due, m.get("open_issues", 0)))
 
 
 def _iso(ts):
@@ -911,6 +930,7 @@ def main():
     s.add_argument("--field", action="append"); s.add_argument("--sprint", type=int)
     s.add_argument("--description"); s.add_argument("--readme")
     s = sub.add_parser("repo"); s.add_argument("slug")
+    s = sub.add_parser("milestones"); s.add_argument("slug")
     s = sub.add_parser("labels"); s.add_argument("--repo", required=True); s.add_argument("--label", action="append", required=True)
     s = sub.add_parser("issue-types"); s.add_argument("--org", required=True); s.add_argument("--ensure", action="append")
     s = sub.add_parser("metrics"); s.add_argument("url"); s.add_argument("--days", type=int, default=30); s.add_argument("--stages")
@@ -926,7 +946,7 @@ def main():
     a = p.parse_args()
     handler = {"whoami": cmd_whoami, "inspect": cmd_inspect, "items": cmd_items, "status-plan": cmd_status_plan,
                "status-apply": cmd_status_apply, "ensure-field": cmd_ensure_field, "create": cmd_create,
-               "labels": cmd_labels, "repo": cmd_repo, "issue-types": cmd_issue_types, "metrics": cmd_metrics, "checks": cmd_checks,
+               "labels": cmd_labels, "repo": cmd_repo, "milestones": cmd_milestones, "issue-types": cmd_issue_types, "metrics": cmd_metrics, "checks": cmd_checks,
                "feedback": cmd_feedback, "doctor": cmd_doctor, "preflight": cmd_preflight}[a.cmd]
     try:
         handler(a)
