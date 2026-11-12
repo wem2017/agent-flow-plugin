@@ -19,7 +19,7 @@ FORBIDDEN_EXEMPT_SUFFIXES = (".example", ".sample", ".template", ".dist")
 HOME_SECRETS = (".ssh/", ".aws/credentials", ".config/gh/hosts.yml", ".claude/.credentials.json", ".docker/config.json")
 
 STAGES = ["backlog", "ready", "in_progress", "in_review", "in_qc", "ready_to_merge", "done"]
-LABEL_KEYS = ["agent", "blocked", "needs_info", "changes_requested", "qc_failed", "qc_manual", "deploying"]
+LABEL_KEYS = ["agent", "blocked", "needs_info", "changes_requested", "qc_failed", "qc_manual"]
 TOP_KEYS = {"schema", "lang", "board", "classify", "types", "labels", "git", "surfaces", "forbidden", "design", "staging", "people", "run", "notify"}
 NOTIFY_EVENTS = {"blocked", "needs_info", "qc_manual", "ready_to_merge"}
 SECRET_VALUE = re.compile(r"gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|\b\d{8,10}:[A-Za-z0-9_-]{35}\b"
@@ -308,7 +308,7 @@ def validate_config(cfg):
     elif staging == gitc.get("base"):
         fail("staging.branch = %r trùng git.base — PR phải nhắm nhánh khác" % staging)
     if staging and staging in as_list(gitc.get("protected")):
-        warn("git.protected có nhánh staging `%s` — bị bỏ qua, REVIEWER phải push được vào đó" % staging)
+        warn("git.protected có nhánh staging `%s` — bị bỏ qua, DEV phải push được vào đó" % staging)
     for key, surface in (cfg.get("surfaces") or {}).items():
         if not isinstance(surface, dict) or not surface.get("path"):
             fail("surfaces.%s thiếu path" % key)
@@ -318,14 +318,16 @@ def validate_config(cfg):
             fail("surfaces.%s.e2e_dir phải là thư mục con của surface, không `.`, `..`, thư mục CI/config như `.github` (đang là %r)" % (key, e2e_dir))
         elif surface.get("e2e") and not e2e_dir:
             warn("surfaces.%s có e2e mà thiếu e2e_dir — test tự động không commit được vào PR" % key)
-        e2e_ci = surface.get("e2e_ci")
-        if e2e_ci is not None and not isinstance(e2e_ci, bool):
-            fail("surfaces.%s.e2e_ci phải là true hoặc false (đang là %r)" % (key, e2e_ci))
-        elif e2e_ci and not e2e_dir:
-            fail("surfaces.%s.e2e_ci: true mà thiếu e2e_dir — CI không có test của PR để chạy, CI xanh không chứng minh AC" % key)
-    for key in ("parallel", "max_tasks", "max_review_rounds", "max_qc_rounds"):
+        if "e2e_ci" in surface:
+            warn("surfaces.%s.e2e_ci không còn dùng (3.0: DEV tự chạy flow trên staging) — xoá được" % key)
+        if not isinstance(surface.get("install") or "", str):
+            fail("surfaces.%s.install phải là một lệnh (chuỗi)" % key)
+    for key in ("parallel", "max_tasks", "max_review_rounds", "max_qc_rounds", "max_test_rounds"):
         positive_int("run", key)
     positive_int("staging", "timeout_min")
+    skip = (cfg.get("staging") or {}).get("skip_checks")
+    if skip is not None and not all(isinstance(x, str) and x for x in as_list(skip)):
+        fail("staging.skip_checks phải là danh sách tên check (glob), vd [\"distribute-mobile*\"]")
     models = (cfg.get("run") or {}).get("models") or {}
     if not isinstance(models.get("dev") or {}, dict) or not (models.get("dev") or {}).get("default"):
         fail("run.models.dev.default chưa khai báo")
@@ -350,21 +352,13 @@ NOT_TEST_FOLDERS = {".git", ".github", ".gitlab", ".claude", ".husky", ".circlec
 
 
 def _test_folder(e2e_dir, base=""):
-    """A folder of its own inside the surface: `.` would hand QC the app code, `.github` the CI."""
+    """A folder of its own inside the surface: `.` would mix flows with app code, `.github` with the CI."""
     folder = os.path.normpath(os.path.join(base, e2e_dir)).replace("\\", "/")
     return _safe_relative(e2e_dir) and os.path.normpath(e2e_dir) != "." and not NOT_TEST_FOLDERS & set(folder.split("/"))
 
 
-def e2e_dirs(cfg):
-    """Folders, relative to the repo root, where QC may write and commit automation tests."""
-    out, surfaces = [], (cfg or {}).get("surfaces") if isinstance(cfg, dict) else None
-    for surface in surfaces.values() if isinstance(surfaces, dict) else []:
-        if not isinstance(surface, dict):
-            continue
-        base, e2e_dir = str(surface.get("path") or ""), str(surface.get("e2e_dir") or "")
-        if base and e2e_dir and _safe_relative(base) and _test_folder(e2e_dir, base):
-            out.append(os.path.normpath(os.path.join(base, e2e_dir)).replace("\\", "/"))
-    return out
+def base_branch(cfg, root):
+    return str(((cfg or {}).get("git") or {}).get("base") or "") or default_branch(root)
 
 
 def staging_branch(cfg):
@@ -372,7 +366,7 @@ def staging_branch(cfg):
 
 
 def protected_branches(cfg, root):
-    """Never pushed to by agents. The staging branch is the one exception (REVIEWER merges into it),
+    """Never pushed to by agents. The staging branch is the one exception (DEV deploys into it),
     unless a misconfigured repo also uses it as base."""
     git_cfg = (cfg or {}).get("git") or {}
     names = {str(b) for b in as_list(git_cfg.get("protected"))}

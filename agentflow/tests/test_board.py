@@ -105,6 +105,21 @@ class Checks(BoardCase):
         self.setup_head()
         self.assertEqual(self.checks()[1]["state"], "pending")
 
+    def test_skipped_checks_are_not_waited_for(self):
+        release = {"name": "distribute-mobile", "status": "in_progress", "conclusion": None}
+        self.setup_head(runs=[{"name": "deploy-web", "status": "completed", "conclusion": "success"}, release])
+        self.assertEqual(self.checks()[1]["state"], "pending")
+        self.assertEqual(self.checks("--skip", "distribute-*")[1]["state"], "success")
+
+    def test_failed_skipped_check_is_not_a_failure(self):
+        self.setup_head(runs=[{"name": "distribute-mobile", "status": "completed", "conclusion": "failure", "html_url": "u"}],
+                        statuses=[{"context": "deploy", "state": "success"}])
+        self.assertEqual(self.checks("--skip", "distribute-mobile")[1], {"state": "success", "sha": SHA, "contains": True, "failed": []})
+
+    def test_head_with_only_skipped_checks_is_success(self):
+        self.setup_head(runs=[{"name": "distribute-mobile", "status": "in_progress", "conclusion": None}])
+        self.assertEqual(self.checks("--skip", "distribute-mobile")[1]["state"], "success")
+
     def test_identical_head_contains(self):
         self.setup_head(compare="identical")
         self.assertTrue(self.checks()[1]["contains"])
@@ -248,6 +263,8 @@ class Metrics(BoardCase):
                          ("2026-10-20T03:00:00Z", "[AF:SYS] escalated"), ("2026-10-20T04:00:00Z", "[AF:DEV] ? cần hỏi"), ("2026-10-20T05:00:00Z", "[AF:SYS] qc-manual-pass")]),
             self.row(3, [("2026-10-01T00:00:00Z", "[AF:DEV] start")], state="OPEN", closed=None, status="Ready to Merge"),
             self.row(4, [("2026-10-20T00:00:00Z", "hello from a human")], state="OPEN", closed=None, status="Ready"),
+            self.row(5, [("2026-10-19T00:00:00Z", "[AF:SA] ? thiếu AC"), ("2026-10-19T01:00:00Z", "[AF:SA] design @b"), ("2026-10-20T00:00:00Z", "[AF:DEV] start"),
+                         ("2026-10-20T01:00:00Z", "[AF:SA] ❌ @b"), ("2026-10-20T05:00:00Z", "[AF:QC] ✅ @b")]),  # 3.0 SA, counted like 2.x REVIEW
         ]
         self.gh.on("POST", "pageInfo", {"data": {"organization": {"projectV2": {"items": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": rows}}}}})
         now = dt.datetime(2026, 10, 25, tzinfo=dt.timezone.utc)
@@ -255,9 +272,9 @@ class Metrics(BoardCase):
             fake.now.return_value = now
             code, out = self.run_cmd("metrics", URL, "--days", "30", "--stages", "ready_to_merge=Ready to Merge")
         self.assertEqual(code, 0, out)
-        self.assertIn("tickets có [AF:] 3", out)
-        self.assertIn("first-pass yield 50% (1/2)", out)
-        self.assertIn("review ❌ 1 · QC ❌ 1 · escalated 1 · cần hỏi người 1", out)
+        self.assertIn("tickets có [AF:] 4", out)
+        self.assertIn("first-pass yield 33% (1/3)", out)
+        self.assertIn("review ❌ 2 · QC ❌ 1 · escalated 1 · cần hỏi người 2", out)
         self.assertIn("#3 Ready to Merge", out)
 
 
@@ -267,7 +284,7 @@ board:
   status: {backlog: Backlog, ready: Ready, in_progress: In Progress, in_review: In Review, in_qc: In QC, ready_to_merge: Ready to Merge, done: Done}
 classify: label
 types: {Bug: fix}
-labels: {agent: agentflow, blocked: blocked, needs_info: needs-info, changes_requested: changes-requested, qc_failed: qc-failed, qc_manual: qc-manual, deploying: deploying}
+labels: {agent: agentflow, blocked: blocked, needs_info: needs-info, changes_requested: changes-requested, qc_failed: qc-failed, qc_manual: qc-manual}
 git: {base: master, protected: [], branch: "{type}/{issue}-{slug}"}
 staging: {branch: staging, url: "https://s.example"}
 run: {models: {dev: {default: opus}}}
@@ -310,7 +327,7 @@ class Doctor(BoardCase):
         with open(os.path.join(self.repo, ".claude", "settings.local.json"), "w") as fh:
             json.dump({"env": env}, fh)
 
-    def good_github(self, options=OPTIONS, labels=("agentflow", "blocked", "needs-info", "changes-requested", "qc-failed", "qc-manual", "deploying"), runs=1):
+    def good_github(self, options=OPTIONS, labels=("agentflow", "blocked", "needs-info", "changes-requested", "qc-failed", "qc-manual"), runs=1):
         project = {"id": "P", "title": "T", "url": URL, "shortDescription": "", "closed": False, "items": {"totalCount": 0},
                    "repositories": {"nodes": [{"nameWithOwner": "acme/app"}]}, "views": {"nodes": []},
                    "fields": {"nodes": [{"__typename": "ProjectV2SingleSelectField", "id": "F", "name": "Status", "dataType": "SINGLE_SELECT", "options": options}]}}
@@ -467,12 +484,11 @@ class Doctor(BoardCase):
         self.assertEqual(code, 1)
         self.assertIn("push lên origin không được", out)
 
-    def test_e2e_ci_needs_e2e_dir(self):
+    def test_legacy_e2e_ci_warns(self):
         os.makedirs(os.path.join(self.repo, "web"))
         self.write_config(CONFIG + 'surfaces:\n  web:\n    path: "web/"\n    check: "true"\n    e2e_ci: true\n')
         code, out = self.doctor()
-        self.assertEqual(code, 1)
-        self.assertIn("e2e_ci: true mà thiếu e2e_dir", out)
+        self.assertIn("e2e_ci không còn dùng", out)
 
 
 class Preflight(unittest.TestCase):

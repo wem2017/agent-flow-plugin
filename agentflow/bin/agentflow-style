@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """AgentFlow style check — short expressions the formatter had to break over several lines (stdlib only).
 
-Only lines the change adds are checked, so DEV fixes its own code and REVIEWER judges only the PR.
+Only lines the change adds are checked, so DEV fixes its own code and the SA judges only the PR.
 
   agentflow-style <base>          working tree (new untracked files too) against merge-base(<base>, HEAD) — DEV
-  agentflow-style <base> <head>   diff <base>...<head> — REVIEWER
+  agentflow-style <base> <head>   diff <base>...<head> — SA
 
 One line per hit `file:line  <kind>  <code>`; exit 1 on hits, 0 when clean, 2 when git fails.
   arrow    `=>` ends the line: the body of an expression-bodied function moved down

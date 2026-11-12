@@ -17,13 +17,19 @@ import afconfig  # noqa: E402
 
 # Runtime prompts cost tokens on every run. Limits are characters, since one line can hold hundreds of them.
 # Do not raise a limit to fit a change: remove something first (CONTRIBUTING.md §Quy ước).
+# 3.0 folded the QC agent into DEV: dev.md and automation.md grew, protocol.md and dispatch.md shrank, qc.md is gone.
 BUDGETS = {
-    "agents/dev.md": 9350, "agents/reviewer.md": 8400, "agents/qc.md": 9400,
-    "references/protocol.md": 12150, "references/dispatch.md": 10300, "references/design.md": 2600, "references/automation.md": 4500,
+    "agents/sa.md": 9300, "agents/dev.md": 12000,
+    "references/protocol.md": 12000, "references/dispatch.md": 8200, "references/design.md": 2600, "references/automation.md": 6550,
+    "references/engineering.md": 2850,
     "skills/init/SKILL.md": 10650, "skills/learn/SKILL.md": 5500, "skills/do/SKILL.md": 2400, "skills/doctor/SKILL.md": 2000,
-    "skills/run/SKILL.md": 2350, "skills/status/SKILL.md": 2850, "skills/task/SKILL.md": 8400, "skills/init/references/board-setup.md": 4850,
+    "skills/run/SKILL.md": 2300, "skills/status/SKILL.md": 2850, "skills/task/SKILL.md": 9400, "skills/init/references/board-setup.md": 4850,
 }
-PER_SPAWN_LIMIT = 21500  # agent prompt + protocol, read on every spawn
+# What a spawn reads before it looks at the ticket: its prompt, the protocol and the references it always reads.
+# 2.x DEV paid 9.3k + 12.1k + 8.3k (it read the reviewer prompt to self-review); the shared engineering.md replaced that.
+# 3.0 happy path: SA design + DEV + SA review ≈ 24k + 33.4k + 24k, where the QC plan + verify spawns cost 2 × 27.7k more.
+SPAWN_READS = {"sa": ["references/engineering.md"], "dev": ["references/engineering.md", "references/automation.md"]}
+PER_SPAWN_LIMIT = {"sa": 24150, "dev": 33400}
 DESCRIPTION_LIMIT = 700
 
 
@@ -58,7 +64,7 @@ def headings(rel):
 
 
 TEMPLATE = afconfig.parse_yaml(read("agentflow.yaml"))
-AGENTS = ["dev", "reviewer", "qc"]
+AGENTS = ["sa", "dev"]
 SKILLS = ["do", "doctor", "init", "learn", "run", "status", "task"]
 
 
@@ -75,7 +81,10 @@ class Budget(unittest.TestCase):
         protocol = len(read("references/protocol.md"))
         for agent in AGENTS:
             with self.subTest(agent):
-                self.assertLessEqual(len(read("agents/%s.md" % agent)) + protocol, PER_SPAWN_LIMIT)
+                for ref in SPAWN_READS[agent]:
+                    self.assertIn("${CLAUDE_PLUGIN_ROOT}/%s" % ref, read("agents/%s.md" % agent))
+                cost = len(read("agents/%s.md" % agent)) + protocol + sum(len(read(r)) for r in SPAWN_READS[agent])
+                self.assertLessEqual(cost, PER_SPAWN_LIMIT[agent])
 
     def test_skill_files_under_the_platform_limit(self):
         for rel in prompts():
@@ -106,11 +115,10 @@ class Frontmatter(unittest.TestCase):
 
     def test_least_privilege(self):
         tools = {n: frontmatter("agents/%s.md" % n)["tools"] for n in AGENTS}
-        self.assertRegex(tools["qc"], r"\bWrite\b")  # e2e tests: the hook confines it to e2e_dir in the QC worktree
-        self.assertNotRegex(tools["reviewer"], r"\bWrite\b")
-        self.assertRegex(tools["reviewer"], r"\bEdit\b")  # conflicts on staging
-        self.assertIn("mcp__claude-in-chrome__*", tools["qc"])
-        self.assertNotIn("mcp__claude-in-chrome__*", tools["dev"])
+        self.assertNotRegex(tools["sa"], r"\b(Write|Edit)\b")  # SA reads and reviews; DEV deploys and resolves staging conflicts
+        self.assertRegex(tools["dev"], r"\bEdit\b")
+        for name in AGENTS:
+            self.assertNotIn("mcp__claude-in-chrome__*", tools[name])
 
     def test_mcp_prefix_matches_the_manifest(self):
         servers = json.loads(read(".mcp.json"))["mcpServers"]
@@ -265,68 +273,88 @@ class StateMachine(unittest.TestCase):
     RULES = [
         ("references/dispatch.md", r"\*feedback\*:.*gỡ `qc_manual`", "feedback phải gỡ qc_manual, không thì ticket quay về chờ người"),
         ("references/dispatch.md", r"\*qc-failed\*:.*không spawn DEV", "escalate thì không spawn"),
-        ("references/dispatch.md", r"`contains: false`.*\*redeploy\*.*`in_review`", "staging bị reset thì deploy lại, không kẹt blocked"),
         ("references/dispatch.md", r"PR đã đóng mà không merge.*`blocked`", "PR đóng không merge phải có lối ra"),
         ("references/dispatch.md", r"is:issue repo:<owner>/<repo>", "hàng đợi lọc đúng repo"),
         ("references/dispatch.md", r"Không có `RESULT`.*`blocked`", "agent chết giữa chừng"),
         ("references/protocol.md", r"\*\*Trước bước 1\*\*", "so Status trước khi ghi"),
         ("references/protocol.md", r"Status write — cuối cùng, commit point", "Status ghi cuối cùng"),
-        ("references/dispatch.md", r"\*pipeline-ok\*: gỡ `deploying`", "pipeline xong phải gỡ deploying"),
         ("references/dispatch.md", r"\*done\*: Status → `done`", "PR đã merge thì ticket tới done"),
         ("references/dispatch.md", r"\*qc-manual-pass\*:.*`update_pull_request draft=false`", "QC người pass thì undraft"),
         ("references/dispatch.md", r"\*feedback\*:.*`update_pull_request draft=true`", "feedback đưa PR về draft"),
-        ("references/dispatch.md", r"\*pipeline-timeout\*.*gắn `blocked`", "pipeline quá giờ phải báo người"),
         ("references/protocol.md", r"`review_round > run.max_review_rounds`.*\*\*escalate\*\*", "hết lượt review thì escalate"),
-        ("agents/reviewer.md", r"Status → `in_qc`", "reviewer deploy xong chuyển In QC"),
-        ("agents/reviewer.md", r"gắn `deploying`", "reviewer gắn deploying"),
-        ("agents/qc.md", r"\[AF:QC\] stale", "QC phát hiện staging chưa có head PR"),
         ("references/protocol.md", r"round đã tính, không tăng lần nữa", "chạy lại sau crash không tăng round"),
         ("references/protocol.md", r"`author_association`.*untrusted", "không tin comment của người ngoài"),
         ("references/protocol.md", r"perPage=100", "phân trang comment"),
-        ("agents/reviewer.md", r"\|\| \{ echo MERGE_CONFLICT", "conflict dừng khối deploy"),
-        ("agents/reviewer.md", r"gỡ `changes_requested`", "reviewer ✅ gỡ label rework"),
-        ("agents/reviewer.md", r"Verdict mới nhất là ✅ `@<head sha>`.*§5", "deploy lại không review lại"),
-        ("agents/qc.md", r"\*\*`update_pull_request draft=false`\*\*", "QC ✅ undraft"),
-        ("agents/qc.md", r"gỡ `qc_failed`, `qc_manual`", "QC ✅ dọn label"),
-        ("agents/qc.md", r"stage: ready`.*gắn `qc_failed`", "QC ❌ về ready"),
+        ("references/protocol.md", r"không bao giờ merge staging vào nhánh ticket", "staging không chảy ngược vào PR"),
+        ("agents/sa.md", r"gỡ `changes_requested`, `qc_failed`", "SA ✅ gỡ label rework, kể cả của QC người"),
         ("agents/dev.md", r"\*\*`draft=true`\*\*", "PR luôn draft"),
         ("agents/dev.md", r"WT bẩn", "resume sau crash"),
         ("skills/do/SKILL.md", r"áp bảng dispatch §3", "/do đi qua cùng bảng hành động"),
         ("references/dispatch.md", r"agentflow-board feedback <owner/repo> --summary", "hàng đợi soát góp ý trên PR"),
         ("references/dispatch.md", r"`in_qc` · `in_review` \| `A` \+ `pending` > 0 \| SYS \*feedback\*", "góp ý ở In Review / In QC cũng về DEV"),
-        ("references/dispatch.md", r"\*feedback\*:.*gỡ `qc_manual`, `deploying`", "góp ý lúc chờ build thì bỏ chờ build"),
         ("agents/dev.md", r"agentflow-board feedback <REPO> --issue <n>", "DEV đọc góp ý ở mọi MODE"),
         ("agents/dev.md", r"Mọi thread `pending`: `add_reply_to_pull_request_comment`", "mọi thread chờ đều được trả lời, không thì quay vòng"),
         ("agents/dev.md", r"`fb` \(của feedback", "DEV ghi fb sau khi xử lý"),
         ("agents/dev.md", r"agentflow-style origin/<base>`", "DEV soát biểu thức bị bẻ dòng"),
-        ("agents/reviewer.md", r"agentflow-style origin/<base> origin/<branch>", "REVIEWER soát biểu thức bị bẻ dòng"),
-        ("agents/qc.md", r"git diff --name-only origin/<staging\.branch>\.\.\.origin/<branch>", "test QC tự commit không làm ticket stale"),
-        ("agents/qc.md", r"push origin HEAD:<branch>", "QC đẩy test lên PR branch"),
-        ("agents/qc.md", r"references/automation\.md", "QC đọc hướng dẫn automation"),
-        ("agents/qc.md", r"`Chưa test:", "QC ✅ nói rõ phần chưa test"),
-        ("agents/qc.md", r"ưu tiên Maestro", "QC test UI bằng Maestro trước"),
-        ("agents/qc.md", r"tự xem từng ảnh", "QC soát UI/UX trên ảnh chụp"),
+        ("agents/sa.md", r"agentflow-style origin/<base> origin/<branch>", "SA soát biểu thức bị bẻ dòng"),
         ("references/automation.md", r"\*\*Maestro trước\*\*", "Maestro là lựa chọn đầu cho mobile và web"),
         ("references/automation.md", r"Không dùng `assertWithAI`", "không gửi ảnh staging ra AI ngoài"),
-        ("agents/dev.md", r"test e2e QC đã commit thì giữ", "DEV không xoá test tái hiện của QC"),
         ("agents/dev.md", r"\*\*Tự review trước khi push\*\*", "DEV tự review, tìm nơi gọi"),
-        ("agents/dev.md", r"bảng AC \(AC → file chính → test\)", "PR có bảng AC cho REVIEWER và QC"),
-        ("agents/reviewer.md", r"`BEHIND` .*không phải lỗi", "chậm base không trả PR về DEV"),
-        ("agents/reviewer.md", r"\*\*luôn\*\* cả file rủi ro", "REVIEWER đọc file rủi ro dù không gắn AC"),
-        ("agents/reviewer.md", r"đường gây lỗi", "mục bug phải có đường gây lỗi"),
-        ("references/dispatch.md", r"`auto` ⇒ SYS \*qc-auto-pass\*", "CI e2e xanh + qc auto thì không spawn QC"),
-        ("references/dispatch.md", r"\*qc-auto-pass\*: như \*qc-manual-pass\*", "qc-auto-pass undraft như QC người pass"),
-        ("references/dispatch.md", r"\*qc-auto-pass\*:.*Status → `ready_to_merge`", "qc-auto-pass tự chuyển cột, không có người kéo card"),
-        ("references/dispatch.md", r"\*qc-manual\*:.*gắn `qc_manual`", "checklist QC tay của PR chờ người"),
-        ("references/dispatch.md", r"≠ `review_sha` ⇒ SYS \*redeploy\*", "commit sau review không được pass bằng CI của bản cũ"),
+        ("agents/dev.md", r"bảng AC \(AC → file chính → TC → flow\)", "PR có bảng AC cho SA"),
+        ("agents/sa.md", r"`BEHIND` .*không phải lỗi", "chậm base không trả PR về DEV"),
+        ("agents/sa.md", r"\*\*luôn\*\* cả file rủi ro", "SA đọc file rủi ro dù không gắn AC"),
+        ("agents/sa.md", r"đường gây lỗi", "mục bug phải có đường gây lỗi"),
         ("references/dispatch.md", r"agentflow-board preflight`, chạy lại ngay trước mỗi lượt spawn", "mạng chặn push thì dừng trước khi tốn token"),
         ("references/dispatch.md", r"`SendMessage`.*\*\*một lần\*\*", "agent chạm maxTurns được làm nốt một lần trước khi blocked"),
         ("references/protocol.md", r"Subagent không chạy lệnh nền", "lệnh nền làm agent chạy tiếp sau khi orchestrator đã kết luận"),
-        ("agents/reviewer.md", r"`qc` \(lý do một dòng", "REVIEWER chọn cách QC lúc ✅"),
-        ("agents/reviewer.md", r"flow không assert được kết quả của AC", "REVIEWER soát test của DEV"),
-        ("agents/dev.md", r"\*\*Test tự động\*\*", "DEV viết test tự động cho AC"),
         ("agents/dev.md", r"Commit đầu tiên ⇒ push \+ mở draft PR ngay", "DEV push checkpoint sớm"),
-        ("agents/dev.md", r"Size \(chưa có thì tự ước lượng", "ticket thiếu Size vẫn qua DoR có kiểm"),
+        ("agents/sa.md", r"Size \(trống thì tự ước lượng", "ticket thiếu Size vẫn qua DoR có kiểm"),
+        ("agents/sa.md", r"\*\*DoR\*\*", "SA chặn ticket chưa đủ trước khi thiết kế"),
+        ("agents/sa.md", r"`\[AF:SA\] design @", "SA viết thiết kế cho DEV"),
+        ("agents/sa.md", r"gắn `labels.agent`; Status giữ `ready`", "SA nhận ticket sau khi thiết kế"),
+        ("agents/sa.md", r"\*\*không\*\* gắn `labels.agent`", "SA hỏi PO thì chưa nhận ticket, /task sửa được"),
+        ("agents/sa.md", r"\*\*Đúng thiết kế\*\*", "SA review đối chiếu thiết kế"),
+        ("agents/sa.md", r"Code đọc ở `origin/<base>`", "SA thiết kế theo base, không theo checkout đang mở"),
+        ("agents/dev.md", r"chưa có `\[AF:SA\] design` ⇒ không code", "DEV không code khi chưa có thiết kế"),
+        ("agents/dev.md", r"\"Lệch thiết kế\"", "DEV ghi chỗ lệch thiết kế cho SA"),
+        ("references/dispatch.md", r"không `A`, không assign người khác \| SA `MODE=design`", "SA thiết kế ticket Ready chưa ai nhận"),
+        ("references/dispatch.md", r"`A` \+ state thiếu `design`.*SA `MODE=design`", "ticket cũ ở Ready không tốn một lượt DEV chỉ để abort"),
+        ("references/dispatch.md", r"SA design giữ `ready` là đúng", "no-progress guard không chặn nhầm SA design"),
+        ("skills/task/SKILL.md", r"\*\*Không đọc code\*\*", "PO không đưa kỹ thuật vào ticket"),
+        ("skills/task/SKILL.md", r"gỡ luôn `labels.agent` để SA thiết kế lại", "AC đổi sau thiết kế thì SA thiết kế lại"),
+        ("skills/run/SKILL.md", r"dòng khớp \*\*đầu tiên\*\*", "--only không rơi xuống dòng sau của bảng"),
+        # 3.0: SA thiết kế (rủi ro + test case) → DEV code + automation + staging → SA review → QC người khi cần
+        ("agents/sa.md", r"\*\*Rủi ro\*\*", "SA đánh giá rủi ro lúc thiết kế"),
+        ("agents/sa.md", r"\*\*Test case\*\* \(bảng", "SA lập test case cần kiểm chứng"),
+        ("agents/sa.md", r"Head ≠ `test_sha` ⇒ \*\*không review\*\*: ❌", "SA không review head chưa chạy flow trên staging"),
+        ("agents/sa.md", r"escalate: `· escalated`", "escalate thì dừng chain, không spawn DEV ngay"),
+        ("agents/dev.md", r"Chạy khi head PR ≠ `test_sha`", "không ghi test_sha cho head chưa chạy flow"),
+        ("agents/dev.md", r"kể cả khi merge `Already up to date`", "resume sau khi chết lúc chờ pipeline vẫn chờ deploy"),
+        ("agents/dev.md", r"Bash `timeout: 300000`", "lệnh chờ pipeline không bị Bash cắt ở 2 phút"),
+        ("references/protocol.md", r"`\[AF:DEV\] fixed\|reply` mới hơn", "DEV trả lời không sửa code vẫn là vòng mới"),
+        ("agents/sa.md", r"unit/mock test mới mà `CLAUDE.md` không bắt buộc", "plugin không viết mock test"),
+        ("agents/sa.md", r"\*\*Có mục \(có nội dung\) chưa tick\*\* ⇒ state `stage: in_qc`", "còn QC tay thì chờ QC người"),
+        ("agents/sa.md", r"gắn `qc_manual`; Status → `in_qc`", "SA gắn qc_manual khi giao QC người"),
+        ("agents/sa.md", r"\*\*Không có\*\* ⇒ state `stage: ready_to_merge`.*\*\*`update_pull_request draft=false`\*\*", "không có QC tay thì SA undraft"),
+        ("agents/dev.md", r"\|\| \{ echo MERGE_CONFLICT", "conflict dừng khối deploy"),
+        ("agents/dev.md", r"Không bao giờ merge staging vào nhánh ticket", "DEV không đưa code ticket khác vào PR"),
+        ("agents/dev.md", r"--wait 4", "chờ pipeline theo nhịp giữ prompt cache"),
+        ("agents/dev.md", r"`--skip '<glob>'` cho mỗi mục `staging.skip_checks`", "không chờ release mobile"),
+        ("agents/dev.md", r"Tối đa `run.max_test_rounds` vòng", "vòng sửa test có trần"),
+        ("agents/dev.md", r"\*\*Lỗi block\*\*.*`\[AF:DEV\] blocked`", "hết vòng thì ghi lỗi block lên issue"),
+        ("agents/dev.md", r"gắn `blocked`, giữ `in_progress`, mention `people.po`", "lỗi block báo PO"),
+        ("agents/dev.md", r"không viết unit/integration test có mock", "plugin không viết mock test"),
+        ("agents/dev.md", r"`test_sha: <head>`", "DEV ghi head đã test cho SA"),
+        ("references/automation.md", r"\*\*Chọn flow liên quan\*\*", "chỉ chạy flow liên quan, không cả suite"),
+        ("references/automation.md", r"không chờ release mobile", "mobile test bằng build local trỏ staging"),
+        ("references/automation.md", r"Chỉ mở ảnh \(Read\) khi flow fail, cộng \*\*một\*\* ảnh cuối mỗi AC UI", "xem ảnh tiết kiệm token"),
+        ("references/automation.md", r"\*\*QC tay\*\* \(chặn merge", "QC tay là cổng duy nhất của QC người"),
+        ("references/automation.md", r"\*\*Đề xuất kiểm chứng thêm\*\* \(không chặn", "danh sách testcase cần kiểm chứng lại"),
+        ("references/dispatch.md", r"\*requeue\*: state `stage: in_progress`", "ticket của luồng cũ ở In QC không kẹt"),
+        ("references/dispatch.md", r"`in_qc` \| `A` \+ `qc_failed` \(QC người fail\) \| SYS \*qc-failed\*", "QC người fail về DEV, kể cả khi qc_manual đã bị gỡ"),
+        ("references/dispatch.md", r"trừ khi state đã `stage: ready` \(chạy lại sau crash\)", "chạy lại qc-failed không tăng round hai lần"),
+        ("references/automation.md", r"QC tay \*\*luôn\*\* có `- \[ \] Xác nhận lại lỗi QC đã báo", "QC người báo fail thì kiểm lại trước merge (người dùng chọn)"),
+        ("agents/sa.md", r"`qc_round` > 0 mà QC tay thiếu mục xác nhận lại", "SA không cho rework sau QC fail bỏ qua QC người"),
     ]
 
     def test_rules_still_stated(self):
@@ -340,7 +368,7 @@ class StateMachine(unittest.TestCase):
 
     def test_every_label_has_a_remover(self):
         text = "".join(read(p) for p in prompts())
-        for key in ("changes_requested", "qc_failed", "qc_manual", "deploying"):
+        for key in ("changes_requested", "qc_failed", "qc_manual"):
             with self.subTest(key):
                 self.assertRegex(text, r"gỡ[^.\n]{0,60}`%s`" % key)
 
@@ -379,7 +407,7 @@ class RealGitHubMcp(unittest.TestCase):
 
 
 class Evals(unittest.TestCase):
-    CASES = ["dev-dor-missing-ac", "guard-force-push", "guard-secret-read", "reviewer-escalates", "reviewer-rejects"]
+    CASES = ["guard-force-push", "guard-secret-read", "sa-dor-missing-ac", "sa-escalates", "sa-rejects"]
 
     def graders(self):
         for path in glob.glob(os.path.join(ROOT, "evals", "*", "graders", "*.md")):
@@ -396,7 +424,7 @@ class Evals(unittest.TestCase):
             self.assertIn(name, read("evals/README.md"))
 
     def test_trace_regex_is_anchored_to_a_tool_call(self):
-        """Unanchored, a trace regex also matches the prompts the agent read: `[AF:REVIEW] deployed` is in reviewer.md."""
+        """Unanchored, a trace regex also matches the prompts the agent read: `[AF:SA] deployed` is in sa.md."""
         for rel, meta in self.graders():
             if meta.get("type") == "regex" and meta.get("target") == "trace" and "[AF:" in meta["pattern"]:
                 with self.subTest(rel):
@@ -449,7 +477,7 @@ class SharedFacts(unittest.TestCase):
                 self.assertIn(key, afconfig.LABEL_KEYS, rel)
 
     def test_prompts_use_label_keys_not_literal_names(self):
-        for name in ("agents/dev.md", "agents/reviewer.md", "agents/qc.md", "references/dispatch.md"):
+        for name in ("agents/sa.md", "agents/dev.md", "references/dispatch.md"):
             self.assertNotRegex(read(name), r"gắn `(needs-info|changes-requested|qc-failed|qc-manual)`", name)
 
     def test_comment_heads_are_documented(self):
@@ -457,16 +485,20 @@ class SharedFacts(unittest.TestCase):
         known = set(re.findall(r"\[AF:(\w+)\] ([^\s`@#<]+)", table))
         sys_events = re.search(r"`\[AF:SYS\] <event>` \| ([^\n]+)", table).group(1)
         known |= {("SYS", e) for e in re.findall(r"`([a-z-]+)`", sys_events)}
+        if "`[AF:REVIEW]`: đọc như `[AF:SA]`" in table:  # 2.x name of the SA, still read on old tickets
+            known |= {("REVIEW", e) for role, e in set(known) if role == "SA"}
         for rel in ["agents/%s.md" % a for a in AGENTS] + ["references/dispatch.md"] + ["skills/%s/SKILL.md" % s for s in SKILLS] + ["templates/board-readme.md", "bin/agentflow-board"]:
+            legacy = {("QC", e) for e in ("✅", "❌", "?")} if rel == "bin/agentflow-board" else set()  # metrics of pre-3.0 tickets
             for role, events in re.findall(r"\[AF:(\w+)\] ([^\s`@#<\"…]+)", read(rel)):
                 for event in events.split("|"):
+                    if (role, event) in legacy:
+                        continue
                     with self.subTest("%s: [AF:%s] %s" % (rel, role, event)):
                         self.assertIn((role, event), known)
 
     def test_every_role_prefix_used_by_its_agent(self):
         self.assertIn("[AF:DEV]", read("agents/dev.md"))
-        self.assertIn("[AF:REVIEW]", read("agents/reviewer.md"))
-        self.assertIn("[AF:QC]", read("agents/qc.md"))
+        self.assertIn("[AF:SA]", read("agents/sa.md"))
 
     def test_result_values(self):
         check = read("scripts/result-check.py")
@@ -506,8 +538,12 @@ class SharedFacts(unittest.TestCase):
         self.assertIn("MODE=new", dispatch)
         for mode in ("new", "rework", "resume"):
             self.assertIn("`%s`" % mode, read("agents/dev.md"))
+        self.assertIn("agentflow:<sa|dev>", dispatch)
+        for agent, modes in (("sa", ("design", "review")),):
+            for mode in modes:
+                self.assertIn("%s `MODE=%s`" % (agent.upper(), mode), dispatch)
+                self.assertIn("`MODE=%s`" % mode, read("agents/%s.md" % agent))
         for agent in AGENTS:
-            self.assertIn("agentflow:<dev|reviewer|qc>", dispatch)
             self.assertIn("RESULT", read("agents/%s.md" % agent))
             self.assertIn("references/protocol.md", read("agents/%s.md" % agent))
 

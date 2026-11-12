@@ -170,77 +170,102 @@ MCP = [
     ("BLOCK", "mcp__idea__read_file", {"pathInProject": ".env"}),
 ]
 STAGING_WT = ".claude/worktrees/af-7-staging"
-QC_WT = ".claude/worktrees/af-7-qc"
 ROLES = [  # role, want, tool, input
-    ("qc", "ALLOW", "Write", {"file_path": QC_WT + "/web/e2e/af-7.spec.ts"}), ("qc", "BLOCK", "Write", {"file_path": QC_WT + "/web/src/app.ts"}),
-    ("qc", "BLOCK", "Edit", {"file_path": ".claude/worktrees/af-7/web/e2e/a.spec.ts"}), ("qc", "BLOCK", "Write", {"file_path": "web/e2e/a.spec.ts"}),
-    ("qc", "ALLOW", "Bash", {"command": "mkdir -p %s/web/e2e/flows" % QC_WT}), ("qc", "BLOCK", "Bash", {"command": "cd %s && echo x > web/src/a.ts" % QC_WT}),
-    ("qc", "ALLOW", "Bash", {"command": "git -C %s add -- web/e2e" % QC_WT}), ("qc", "ALLOW", "Bash", {"command": "cd %s/web && git add e2e/af-7.spec.ts" % QC_WT}),
-    ("qc", "BLOCK", "Bash", {"command": "git -C %s add -A" % QC_WT}), ("qc", "BLOCK", "Bash", {"command": "git -C %s add ." % QC_WT}),
-    ("qc", "BLOCK", "Bash", {"command": "git -C %s add web/src/app.ts" % QC_WT}), ("qc", "BLOCK", "Bash", {"command": "git add -- web/e2e"}),
-    ("qc", "ALLOW", "Bash", {"command": 'git -C %s commit -m "test(web): e2e #7"' % QC_WT}), ("qc", "ALLOW", "Bash", {"command": "git -C %s push origin HEAD:feat/7-x" % QC_WT}),
-    ("qc", "BLOCK", "Bash", {"command": "git -C %s push origin HEAD:staging" % QC_WT}), ("qc", "BLOCK", "Bash", {"command": "git -C %s push origin HEAD:master" % QC_WT}),
-    ("qc", "BLOCK", "Bash", {"command": "git -C %s merge origin/master" % QC_WT}), ("qc", "BLOCK", "Bash", {"command": "git -C %s reset --hard" % QC_WT}),
-    ("qc", "ALLOW", "Bash", {"command": "git -C %s restore web/src/app.ts" % QC_WT}), ("reviewer", "BLOCK", "Write", {"file_path": QC_WT + "/web/e2e/a.spec.ts"}),
-    # what an allow-list is for: each of these routes around a check on `git commit` alone
-    ("qc", "BLOCK", "Bash", {"command": "git -C %s --work-tree=%s/web/e2e/fake commit -a -m x" % (QC_WT, QC_WT)}),
-    ("qc", "BLOCK", "Bash", {"command": "git -C %s -c core.hooksPath=web/e2e/h commit -m x" % QC_WT}),
-    ("qc", "BLOCK", "Bash", {"command": "GIT_WORK_TREE=/tmp/x git -C %s commit -m x" % QC_WT}), ("qc", "BLOCK", "Bash", {"command": "env GIT_INDEX_FILE=/tmp/i git -C %s commit -m x" % QC_WT}),
-    ("qc", "BLOCK", "Bash", {"command": "git -C %s commit-tree abc -p HEAD -m x" % QC_WT}), ("qc", "BLOCK", "Bash", {"command": "git -C %s update-index --add web/src/app.ts" % QC_WT}),
-    ("qc", "BLOCK", "Bash", {"command": "git -C %s notes add -m x" % QC_WT}), ("qc", "BLOCK", "Bash", {"command": "git -C %s branch -f feat/7-x HEAD" % QC_WT}),
-    ("qc", "BLOCK", "Bash", {"command": "git -C %s push origin abc123:feat/7-x" % QC_WT}), ("qc", "BLOCK", "Bash", {"command": "git -C %s push" % QC_WT}),
-    ("qc", "BLOCK", "Bash", {"command": "git -C %s push origin HEAD:feat/new" % QC_WT}),
-    ("qc", "BLOCK", "Bash", {"command": "git -C %s restore --source=HEAD~1 web/src/app.ts" % QC_WT}), ("qc", "BLOCK", "Bash", {"command": "git -C %s restore -s HEAD web/e2e/x" % QC_WT}),
-    ("qc", "BLOCK", "Bash", {"command": "git -C %s config core.hooksPath web/e2e/h" % QC_WT}), ("qc", "ALLOW", "Bash", {"command": "git config --get user.name"}),
-    ("qc", "ALLOW", "Bash", {"command": "git branch -a"}), ("qc", "ALLOW", "Bash", {"command": "git log --oneline -3"}),
-    ("qc", "BLOCK", "Bash", {"command": "git worktree remove --force .claude/worktrees/af-7"}), ("qc", "ALLOW", "Bash", {"command": "git worktree remove --force %s" % QC_WT}),
-    ("qc", "BLOCK", "Bash", {"command": "mv %s/web/src/app.ts %s/web/e2e/app.ts" % (QC_WT, QC_WT)}), ("qc", "BLOCK", "Bash", {"command": "ln -s ../src %s/web/e2e/m" % QC_WT}),
-    ("qc", "BLOCK", "Write", {"file_path": os.path.expanduser("~/.gitconfig")}), ("qc", "ALLOW", "Write", {"file_path": "/tmp/af-7-e2e/flow.yaml"}),
-    ("qc", "ALLOW", "Bash", {"command": "mkdir -p /tmp/af-7-e2e && echo x > /tmp/af-7-e2e/flow.yaml"}),
-    ("dev", "BLOCK", "Bash", {"command": "mv web/src/app.ts .claude/worktrees/af-7/app.ts"}), ("dev", "ALLOW", "Bash", {"command": "cd .claude/worktrees/af-7 && mv a.ts b.ts"}),
-    ("qc", "BLOCK", "Bash", {"command": 'git commit -m x'}), ("qc", "BLOCK", "Bash", {"command": "git push -u origin feat/1"}),
-    ("qc", "BLOCK", "Bash", {"command": "git merge origin/feat/1"}), ("qc", "BLOCK", "Bash", {"command": "bash -c 'git reset --hard'"}),
-    ("qc", "ALLOW", "Bash", {"command": "git fetch -q origin staging"}), ("qc", "ALLOW", "Bash", {"command": "git worktree add -q --detach %s origin/feat/7-x" % QC_WT}),
-    ("qc", "ALLOW", "Bash", {"command": "curl -s https://staging.example.com/health"}), ("qc", "BLOCK", "Write", {"file_path": "x.txt"}),
-    ("qc", "BLOCK", "mcp__plugin_agentflow_github__push_files", {"branch": "feat/1"}), ("qc", "BLOCK", "mcp__plugin_agentflow_github__create_pull_request", {}),
-    ("qc", "ALLOW", "mcp__plugin_agentflow_github__update_pull_request", {"draft": False}), ("qc", "ALLOW", "Bash", {"command": "gh pr ready 12"}),
-    ("reviewer", "ALLOW", "Bash", {"command": "git -C %s push origin HEAD:staging" % STAGING_WT}), ("reviewer", "BLOCK", "Bash", {"command": "git push origin feat/1"}),
-    ("reviewer", "ALLOW", "Bash", {"command": "git -C %s merge --no-ff --no-edit origin/feat/1" % STAGING_WT}), ("reviewer", "BLOCK", "Bash", {"command": "git merge origin/feat/1"}),
-    ("reviewer", "ALLOW", "Bash", {"command": "WT=%s; git -C \"$WT\" merge origin/feat/1" % STAGING_WT}), ("reviewer", "BLOCK", "Bash", {"command": 'git -C "$WT" commit --no-edit'}),
-    ("reviewer", "BLOCK", "Bash", {"command": "git commit -m x"}), ("reviewer", "ALLOW", "Edit", {"file_path": STAGING_WT + "/src/a.ts"}),
-    ("reviewer", "BLOCK", "Edit", {"file_path": "src/a.ts"}), ("reviewer", "BLOCK", "Edit", {"file_path": ".claude/worktrees/af-7/src/a.ts"}),
-    ("reviewer", "BLOCK", "mcp__plugin_agentflow_github__update_pull_request", {"draft": False}), ("reviewer", "BLOCK", "Bash", {"command": "gh pr ready 12"}),
-    ("dev", "BLOCK", "Bash", {"command": "git push origin HEAD:staging"}), ("dev", "ALLOW", "Bash", {"command": "git push -u origin feat/1"}),
-    ("dev", "BLOCK", "Bash", {"command": "git merge origin/staging"}), ("dev", "BLOCK", "Bash", {"command": "git pull origin staging"}),
-    ("dev", "ALLOW", "Bash", {"command": "git -C .claude/worktrees/af-7 merge origin/master"}), ("dev", "ALLOW", "Bash", {"command": "cd .claude/worktrees/af-7 && git commit -m x"}),
-    ("dev", "BLOCK", "Bash", {"command": "git merge origin/master"}), ("dev", "BLOCK", "Bash", {"command": "git reset --hard"}), ("dev", "BLOCK", "Bash", {"command": "git commit -m x"}),
-    ("dev", "BLOCK", "Bash", {"command": 'git -C "$WT" commit -m x'}), ("dev", "BLOCK", "Bash", {"command": "git switch -c x"}), ("dev", "ALLOW", "Bash", {"command": "git worktree add .claude/worktrees/af-8 -b feat/8 origin/master"}),
-    ("dev", "BLOCK", "Write", {"file_path": ".claude/worktrees/af-7/agentflow.yaml"}), ("dev", "BLOCK", "Bash", {"command": "cd .claude/worktrees/af-7 && echo x > agentflow.yaml"}), ("dev", "ALLOW", "Edit", {"file_path": ".claude/worktrees/af-7/src/a.ts"}),
-    ("dev", "BLOCK", "Edit", {"file_path": "src/a.ts"}), ("dev", "ALLOW", "Write", {"file_path": "/tmp/af-note.txt"}),
-    ("dev", "BLOCK", "mcp__plugin_agentflow_github__create_pull_request", {"title": "x"}), ("dev", "BLOCK", "mcp__plugin_agentflow_github__create_pull_request", {"draft": False}), ("dev", "ALLOW", "mcp__plugin_agentflow_github__create_pull_request", {"draft": True}),
-    ("dev", "BLOCK", "Bash", {"command": 'gh pr create --title x --body y'}), ("dev", "ALLOW", "Bash", {"command": 'gh pr create --draft --title x --body y'}),
-    ("dev", "BLOCK", "mcp__plugin_agentflow_github__update_pull_request", {"draft": False}), ("dev", "ALLOW", "mcp__plugin_agentflow_github__update_pull_request", {"draft": True}),
-    ("dev", "BLOCK", "Bash", {"command": "gh pr ready 12"}), ("dev", "ALLOW", "Bash", {"command": "gh pr ready 12 --undo"}),
-    ("dev", "BLOCK", "Bash", {"command": "git merge origin/staging^0"}), ("dev", "BLOCK", "Bash", {"command": "git switch staging"}),
-    ("dev", "BLOCK", "Bash", {"command": "rm agentflow.yaml"}), ("dev", "BLOCK", "Bash", {"command": "tee agentflow.yaml <<< x"}), ("dev", "BLOCK", "Bash", {"command": "echo x > src/a.ts"}),
-    ("dev", "ALLOW", "Bash", {"command": "cd .claude/worktrees/af-7 && rm -rf node_modules && echo x > note.txt"}), ("dev", "ALLOW", "Bash", {"command": "pnpm test > /tmp/af-7.log 2>&1"}),
-    ("qc", "BLOCK", "Bash", {"command": "git update-ref refs/heads/master HEAD"}), ("qc", "BLOCK", "Bash", {"command": "git clean -fdx"}), ("qc", "BLOCK", "Bash", {"command": "echo x > a.txt"}),
-    ("qc", "ALLOW", "Bash", {"command": "pnpm e2e > /tmp/af-7-e2e.log 2>&1"}), ("reviewer", "BLOCK", "Bash", {"command": "sed -i s/a/b/ README.md"}), ("reviewer", "BLOCK", "Bash", {"command": "tee README.md <<< x"}),
-    ("dev", "ALLOW", "Bash", {"command": "sed -i '' s/a/b/ .claude/worktrees/af-7/README.md"}), ("reviewer", "ALLOW", "Bash", {"command": "sed -i s/a/b/ %s/README.md" % STAGING_WT}), ("reviewer", "ALLOW", "Bash", {"command": "sed -n 1,5p README.md"}),
-    ("qc", "ALLOW", "Bash", {"command": "git tag -l"}), ("qc", "ALLOW", "Bash", {"command": "git stash list"}), ("reviewer", "ALLOW", "Bash", {"command": "git tag --list"}), ("qc", "BLOCK", "Bash", {"command": "git tag v1"}), ("qc", "BLOCK", "Bash", {"command": "git stash"}),
-    ("dev", "ALLOW", "Bash", {"command": "cd .claude/worktrees/af-7 && git checkout HEAD -- deploy/staging"}), ("dev", "ALLOW", "Bash", {"command": "cd .claude/worktrees/af-7 && git switch -c fix/staging"}), ("dev", "BLOCK", "Bash", {"command": "cd .claude/worktrees/af-7 && git switch origin/staging"}),
-    ("dev", "ALLOW", "Bash", {"command": 'cd "$(mktemp -d)" && echo x > r.txt'}), ("qc", "ALLOW", "Bash", {"command": 'cd "$(mktemp -d)" && echo x > r.txt'}), ("dev", "ALLOW", "Bash", {"command": "cd .claude/worktrees/af-7 && ln -s ../../../node_modules node_modules"}), ("dev", "BLOCK", "Bash", {"command": "ln -s x src/link"}),
-    ("qc", "BLOCK", "Bash", {"command": "git pull origin master"}), ("qc", "BLOCK", "Bash", {"command": "git checkout -- ."}), ("reviewer", "BLOCK", "Bash", {"command": "git checkout -- ."}),
-    ("reviewer", "ALLOW", "Bash", {"command": 'WT="$HOME/my repo/.claude/worktrees/af-7-staging"; echo "$WT"'}),
-    ("dev", "BLOCK", "Edit", {"file_path": ".claude/worktrees/af-7/.claude/settings.json"}), ("dev", "BLOCK", "Write", {"file_path": ".claude/settings.local.json"}),
-    ("dev", "BLOCK", "Bash", {"command": "echo '{}' > .claude/settings.json"}), ("dev", "BLOCK", "Bash", {"command": "agentflow-settings set a.b 1"}),
-    ("qc", "BLOCK", "Bash", {"command": "agentflow-settings import TELEGRAM_CHAT_ID"}), ("dev", "BLOCK", "Bash", {"command": "agentflow-settings unset TELEGRAM_BOT_TOKEN"}), ("dev", "BLOCK", "Bash", {"command": "agentflow-settings allow Bash"}), ("qc", "BLOCK", "Bash", {"command": "agentflow-settings allow --user Bash"}),
+    ("dev", "BLOCK", "Bash", {"command": "mv web/src/app.ts .claude/worktrees/af-7/app.ts"}),
+    ("dev", "ALLOW", "Bash", {"command": "cd .claude/worktrees/af-7 && mv a.ts b.ts"}),
+    ("sa", "BLOCK", "Bash", {"command": "git push origin feat/1"}),
+    ("sa", "BLOCK", "Bash", {"command": "git merge origin/feat/1"}),
+    ("sa", "BLOCK", "Bash", {"command": 'git -C "$WT" commit --no-edit'}),
+    ("sa", "BLOCK", "Bash", {"command": "git commit -m x"}),
+    ("sa", "BLOCK", "Edit", {"file_path": "src/a.ts"}),
+    ("sa", "BLOCK", "Edit", {"file_path": ".claude/worktrees/af-7/src/a.ts"}),
+    ("dev", "BLOCK", "Bash", {"command": "git push origin HEAD:staging"}),
+    ("dev", "ALLOW", "Bash", {"command": "git push -u origin feat/1"}),
+    ("dev", "BLOCK", "Bash", {"command": "git merge origin/staging"}),
+    ("dev", "BLOCK", "Bash", {"command": "git pull origin staging"}),
+    ("dev", "ALLOW", "Bash", {"command": "git -C .claude/worktrees/af-7 merge origin/master"}),
+    ("dev", "ALLOW", "Bash", {"command": "cd .claude/worktrees/af-7 && git commit -m x"}),
+    ("dev", "BLOCK", "Bash", {"command": "git merge origin/master"}),
+    ("dev", "BLOCK", "Bash", {"command": "git reset --hard"}),
+    ("dev", "BLOCK", "Bash", {"command": "git commit -m x"}),
+    ("dev", "BLOCK", "Bash", {"command": 'git -C "$WT" commit -m x'}),
+    ("dev", "BLOCK", "Bash", {"command": "git switch -c x"}),
+    ("dev", "ALLOW", "Bash", {"command": "git worktree add .claude/worktrees/af-8 -b feat/8 origin/master"}),
+    ("dev", "BLOCK", "Write", {"file_path": ".claude/worktrees/af-7/agentflow.yaml"}),
+    ("dev", "BLOCK", "Bash", {"command": "cd .claude/worktrees/af-7 && echo x > agentflow.yaml"}),
+    ("dev", "ALLOW", "Edit", {"file_path": ".claude/worktrees/af-7/src/a.ts"}),
+    ("dev", "BLOCK", "Edit", {"file_path": "src/a.ts"}),
+    ("dev", "ALLOW", "Write", {"file_path": "/tmp/af-note.txt"}),
+    ("dev", "BLOCK", "mcp__plugin_agentflow_github__create_pull_request", {"title": "x"}),
+    ("dev", "BLOCK", "mcp__plugin_agentflow_github__create_pull_request", {"draft": False}),
+    ("dev", "ALLOW", "mcp__plugin_agentflow_github__create_pull_request", {"draft": True}),
+    ("dev", "BLOCK", "Bash", {"command": 'gh pr create --title x --body y'}),
+    ("dev", "ALLOW", "Bash", {"command": 'gh pr create --draft --title x --body y'}),
+    ("dev", "BLOCK", "mcp__plugin_agentflow_github__update_pull_request", {"draft": False}),
+    ("dev", "ALLOW", "mcp__plugin_agentflow_github__update_pull_request", {"draft": True}),
+    ("dev", "BLOCK", "Bash", {"command": "gh pr ready 12"}),
+    ("dev", "ALLOW", "Bash", {"command": "gh pr ready 12 --undo"}),
+    ("dev", "BLOCK", "Bash", {"command": "git merge origin/staging^0"}),
+    ("dev", "BLOCK", "Bash", {"command": "git switch staging"}),
+    ("dev", "BLOCK", "Bash", {"command": "rm agentflow.yaml"}),
+    ("dev", "BLOCK", "Bash", {"command": "tee agentflow.yaml <<< x"}),
+    ("dev", "BLOCK", "Bash", {"command": "echo x > src/a.ts"}),
+    ("dev", "ALLOW", "Bash", {"command": "cd .claude/worktrees/af-7 && rm -rf node_modules && echo x > note.txt"}),
+    ("dev", "ALLOW", "Bash", {"command": "pnpm test > /tmp/af-7.log 2>&1"}),
+    ("sa", "BLOCK", "Bash", {"command": "sed -i s/a/b/ README.md"}),
+    ("sa", "BLOCK", "Bash", {"command": "tee README.md <<< x"}),
+    ("dev", "ALLOW", "Bash", {"command": "sed -i '' s/a/b/ .claude/worktrees/af-7/README.md"}),
+    ("sa", "ALLOW", "Bash", {"command": "sed -n 1,5p README.md"}),
+    ("sa", "ALLOW", "Bash", {"command": "git tag --list"}),
+    ("dev", "ALLOW", "Bash", {"command": "cd .claude/worktrees/af-7 && git checkout HEAD -- deploy/staging"}),
+    ("dev", "ALLOW", "Bash", {"command": "cd .claude/worktrees/af-7 && git switch -c fix/staging"}),
+    ("dev", "BLOCK", "Bash", {"command": "cd .claude/worktrees/af-7 && git switch origin/staging"}),
+    ("dev", "ALLOW", "Bash", {"command": 'cd "$(mktemp -d)" && echo x > r.txt'}),
+    ("dev", "ALLOW", "Bash", {"command": "cd .claude/worktrees/af-7 && ln -s ../../../node_modules node_modules"}),
+    ("dev", "BLOCK", "Bash", {"command": "ln -s x src/link"}),
+    ("sa", "BLOCK", "Bash", {"command": "git checkout -- ."}),
+    ("sa", "ALLOW", "Bash", {"command": 'WT="$HOME/my repo/.claude/worktrees/af-7-staging"; echo "$WT"'}),
+    ("dev", "BLOCK", "Edit", {"file_path": ".claude/worktrees/af-7/.claude/settings.json"}),
+    ("dev", "BLOCK", "Write", {"file_path": ".claude/settings.local.json"}),
+    ("dev", "BLOCK", "Bash", {"command": "echo '{}' > .claude/settings.json"}),
+    ("dev", "BLOCK", "Bash", {"command": "agentflow-settings set a.b 1"}),
+    ("dev", "BLOCK", "Bash", {"command": "agentflow-settings unset TELEGRAM_BOT_TOKEN"}),
+    ("dev", "BLOCK", "Bash", {"command": "agentflow-settings allow Bash"}),
     ("dev", "ALLOW", "Bash", {"command": "cd .claude/worktrees/af-7 && agentflow-style origin/master"}),
     ("dev", "ALLOW", "Bash", {"command": "agentflow-board feedback acme/app --issue 7"}),
-    ("reviewer", "ALLOW", "Bash", {"command": "agentflow-style origin/master origin/feat/7-x"}),
+    ("sa", "ALLOW", "Bash", {"command": "agentflow-style origin/master origin/feat/7-x"}),
+    ("reviewer", "BLOCK", "Bash", {"command": "git push origin feat/1"}),
     (None, "ALLOW", "Bash", {"command": "agentflow-board feedback acme/app --summary --issue 7 --issue 8"}),
-    ("dev", "BLOCK", "Edit", {"file_path": os.path.realpath(GUARD)}), ("dev", "BLOCK", "Write", {"file_path": ".claude/worktrees/af-7/a.py", "content": "T = '%s'" % FAKE_PAT}),
-    (None, "ALLOW", "Edit", {"file_path": ".claude/settings.json", "new_string": '"model": "opus"'}), (None, "BLOCK", "Edit", {"file_path": ".claude/settings.json", "new_string": '"disableAllHooks": true'}),
+    ("dev", "BLOCK", "Edit", {"file_path": os.path.realpath(GUARD)}),
+    ("dev", "BLOCK", "Write", {"file_path": ".claude/worktrees/af-7/a.py", "content": "T = '%s'" % FAKE_PAT}),
+    (None, "ALLOW", "Edit", {"file_path": ".claude/settings.json", "new_string": '"model": "opus"'}),
+    (None, "BLOCK", "Edit", {"file_path": ".claude/settings.json", "new_string": '"disableAllHooks": true'}),
+    # SA reads and reviews: no file, no push, no merge; it may undraft after ✅
+    ("sa", "BLOCK", "Bash", {"command": "git -C %s push origin HEAD:staging" % STAGING_WT}), ("sa", "BLOCK", "Bash", {"command": "git -C %s merge --no-ff --no-edit origin/feat/1" % STAGING_WT}),
+    ("sa", "BLOCK", "Bash", {"command": "git worktree add -q --detach %s origin/staging" % STAGING_WT}), ("sa", "BLOCK", "Edit", {"file_path": STAGING_WT + "/src/a.ts"}),
+    ("sa", "BLOCK", "Bash", {"command": "sed -i s/a/b/ %s/README.md" % STAGING_WT}), ("sa", "ALLOW", "Write", {"file_path": "/tmp/af-7-review.md"}),
+    ("sa", "ALLOW", "Bash", {"command": "git fetch -q origin master feat/7-x && git diff --stat origin/master...origin/feat/7-x"}), ("sa", "ALLOW", "Bash", {"command": "git show origin/feat/7-x:web/src/app.ts"}),
+    ("sa", "ALLOW", "mcp__plugin_agentflow_github__update_pull_request", {"draft": False}), ("sa", "ALLOW", "Bash", {"command": "gh pr ready 12"}),
+    ("reviewer", "BLOCK", "Bash", {"command": "git -C %s push origin HEAD:staging" % STAGING_WT}),
+    # DEV deploys: staging worktree detached at origin/staging, merge the PR branch in, push it to staging only
+    ("dev", "ALLOW", "Bash", {"command": "git worktree add -q --detach %s origin/staging" % STAGING_WT}), ("dev", "BLOCK", "Bash", {"command": "git worktree add -q -b s %s origin/staging" % STAGING_WT}),
+    ("dev", "BLOCK", "Bash", {"command": "git worktree add -q --detach .claude/worktrees/af-9 origin/staging"}), ("dev", "ALLOW", "Bash", {"command": "git worktree remove --force %s" % STAGING_WT}),
+    ("dev", "ALLOW", "Bash", {"command": "git -C %s merge --no-ff --no-edit origin/feat/7-x" % STAGING_WT}), ("dev", "ALLOW", "Bash", {"command": "git -C %s commit --no-edit" % STAGING_WT}),
+    ("dev", "ALLOW", "Bash", {"command": "WT=%s; git -C \"$WT\" push origin HEAD:staging" % STAGING_WT}), ("dev", "ALLOW", "Edit", {"file_path": STAGING_WT + "/src/a.ts"}),
+    ("dev", "BLOCK", "Bash", {"command": "git -C %s push origin HEAD:feat/7-x" % STAGING_WT}), ("dev", "BLOCK", "Bash", {"command": "git -C .claude/worktrees/af-7 push origin HEAD:staging"}),
+    ("dev", "BLOCK", "Bash", {"command": "git -C .claude/worktrees/af-7 merge origin/staging"}), ("dev", "BLOCK", "Edit", {"file_path": ".claude/worktrees/af-7-qc/src/a.ts"}),
+    # holes an independent review found in the 3.0 deploy rules
+    ("dev", "BLOCK", "Bash", {"command": "git -C .claude/worktrees/af-7 push origin origin/staging:feat/7-x"}), ("dev", "BLOCK", "Bash", {"command": "git -C .claude/worktrees/af-7 push origin refs/remotes/origin/staging:refs/heads/feat/7-x"}),
+    ("dev", "BLOCK", "Bash", {"command": "git -C .claude/worktrees/af-7 reset --hard origin/staging"}), ("dev", "BLOCK", "Bash", {"command": "git -C .claude/worktrees/af-7 restore --source=origin/staging -- ."}),
+    ("dev", "BLOCK", "Bash", {"command": "git -C %s update-ref refs/heads/feat/7-x HEAD" % STAGING_WT}), ("dev", "BLOCK", "Bash", {"command": "git -C .claude/worktrees/af-7 read-tree -um HEAD origin/staging"}),
+    ("dev", "BLOCK", "Bash", {"command": "git -C %s branch -f feat/7-x HEAD" % STAGING_WT}), ("dev", "BLOCK", "Bash", {"command": "git -C %s branch tmp" % STAGING_WT}),
+    ("dev", "ALLOW", "Bash", {"command": "git branch --show-current"}), ("dev", "ALLOW", "Bash", {"command": "git branch -a --list 'feat/*'"}),
+    ("dev", "BLOCK", "Bash", {"command": "git pull origin master"}), ("dev", "ALLOW", "Bash", {"command": "git -C .claude/worktrees/af-7 pull -q --rebase origin feat/7-x"}),
+    ("dev", "BLOCK", "Bash", {"command": "git worktree remove --force .claude/worktrees/af-8"}), ("dev", "ALLOW", "Bash", {"command": "git worktree remove --force .claude/worktrees/af-8-staging"}),
+    ("dev", "BLOCK", "Bash", {"command": "gh pr checkout 57"}), ("sa", "BLOCK", "Bash", {"command": "gh pr checkout 57"}), ("dev", "ALLOW", "Bash", {"command": "git -C %s push origin origin/staging:staging" % STAGING_WT}),
+    ("sa", "BLOCK", "Bash", {"command": "git branch -f feat/7-x HEAD"}), ("sa", "BLOCK", "Bash", {"command": "gh pr update-branch 57"}),
+    ("sa", "BLOCK", "mcp__plugin_agentflow_github__update_pull_request_branch", {"pullNumber": 57}), ("dev", "ALLOW", "mcp__plugin_agentflow_github__update_pull_request_branch", {"pullNumber": 57}),
+    ("sa", "BLOCK", "Bash", {"command": "gh api -X PUT repos/o/r/contents/a.ts -f branch=feat/7-x -f content=eA=="}), ("sa", "ALLOW", "Bash", {"command": "gh api repos/o/r/pulls/57/files"}),
 ]
 
 
@@ -263,7 +288,7 @@ class GuardCase(unittest.TestCase):
         git(repo, "init", "-q", "-b", "master")
         with open(os.path.join(repo, "agentflow.yaml"), "w") as fh:
             fh.write(CONFIG)
-        for name in ("web/src/app.ts", "web/e2e/home.spec.ts"):
+        for name in ("web/src/app.ts", "web/e2e/home.spec.ts", "web/package.json", "web/src/Pay.tsx", "web/src/ProgressArc.js", "web/.eslintrc.js"):
             os.makedirs(os.path.join(repo, os.path.dirname(name)), exist_ok=True)
             with open(os.path.join(repo, name), "w") as fh:
                 fh.write("export {};\n")
@@ -271,8 +296,6 @@ class GuardCase(unittest.TestCase):
         git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init")
         git(repo, "worktree", "add", "-q", ".claude/worktrees/af-7", "-b", "feat/7-x")
         git(repo, "worktree", "add", "-q", "--detach", STAGING_WT)
-        git(repo, "worktree", "add", "-q", "--detach", QC_WT)
-        git(repo, "update-ref", "refs/remotes/origin/feat/7-x", "HEAD")  # the PR branch as QC fetched it
         os.makedirs(os.path.join(repo, "secret"))
         for name in (".env", "secret/app.env"):
             with open(os.path.join(repo, name), "w") as fh:
@@ -372,60 +395,18 @@ class GuardCase(unittest.TestCase):
                     ti["file_path"] = os.path.join(self.repo, ti["file_path"])
                 self.want(want, tool, ti, agent_type=agent_type)
 
-    def test_qc_commits_only_tests(self):
-        wt = os.path.join(self.repo, QC_WT)
-        commit = {"command": 'git -C %s commit -m "test(web): e2e #7"' % wt}
-        for rel, want in (("web/e2e/home.spec.ts", "ALLOW"), ("web/src/app.ts", "BLOCK")):
-            with self.subTest(rel):
-                with open(os.path.join(wt, rel), "a") as fh:
-                    fh.write("// changed\n")
-                try:
-                    self.want(want, "Bash", commit, agent_type="agentflow:qc")
-                    self.want(want, "Bash", dict(commit, command=commit["command"].replace("commit", "commit -a")), agent_type="agentflow:qc")
-                finally:
-                    git(wt, "checkout", "--", rel)
-
-    def test_qc_pushes_only_test_commits(self):
-        wt = os.path.join(self.repo, QC_WT)
-        push = {"command": "git -C %s push origin HEAD:feat/7-x" % wt}
-        start = subprocess.run(["git", "rev-parse", "HEAD"], cwd=wt, capture_output=True, text=True).stdout.strip()
-        commit = ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "x"]
+    def test_dev_git_through_a_symlinked_worktree_path(self):
+        fake = os.path.join(self.repo, "..", "linkroot")
+        link = os.path.join(fake, ".claude", "worktrees", "af-1")
+        os.makedirs(os.path.dirname(link), exist_ok=True)
+        os.symlink(self.repo, link)
         try:
-            for rel, want in (("web/e2e/home.spec.ts", "ALLOW"), ("web/src/app.ts", "BLOCK")):
-                with self.subTest(rel):
-                    with open(os.path.join(wt, rel), "a") as fh:
-                        fh.write("// changed\n")
-                    git(wt, *commit)
-                    self.want(want, "Bash", push, agent_type="agentflow:qc")
-                    git(wt, "reset", "-q", "--hard", start)
-            with self.subTest("merge"):  # a worktree started from staging would push staging into the PR
-                git(wt, "checkout", "-q", "-b", "af-side")
-                git(wt, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "side")
-                git(wt, "checkout", "-q", "--detach", start)
-                git(wt, "-c", "user.email=t@t", "-c", "user.name=t", "merge", "-q", "--no-ff", "--no-edit", "af-side")
-                self.want("BLOCK", "Bash", push, agent_type="agentflow:qc")
-        finally:
-            git(wt, "checkout", "-q", "--detach", start)
-            subprocess.run(["git", "branch", "-q", "-D", "af-side"], cwd=wt, capture_output=True)
-
-    def test_qc_commit_sees_moves_and_symlinks(self):
-        wt = os.path.join(self.repo, QC_WT)
-        commit = 'git -C %s commit -m "test(web): e2e #7"'
-        try:
-            git(wt, "mv", "web/src/app.ts", "web/e2e/app.ts")  # a rename into e2e is a deletion in the app
-            self.want("BLOCK", "Bash", {"command": commit % wt}, agent_type="agentflow:qc")
-        finally:
-            git(wt, "reset", "-q", "--hard")
-        link = os.path.join(wt, "web/e2e/dev")
-        os.symlink(os.path.join(self.repo, ".claude/worktrees/af-7"), link)
-        try:
-            self.want("BLOCK", "Bash", {"command": "git -C %s restore ." % link}, agent_type="agentflow:qc")
-            self.want("BLOCK", "Bash", {"command": commit % link}, agent_type="agentflow:qc")
+            self.want("BLOCK", "Bash", {"command": "git -C %s commit -m x" % link}, agent_type="agentflow:dev")
         finally:
             os.remove(link)
 
     def test_other_plugins_agents_have_no_role(self):
-        self.want("ALLOW", "Bash", {"command": "git merge origin/feat/1"}, agent_type="other:qc")
+        self.want("ALLOW", "Bash", {"command": "git merge origin/feat/1"}, agent_type="other:dev")
 
     def test_inactive_outside_agentflow_repo(self):
         with tempfile.TemporaryDirectory() as tmp:

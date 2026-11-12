@@ -1,6 +1,6 @@
 # {{TITLE}} — cách làm việc
 
-Board chung của PO, Dev, QC — có agent AgentFlow làm Dev, Reviewer và QC tự động. Người giữ đúng ba cổng: **chốt việc**, **QC tay khi cần**, **merge**.
+Board chung của PO, Dev, QC — có agent AgentFlow làm SA (solution architect) và Dev kiêm automation test. Người giữ đúng ba cổng: **chốt việc**, **QC tay khi cần**, **merge**.
 
 ## Luồng Status
 
@@ -8,11 +8,11 @@ Board chung của PO, Dev, QC — có agent AgentFlow làm Dev, Reviewer và QC 
 
 | Cột | Ai | Việc |
 |---|---|---|
-| {{BACKLOG}} | PO | Viết tiêu chí nghiệm thu, đặt Priority + Size, rồi **kéo sang {{READY}}** — hoặc dùng `/agentflow:task`: hỏi đáp tới khi đủ, bạn xác nhận thì nó chuyển giúp |
-| {{READY}} | Agent DEV | Nhận việc, tạo nhánh, code. Nhãn `{{QC_FAILED}}` = QC trả về, sửa trước việc mới |
-| {{IN_PROGRESS}} | Agent DEV | Code + test tự động cho từng tiêu chí (flow e2e chạy thử, ảnh chụp), chạy check, mở draft PR; sửa theo review |
-| {{IN_REVIEW}} | Agent Reviewer | Review độ đúng, đủ, chất lượng giải pháp, cả test và ảnh của DEV; ✅ thì chọn cách QC và merge lên staging |
-| {{IN_QC}} | CI, Agent QC khi cần (+ QC người) | Nhãn `{{DEPLOYING}}` = chờ pipeline staging chạy test e2e của PR. CI xanh thì undraft PR; ticket chạm phần CI không phủ thì agent QC test thêm trên staging; nhãn `{{QC_MANUAL}}` = chờ QC người test tay theo checklist |
+| {{BACKLOG}} | PO | Viết vấn đề, giá trị, tiêu chí nghiệm thu (không viết giải pháp kỹ thuật), đặt Priority + Size, rồi **kéo sang {{READY}}** — hoặc dùng `/agentflow:task`: một expert PO cố vấn tới khi ticket đủ, bạn xác nhận thì nó chuyển giúp |
+| {{READY}} | Agent SA → Agent DEV | SA phân tích yêu cầu, chọn giải pháp hợp tech stack, đánh giá rủi ro, lập test case, comment thiết kế (`[AF:SA] design`) và gắn `{{AGENT}}`; DEV nhận việc. Nhãn `{{QC_FAILED}}` = QC người trả về, sửa trước việc mới |
+| {{IN_PROGRESS}} | Agent DEV | Code theo thiết kế, gắn element id, viết flow automation (Maestro), mở draft PR, merge lên staging, chờ deploy server/web, chạy flow liên quan, tự sửa tối đa 3 vòng. Vẫn fail ⇒ ghi lỗi block lên ticket + `{{BLOCKED}}` |
+| {{IN_REVIEW}} | Agent SA | Review theo thiết kế: độ đúng, đủ, kiến trúc, bảo mật, hiệu năng, test. ✅: có mục QC tay ⇒ {{IN_QC}}, không ⇒ undraft ⇒ {{READY_TO_MERGE}} |
+| {{IN_QC}} | QC người | Nhãn `{{QC_MANUAL}}` = test mục "QC tay" của PR trên staging |
 | {{READY_TO_MERGE}} | Người | PR đã undraft. Approve + merge. Muốn sửa: comment trên dòng code của PR, Request changes, hoặc gắn `{{CHANGES_REQUESTED}}` |
 | {{DONE}} | — | PR đã merge, issue tự đóng |
 
@@ -20,11 +20,10 @@ Board chung của PO, Dev, QC — có agent AgentFlow làm Dev, Reviewer và QC 
 
 - `{{BLOCKED}}` — bị chặn, lý do ở comment. Gỡ xong thì **bỏ nhãn**, agent tự chạy tiếp.
 - `{{NEEDS_INFO}}` — agent cần thông tin. Trả lời trong comment rồi **bỏ nhãn**.
-- `{{QC_FAILED}}` — QC trả về (QC người: gắn nhãn này + comment lỗi khi test tay fail).
-- `{{DEPLOYING}}` — đã merge lên staging, đang chờ pipeline.
+- `{{QC_FAILED}}` — QC người trả về: gắn nhãn này + comment lỗi khi test tay fail.
 - `{{AGENT}}` — ticket do agent xử lý.
 
-Nhánh staging chỉ để build test: PR đã review được merge dồn vào đó, không merge ngược về PR hay master. Nhánh lệch nhiều so với master thì người tự reset, agent không làm việc này.
+Nhánh staging chỉ để build test: DEV merge dồn nhánh ticket vào đó, không merge ngược về PR hay master. Nhánh lệch nhiều so với master thì người tự reset, agent không làm việc này.
 
 ## Góp ý trên PR
 
@@ -32,7 +31,7 @@ Comment trên dòng code của PR (hoặc Request changes) khi ticket ở {{IN_R
 
 ## QC người
 
-Agent comment checklist (`[AF:QC] 🧪`, hoặc `[AF:SYS] qc-manual` trỏ tới mục QC tay của PR), test trên staging. Pass: tick hết rồi kéo card sang **{{READY_TO_MERGE}}** (lượt agent kế tiếp sẽ undraft PR). Fail: gắn `{{QC_FAILED}}` + comment lỗi — agent tự sửa.
+SA ✅ comment link mục "QC tay" của PR (bước + kỳ vọng), mục "Đề xuất kiểm chứng thêm" là regression nên xem, test trên staging. Pass: tick hết rồi kéo card sang **{{READY_TO_MERGE}}** (lượt agent kế tiếp sẽ undraft PR). Fail: gắn `{{QC_FAILED}}` + comment lỗi — agent tự sửa.
 
 ## Lệnh (Claude Code, trong repo)
 

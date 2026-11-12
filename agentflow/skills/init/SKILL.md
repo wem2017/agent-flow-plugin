@@ -56,7 +56,7 @@ Chưa `ignored` + `untracked` → **dừng**.
 
 ## 5. Surfaces + lệnh check
 
-Scan marker (`package.json`, `pubspec.yaml`, `go.mod`, `pyproject.toml`, `Cargo.toml`, `build.gradle*`, `pom.xml`…) ở root và thư mục con cấp 1. Đề xuất mỗi phần build riêng một surface: `path`, `platform` (option của field Platform), `check` (typecheck/lint/format/analyze), `test`, `e2e` — **lấy nguyên lệnh** từ bảng quality gate trong CONTRIBUTING, script trong `package.json`, `Makefile`, hoặc job CI; `e2e_dir` = thư mục test e2e có sẵn (`e2e/`, `.maestro/`, `cypress/`, `integration_test/`, `testDir` của Playwright), DEV commit test vào đó; `e2e_ci: true` chỉ khi job CI sau release staging chạy cả `e2e_dir` và báo check lên commit staging (đọc workflow, không đoán). Surface UI (mobile, web) chưa có e2e → Maestro: `e2e_dir: .maestro`, `e2e: maestro test .maestro`; đã có framework khác → hỏi người giữ hay chuyển Maestro. Repo một khối → bỏ hẳn `surfaces`, trừ khi có e2e (một surface `path: ./`). `forbidden`: thư mục secret thấy được (vd `secret/**`) + file credential.
+Scan marker (`package.json`, `pubspec.yaml`, `go.mod`, `pyproject.toml`, `Cargo.toml`, `build.gradle*`, `pom.xml`…) ở root và thư mục con cấp 1. Đề xuất mỗi phần build riêng một surface: `path`, `platform` (option của field Platform), `check` (typecheck/lint/format/analyze), `test`, `e2e` — **lấy nguyên lệnh** từ bảng quality gate trong CONTRIBUTING, script trong `package.json`, `Makefile`, hoặc job CI; `e2e_dir` = thư mục test e2e có sẵn (`e2e/`, `.maestro/`, `cypress/`, `integration_test/`, `testDir` của Playwright), DEV commit flow vào đó; mobile: `install` = lệnh build + cài bản trỏ staging lên emulator, lấy từ README/script, không đoán. Surface UI (mobile, web) chưa có e2e → Maestro: `e2e_dir: .maestro`, `e2e: maestro test .maestro`; đã có framework khác → hỏi người giữ hay chuyển Maestro. Repo một khối → bỏ hẳn `surfaces`, trừ khi có e2e (một surface `path: ./`). `forbidden`: thư mục secret thấy được (vd `secret/**`) + file credential.
 
 ## 6. Board
 
@@ -70,15 +70,15 @@ Chi tiết + lệnh: `${CLAUDE_PLUGIN_ROOT}/skills/init/references/board-setup.m
 
 - `classify`: org có issue types → `issue-type`; `agentflow-board issue-types --org <org>`, thiếu type trong `types` → đề nghị `--ensure` (cần quyền admin org). Repo cá nhân → `classify: label`, label = tên type.
 - Label: `agentflow-board labels --repo <canonical> --label "<tên>|<màu>|<mô tả ≤100 ký tự>" …` cho mọi value trong `labels` (bảng màu + mô tả trong reference). Label đã có giữ nguyên tên, chỉ cập nhật màu/mô tả khi người đồng ý.
-- Repo chưa có issue form / PR template → đề nghị scaffold từ `${CLAUDE_PLUGIN_ROOT}/templates/` (reference §Template). Có rồi → giữ, chỉ kiểm PR template có chỗ cho `<git.link> #` và "Cách test cho QC".
+- Repo chưa có issue form / PR template → đề nghị scaffold từ `${CLAUDE_PLUGIN_ROOT}/templates/` (reference §Template). Có rồi → giữ, chỉ kiểm PR template có chỗ cho `<git.link> #` và "Kiểm chứng lại".
 
 ## 8. Figma, người, thông báo, loop
 
 - **Figma**: dùng không? Có → `design.figma: true`; kiểm tool MCP `figma` có trong session; chưa authenticate → "chạy `/mcp` → figma → Authenticate". Thấy prototype trong repo (`docs/design`, `*.html` thiết kế…) → đề xuất `design.repo`.
-- **people**: `po`, `qc`, `reviewers` (GitHub login) — gợi ý từ assignee trên board/collaborator. Mention chính token owner không tạo notification — nói rõ.
+- **people**: `po`, `qc`, `reviewers` (GitHub login) — gợi ý từ assignee/collaborator. Mention chính token owner không tạo notification.
 - **Telegram**: dùng không? Có → `notify.telegram: true`; kiểm `agentflow-settings has TELEGRAM_BOT_TOKEN && agentflow-settings has TELEGRAM_CHAT_ID`; thiếu → người ghi bằng `set-secret` (có hiệu lực ngay), chưa có thì giữ `notify.telegram: false`.
-- **staging**: `url` (API/web), `build` (cách lấy bản build mobile), `notes` (path secret folder của project chứa app id, tài khoản test, vd `secret/staging/` — gitignored, không nằm trong `forbidden`), `timeout_min`. Kiểm trong `.github/workflows/`: có pipeline chạy khi push vào nhánh staging và báo check về commit, không có → nói rõ ticket sẽ `blocked` khi hết timeout. Check phải bao trùm cả bước deploy: check xanh trước khi deploy xong thì QC test nhầm bản cũ. Nhánh staging phải cho push trực tiếp, không bật rule bắt buộc PR hay status check trước khi push.
-- **run**: giữ mặc định (`parallel 2`, `max_tasks 5`, `max_review_rounds 3`, `max_qc_rounds 2`, DEV opus, REVIEWER opus, QC opus) trừ khi người muốn đổi.
+- **staging**: `url` (API/web), `build` (cách lấy bản build mobile), `notes` (path secret folder của project chứa app id, tài khoản test, vd `secret/staging/` — gitignored, không nằm trong `forbidden`), `timeout_min`, `skip_checks` (glob tên check release mobile, DEV không chờ). Kiểm trong `.github/workflows/`: có pipeline chạy khi push vào nhánh staging và báo check về commit, không có → nói rõ DEV sẽ `blocked` khi hết timeout. Check phải bao trùm bước deploy server/web, không thì flow chạy nhầm bản cũ. Nhánh staging phải cho push trực tiếp, không bật rule bắt buộc PR hay status check trước khi push.
+- **run**: giữ mặc định (`parallel 2`, `max_tasks 5`, `max_review_rounds 3`, `max_qc_rounds 2`, `max_test_rounds 3`, SA opus, DEV opus) trừ khi người muốn đổi.
 
 ## 9. Ghi file
 

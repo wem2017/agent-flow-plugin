@@ -59,10 +59,9 @@ Sau khi tạo: Settings → Workflows của board — bật **Item closed → St
 | `agent` | agentflow | 1D76DB | AgentFlow: ticket do agent xử lý |
 | `blocked` | blocked | B60205 | Bị chặn — lý do và người gỡ ở comment; gỡ label khi xong |
 | `needs_info` | needs-info | D93F0B | Thiếu thông tin — PO/người báo trả lời rồi gỡ label |
-| `changes_requested` | changes-requested | FBCA04 | Review/người yêu cầu sửa — DEV agent xử lý |
-| `qc_failed` | qc-failed | E99695 | QC trả về — DEV xem comment kết quả test |
-| `qc_manual` | qc-manual | C5DEF5 | Chờ QC người test tay theo checklist |
-| `deploying` | deploying | BFDADC | Đã merge lên staging — chờ pipeline xong mới QC |
+| `changes_requested` | changes-requested | FBCA04 | SA/người yêu cầu sửa — DEV agent xử lý |
+| `qc_failed` | qc-failed | E99695 | QC người trả về — DEV xem comment lỗi |
+| `qc_manual` | qc-manual | C5DEF5 | Chờ QC người test mục QC tay của PR trên staging |
 
 Repo đã có label cùng ý nghĩa khác tên → dùng tên sẵn có trong `labels` (không tạo trùng). Mô tả tối đa 100 ký tự (GitHub từ chối).
 

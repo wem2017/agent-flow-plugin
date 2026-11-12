@@ -19,13 +19,13 @@ board:
   fields: {size: Size}
 classify: label
 types: {Feature: feat, Bug: fix}
-labels: {agent: agentflow, blocked: blocked, needs_info: needs-info, changes_requested: changes-requested, qc_failed: qc-failed, qc_manual: qc-manual, deploying: deploying}
+labels: {agent: agentflow, blocked: blocked, needs_info: needs-info, changes_requested: changes-requested, qc_failed: qc-failed, qc_manual: qc-manual}
 git: {base: master, protected: [], branch: "{type}/{issue}-{slug}", commit: "{type}: {subject}", link: Closes}
 forbidden: []
 design: {figma: false, repo: []}
 staging: {branch: staging, url: "", build: "", notes: "", timeout_min: 30}
 people: {po: [acme-po], qc: [acme-qc], reviewers: [acme-rev]}
-run: {parallel: 1, max_tasks: 1, max_review_rounds: 3, max_qc_rounds: 2, models: {dev: {default: sonnet}, reviewer: sonnet, qc: sonnet}}
+run: {parallel: 1, max_tasks: 1, max_review_rounds: 3, max_qc_rounds: 2, max_test_rounds: 3, models: {dev: {default: sonnet}, sa: sonnet}}
 notify: {telegram: false, events: [blocked]}
 YAML
 printf 'def add(a, b):\n    return a + b\n' > calc.py
@@ -34,8 +34,3 @@ git commit -qm "chore: init"
 git push -q origin master
 git branch staging
 git push -q origin staging
-git switch -q -c feat/42-chia
-printf 'def add(a, b):\n    return a + b\n\n\ndef div(a, b):\n    return a * b\n' > calc.py
-git commit -qam "feat: chia"
-git push -q -u origin feat/42-chia
-git switch -q master

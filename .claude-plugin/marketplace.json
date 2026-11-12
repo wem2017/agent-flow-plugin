@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "agentflow",
-      "description": "Agent team DEV · Reviewer · QC chạy ticket trên GitHub Projects board tới cổng của người (PO chốt việc, QC tay, merge). Cài cho mọi repo, tối ưu token, tự học.",
+      "description": "Agent team PO · SA · DEV (kiêm automation test trên staging) chạy ticket trên GitHub Projects board tới cổng của người (PO chốt việc, QC tay, merge). Cài cho mọi repo, tối ưu token, tự học.",
       "author": {
         "name": "Wem"
       },

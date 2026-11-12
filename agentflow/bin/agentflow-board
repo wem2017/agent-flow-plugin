@@ -21,7 +21,7 @@ Auth: the token `gh` uses ($GH_TOKEN, $GITHUB_TOKEN, else `gh auth token`). Neve
   labels --repo O/R --label name|color|description ...   create or update
   issue-types --org O [--ensure Name|description ...]
   metrics <board-url> [--days N] [--stages k=v,...] [--parked l1,l2,...]
-  checks <owner/repo> --branch B --contains SHA [--since ISO] [--wait MIN]   CI of the branch head; one JSON line
+  checks <owner/repo> --branch B --contains SHA [--since ISO] [--wait MIN] [--skip GLOB]   CI of the branch head; one JSON line
   feedback <owner/repo> --issue N [--issue M ...] [--summary]   people's feedback on the PR of each issue
        (state block `pr`, else the one open PR linked to it); one JSON line per issue
   doctor [--root DIR]                       check agentflow.yaml against GitHub
@@ -31,6 +31,7 @@ Auth: the token `gh` uses ($GH_TOKEN, $GITHUB_TOKEN, else `gh auth token`). Neve
 
 import argparse
 import datetime as dt
+import fnmatch
 import json
 import os
 import re
@@ -49,10 +50,10 @@ STATUS_COLORS = {"backlog": "GRAY", "ready": "BLUE", "in_progress": "YELLOW", "i
                  "in_qc": "PINK", "ready_to_merge": "PURPLE", "done": "GREEN"}
 STATUS_DESC = {
     "backlog": "Ý tưởng, yêu cầu, bug mới. PO viết tiêu chí nghiệm thu, đặt Priority/Size rồi kéo sang Ready.",
-    "ready": "Đủ tiêu chí nghiệm thu, có Priority + Size: DEV agent nhặt từ đây, chỉ PO kéo việc mới vào. Nhãn qc-failed = QC trả về.",
-    "in_progress": "DEV đang làm, hoặc đang sửa theo review/QC (nhãn changes-requested / qc-failed).",
-    "in_review": "Draft PR đã mở — agent review (Opus) độ đúng, đủ và chất lượng giải pháp; ✅ thì merge vào staging.",
-    "in_qc": "Nhãn deploying = chờ pipeline staging chạy test e2e của PR. CI xanh: undraft, hoặc QC agent test thêm. Nhãn qc-manual = chờ QC người.",
+    "ready": "Đủ tiêu chí nghiệm thu, có Priority + Size, chỉ PO kéo việc mới vào. SA agent thiết kế giải pháp + rủi ro + test case (nhãn agentflow), rồi DEV nhặt. Nhãn qc-failed = QC người trả về.",
+    "in_progress": "DEV code + viết flow automation, deploy lên staging, chạy flow liên quan (tự sửa tối đa 3 vòng), hoặc sửa theo review/QC (nhãn changes-requested / qc-failed).",
+    "in_review": "Flow automation đã pass trên staging — SA agent review theo thiết kế: độ đúng, đủ, kiến trúc, bảo mật, test. ✅: có mục QC tay thì sang In QC, không thì undraft.",
+    "in_qc": "Nhãn qc-manual = chờ QC người test mục QC tay của PR trên staging. Pass: tick rồi kéo card sang Ready to Merge; fail: gắn qc-failed + comment.",
     "ready_to_merge": "Review + QC đã pass, PR đã undraft. Người approve + merge. Muốn sửa: Request changes trên PR.",
     "done": "PR đã merge, issue đã đóng.",
 }
@@ -461,12 +462,12 @@ def cmd_metrics(a):
             first_pr.append((pr - start).total_seconds() / 3600)
         if start and r["closed"]:
             cycle.append((_iso(r["closed"]) - start).total_seconds() / 3600)
-        rf = sum(1 for _, h in ev if h.startswith("[AF:REVIEW] ❌"))
+        rf = sum(1 for _, h in ev if h.startswith(("[AF:SA] ❌", "[AF:REVIEW] ❌")))  # REVIEW: the SA before 3.0
         qf = sum(1 for _, h in ev if h.startswith("[AF:QC] ❌") or h.startswith("[AF:SYS] qc-failed"))
         rev_fail, qc_fail = rev_fail + rf, qc_fail + qf
         esc += any(h.startswith("[AF:SYS] escalated") for _, h in ev)
-        info += any(h.startswith("[AF:DEV] ?") or h.startswith("[AF:QC] ?") for _, h in ev)
-        if any(h.startswith("[AF:QC] ✅") or h.startswith("[AF:SYS] qc-manual-pass") for _, h in ev):
+        info += any(h.startswith(("[AF:SA] ?", "[AF:DEV] ?", "[AF:QC] ?")) for _, h in ev)
+        if any(h.startswith(("[AF:SA] ✅", "[AF:QC] ✅", "[AF:SYS] qc-manual-pass")) for _, h in ev):  # QC: the agent before 3.0
             passed += 1
             fpy += (rf + qf) == 0
     done = sum(1 for r in rows if r["closed"])
@@ -494,9 +495,10 @@ CHECK_OK = {"success", "neutral", "skipped"}
 SETTLE_SECONDS = 120
 
 
-def _head_checks(slug, branch):
+def _head_checks(slug, branch, skip=()):
     """(head sha, state, failed names) over check runs + commit statuses of the branch head. state: success | failure | pending;
-    a head without any check yet is pending — the pipeline may not have registered."""
+    a head without any check yet is pending — the pipeline may not have registered. Checks named by a `skip` glob (a mobile
+    release nobody waits for) count for neither; a head where only those ran is success."""
     sha = http("GET", "/repos/%s/commits/%s" % (slug, urllib.parse.quote(branch, safe="")))["sha"]
     runs, page = [], 1
     while True:
@@ -506,10 +508,17 @@ def _head_checks(slug, branch):
             break
         page += 1
     statuses = http("GET", "/repos/%s/commits/%s/status?per_page=100" % (slug, sha)).get("statuses") or []
+    registered = bool(runs or statuses)
+    runs = [r for r in runs if not _skipped(r["name"], skip)]
+    statuses = [s for s in statuses if not _skipped(s["context"], skip)]
     failed = [{"name": r["name"], "url": r.get("html_url")} for r in runs if r["status"] == "completed" and r["conclusion"] not in CHECK_OK]
     failed += [{"name": s["context"], "url": s.get("target_url")} for s in statuses if s["state"] in ("failure", "error")]
-    pending = any(r["status"] != "completed" for r in runs) or any(s["state"] == "pending" for s in statuses) or not (runs or statuses)
+    pending = any(r["status"] != "completed" for r in runs) or any(s["state"] == "pending" for s in statuses) or not registered
     return sha, "failure" if failed else "pending" if pending else "success", failed
+
+
+def _skipped(name, globs):
+    return any(fnmatch.fnmatch(name or "", g) for g in globs)
 
 
 def _contains(slug, deploy_sha, head):
@@ -530,7 +539,7 @@ def _too_fresh(since):
 def cmd_checks(a):
     deadline = time.time() + a.wait * 60
     while True:
-        sha, state, failed = _head_checks(a.slug, a.branch)
+        sha, state, failed = _head_checks(a.slug, a.branch, a.skip or ())
         if state == "success" and _too_fresh(a.since):
             state = "pending"
         contains = _contains(a.slug, a.contains, sha) if a.contains else True
@@ -671,7 +680,7 @@ def _doctor_staging(slug, branch, ok, warn):
         warn("head staging không có check nào — chưa có pipeline thì mỗi ticket mất trọn staging.timeout_min rồi blocked")
     rules = _branch_rules(slug, branch) & {"pull_request", "required_status_checks", "update"}
     if rules:
-        warn("ruleset trên %s (%s) có thể chặn REVIEWER push trực tiếp" % (branch, ", ".join(sorted(rules))))
+        warn("ruleset trên %s (%s) có thể chặn SA push trực tiếp" % (branch, ", ".join(sorted(rules))))
 
 
 def _doctor_base(slug, base, ok, warn):
@@ -773,7 +782,7 @@ def cmd_doctor(a):
         if on_path:
             ok("maestro: %s" % path)
         else:
-            warn("maestro %s — QC không chạy được flow Maestro, AC UI thành checklist test tay" % (
+            warn("maestro %s — DEV không chạy được flow Maestro, test case UI thành checklist QC tay" % (
                 "có ở %s nhưng không nằm trong PATH: thêm ~/.maestro/bin vào PATH" % path if path else "chưa cài: curl -fsSL https://get.maestro.mobile.dev | bash"))
     if os.path.isfile(os.path.join(root, ".mcp.json")):
         try:
@@ -890,7 +899,7 @@ def cmd_doctor(a):
         if base:
             _doctor_base(canonical, base, ok, warn)
         if not (cfg.get("staging") or {}).get("url"):
-            warn("staging.url trống — QC agent không test được API/web trên staging, các AC đó sẽ thành checklist cho QC người")
+            warn("staging.url trống — DEV không chạy được flow API/web trên staging, các test case đó thành checklist QC tay")
         repo_owner_is_org = http("GET", "/repos/%s" % canonical)["owner"]["type"] == "Organization"
         if cfg.get("classify") == "issue-type" and not repo_owner_is_org:
             fail("classify: issue-type nhưng repo thuộc user — issue type chỉ có ở org; đổi sang classify: label")
@@ -939,6 +948,7 @@ def main():
     s.add_argument("--contains", help="deploy_sha phải nằm trong head; bỏ trống = chỉ đọc check của head (vd base đỏ sẵn chưa)")
     s.add_argument("--wait", type=float, default=0, help="số phút chờ thêm khi còn pending")
     s.add_argument("--since", help="deploy_at: check xanh trong 2 phút đầu vẫn tính là pending")
+    s.add_argument("--skip", action="append", help="glob tên check không chờ (staging.skip_checks, vd release mobile); lặp được")
     s = sub.add_parser("feedback"); s.add_argument("slug"); s.add_argument("--issue", type=int, action="append", required=True)
     s.add_argument("--summary", action="store_true", help="một dòng mỗi issue: pr + số mục chờ DEV")
     s = sub.add_parser("doctor"); s.add_argument("--root")

@@ -22,10 +22,10 @@ In bảng theo **stage** (dùng `board.status` để đổi tên cột → stage
 ```
 <repo> · board <title>
 backlog         <n>
-ready           <n>    (QC trả về: <k>)
+ready           <n>    (QC người trả về: <k>)
 in_progress     <n>    (rework: <k>)
 in_review       <n>
-in_qc           <n>    (đang build staging: <d> · chờ QC tay: <k>)
+in_qc           <n>    (chờ QC tay: <k>)
 ready_to_merge  <n>    ← chờ merge: #a, #b
 done            <n>
 Chờ người: needs-info #… · blocked #… · qc-manual #…
@@ -37,8 +37,8 @@ Chờ người: needs-info #… · blocked #… · qc-manual #…
 - Option Status ngoài mapping có card (inspect `open_by_status` có tên không thuộc `board.status`) → card vô hình với agent.
 - Status trống `(trống)` → card chưa vào luồng.
 - Ticket **không** mang `labels.agent` nhưng đang ở `in_progress`…`in_qc` → người làm tay hoặc thiếu label, agent sẽ bỏ qua; muốn agent tiếp quản: `/agentflow:do #n`.
-- Ticket mang `labels.agent` ở `in_progress` không có rework label → DEV run trước có thể đã chết giữa chừng; `/agentflow:do #n` sẽ resume.
-- Ticket mang `labels.deploying` → liệt kê; quá `staging.timeout_min` thì `/agentflow:run` tự gắn `blocked`.
+- Ticket mang `labels.agent` ở `in_progress` không có rework label → DEV run trước có thể đã chết giữa chừng (kể cả lúc chờ pipeline staging); `/agentflow:do #n` sẽ resume.
+- Ticket mang `labels.agent` ở `in_qc` không có `labels.qc_manual` → ticket của luồng cũ; `/agentflow:run` đưa về DEV (*requeue*).
 - `.claude/worktrees/af-*` của issue đã đóng → `/agentflow:run` sẽ dọn, hoặc `git worktree remove`.
 
 Sạch → `✓ không có bất thường`.

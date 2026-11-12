@@ -68,6 +68,9 @@ def call(name, a, st):
         if a.get("assignees") is not None:
             st["issue"]["assignees"] = a["assignees"]
         return issue_view(st)
+    if name == "add_issue_comment" and st.get("pr") and str(a.get("issue_number")) == str(st["pr"]["number"]):
+        st["pr"]["comments"].append({"id": 500 + len(st["pr"]["comments"]), "body": a.get("body", ""), "author_association": "OWNER", "user": {"login": "agentflow-bot"}})
+        return {"id": 500 + len(st["pr"]["comments"]), "html_url": "https://github.com/acme/app/pull/57#issuecomment-%d" % len(st["pr"]["comments"])}
     if name == "add_issue_comment":
         st["issue"]["comments"].append({"id": len(st["issue"]["comments"]) + 1, "body": a.get("body", ""), "author_association": "OWNER", "user": {"login": "agentflow-bot"}})
         return {"id": len(st["issue"]["comments"]), "html_url": "https://github.com/acme/app/issues/42#issuecomment-%d" % len(st["issue"]["comments"])}

@@ -85,7 +85,7 @@ class Validate(unittest.TestCase):
         cases = [
             (lambda c: c["board"]["status"].pop("in_qc"), "board.status.in_qc"),
             (lambda c: c["board"]["status"].update(in_qc="In Review"), "cùng trỏ"),
-            (lambda c: c["labels"].pop("deploying"), "labels.deploying"),
+            (lambda c: c["labels"].pop("qc_manual"), "labels.qc_manual"),
             (lambda c: c.update(classify="x"), "classify"),
             (lambda c: c.update(types={}), "types"),
             (lambda c: c["git"].update(branch="{type}/x"), "git.branch"),
@@ -100,8 +100,9 @@ class Validate(unittest.TestCase):
             (lambda c: c.update(surfaces={"web": {"path": "web/", "e2e_dir": "../src"}}), "surfaces.web.e2e_dir"),
             (lambda c: c.update(surfaces={"web": {"path": "web/", "e2e_dir": "/abs/e2e"}}), "surfaces.web.e2e_dir"),
             (lambda c: c.update(surfaces={"ci": {"path": "./", "e2e_dir": ".github/e2e"}}), "surfaces.ci.e2e_dir"),
-            (lambda c: c.update(surfaces={"web": {"path": "web/", "e2e_dir": "e2e", "e2e_ci": "yes"}}), "surfaces.web.e2e_ci"),
-            (lambda c: c.update(surfaces={"web": {"path": "web/", "e2e_ci": True}}), "surfaces.web.e2e_ci"),
+            (lambda c: c.update(surfaces={"app": {"path": "mobile/", "install": ["flutter", "install"]}}), "surfaces.app.install"),
+            (lambda c: c["run"].update(max_test_rounds=0), "run.max_test_rounds"),
+            (lambda c: c["staging"].update(skip_checks=[""]), "staging.skip_checks"),
         ]
         for change, needle in cases:
             cfg = filled_config()
@@ -117,22 +118,23 @@ class Validate(unittest.TestCase):
         self.assertTrue(any("oops" in m for m in warns))
         self.assertTrue(any("git.protected" in m for m in warns))
 
-    def test_e2e_ci_with_folder_is_valid(self):
+    def test_legacy_e2e_ci_only_warns(self):
         cfg = filled_config()
         cfg["surfaces"] = {"web": {"path": "web/", "e2e_dir": ".maestro", "e2e_ci": True}, "api": {"path": "api/", "e2e_ci": False}}
+        self.assertEqual(self.problems(cfg), [])
+        warns = [m for level, m in afconfig.validate_config(cfg) if level == "warn"]
+        self.assertTrue(any("surfaces.web.e2e_ci" in m for m in warns))
+
+    def test_mobile_install_and_skipped_checks_are_valid(self):
+        cfg = filled_config()
+        cfg["surfaces"] = {"app": {"path": "mobile/", "e2e_dir": ".maestro", "install": "flutter install --flavor staging"}}
+        cfg["staging"]["skip_checks"] = ["distribute-mobile*"]
         self.assertEqual(self.problems(cfg), [])
 
     def test_e2e_without_folder_warns(self):
         cfg = filled_config()
         cfg["surfaces"] = {"web": {"path": "web/", "e2e": "pnpm e2e"}}
         self.assertTrue(any("surfaces.web" in m and "e2e_dir" in m for level, m in afconfig.validate_config(cfg) if level == "warn"))
-
-    def test_e2e_dirs(self):
-        cfg = {"surfaces": {"web": {"path": "web/", "e2e_dir": "e2e"}, "app": {"path": "mobile", "e2e_dir": ".maestro/"},
-                            "root": {"path": "./", "e2e_dir": "tests/e2e"}, "none": {"path": "api/"}, "bad": {"path": "x/", "e2e_dir": "."},
-                            "up": {"path": "x/", "e2e_dir": "../src"}, "ci": {"path": ".github", "e2e_dir": "e2e"}}}
-        self.assertEqual(sorted(afconfig.e2e_dirs(cfg)), ["mobile/.maestro", "tests/e2e", "web/e2e"])
-        self.assertEqual(afconfig.e2e_dirs({"surfaces": ["web"]}), [])  # malformed: no folder, not a crash
 
 
 class Paths(unittest.TestCase):

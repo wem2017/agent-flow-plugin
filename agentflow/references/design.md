@@ -1,4 +1,4 @@
-# Design → code (DEV) và design → verify (QC)
+# Design → code và soát (DEV)
 
 Chỉ đọc file này khi ticket chạm UI **và** (`design.figma: true` hoặc `design.repo` khác rỗng hoặc issue có link Figma/ảnh thiết kế).
 
@@ -19,19 +19,14 @@ Gọi theo thứ tự, dừng khi đủ (mỗi call đều tốn token — đừ
 | Cấu trúc frame lớn | `get_metadata` | Rẻ; dùng để chọn đúng node con trước khi lấy code |
 | Spec để code | `get_design_context` | Prompt kèm framework của surface + "dùng component/token sẵn có của repo" |
 | Token màu/spacing/type | `get_variable_defs` | Map sang token có sẵn; **không hardcode giá trị đã có token** |
-| Ảnh để so | `get_screenshot` | QC dùng để so; DEV dùng khi layout mơ hồ |
+| Ảnh để so | `get_screenshot` | Khi layout mơ hồ, hoặc soát ảnh flow chụp |
 | Component đã map | `get_code_connect_map` | Có mapping ⇒ dùng component thật thay vì viết mới |
 
 Tool `figma` không có / chưa authenticate ⇒ build theo AC, ghi một dòng `design: không truy cập được Figma` trong comment PR + journal `kind=tool_error`; nếu AC nói rõ "theo thiết kế" thì `needs_info`.
 
 ## DEV
 
-- Ghi **revision đã build** vào PR body: `Design: <url hoặc path> @ <ngày fetch | commit>` — Figma sửa được giữa chừng, QC verify đúng bản này.
+- Ghi **revision đã build** vào PR body: `Design: <url hoặc path> @ <ngày fetch | commit>` — Figma sửa được giữa chừng, QC người verify đúng bản này.
 - Design mâu thuẫn AC ⇒ AC thắng nếu rõ ràng; mơ hồ ⇒ `needs_info` hỏi PO, đừng tự chọn.
 - Thiếu state (empty/loading/error) trong design ⇒ dùng pattern sẵn có của repo, ghi rõ trong PR.
-
-## QC
-
-- So đúng revision DEV đã ghi. Design đổi sau khi DEV build ⇒ không phải lỗi của DEV: ghi vào checklist "design đã đổi — PO xác nhận", **không** tính ❌.
-- Chụp màn hình bằng flow Maestro (web: Claude in Chrome khi không chạy được Maestro), tự xem ảnh và so với `get_screenshot`: layout, spacing, màu token, chữ, đủ state. Lệch rõ ⇒ ❌ kèm tên ảnh/vị trí; lệch cảm quan ⇒ đưa vào checklist test tay.
-- Mobile: chạy được trên emulator/simulator thì so như trên. Không chạy được UI ⇒ toàn bộ phần so UI vào checklist test tay (`[AF:QC] 🧪`), kèm link frame Figma cho từng mục.
+- Soát ảnh flow chụp (`automation.md` §Ảnh UI/UX) với `get_screenshot`: lệch rõ (layout, chữ, thiếu state) ⇒ sửa; lệch cảm quan, design đổi sau khi build ⇒ mục QC tay kèm link frame, không tự đoán. Không chạy được UI ⇒ phần so UI vào mục QC tay.

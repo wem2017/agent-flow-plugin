@@ -25,7 +25,7 @@ SRC="$ROOT/${SUB#./}"; test -f "$SRC/.claude-plugin/plugin.json" && echo "SRC=$S
 
 - `agentflow-journal list` (entry `new`) + `$ARGUMENTS` (bỏ flag).
 - Trống cả hai → mine session hiện tại: người phải sửa lại agent, call phải thử ≥ 2 lần, lệnh check sai, convention bị chỉnh. Vẫn không có gì → hỏi: "Bài học lần này là gì?"
-- Cần bằng chứng thêm → đọc **đúng** verdict `[AF:REVIEW] ❌` / `[AF:QC] ❌` / comment người mà entry trỏ tới (repo + issue), không đọc lan.
+- Cần bằng chứng thêm → đọc **đúng** verdict `[AF:SA] ❌` / `[AF:DEV] blocked` / comment người mà entry trỏ tới (repo + issue), không đọc lan.
 
 ## 2. Chưng cất
 
@@ -44,14 +44,15 @@ Gộp entry cùng gốc thành **≤ 5 bài học**, mỗi bài một dòng: `ag
 
 | Bài học về… | File |
 |---|---|
-| Cách implement, branch, PR, rework, DoR defense | `agents/dev.md` |
-| Tiêu chí review, mức chặn vs gợi ý | `agents/reviewer.md` |
-| Cách verify AC, phân định lỗi, checklist test tay | `agents/qc.md` |
+| Code, branch, PR, rework, deploy staging | `agents/dev.md` |
+| DoR, thiết kế, review | `agents/sa.md` |
+| Chuẩn kỹ thuật chung SA + DEV | `references/engineering.md` |
+| Rủi ro, test case, flow, element id, chạy trên staging, test tay | `references/automation.md` |
 | Stage, label, board call, state block, comment, thứ tự ghi, escalation, git, token hygiene, journal | `references/protocol.md` |
 | Hàng đợi, thứ tự, model, song song, guard, SYS transition | `references/dispatch.md` |
-| Figma / design | `references/design.md` |
+| Figma | `references/design.md` |
 | Hành vi một lệnh | `skills/<lệnh>/SKILL.md` |
-| Lệnh nguy hiểm lọt qua / chặn nhầm | `scripts/guard.py`, `scripts/shellparse.py` (+ thêm case vào `tests/test_guard.py`) |
+| Lệnh nguy hiểm lọt qua / chặn nhầm | `scripts/guard.py`, `scripts/shellparse.py` (+ case trong `tests/test_guard.py`) |
 | Setup / chẩn đoán board | `bin/agentflow-board`, `skills/init/…` |
 | Vì sao thiết kế như vậy | `DESIGN-NOTES.md` (không phải file runtime) |
 

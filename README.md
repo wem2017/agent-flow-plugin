@@ -1,6 +1,6 @@
 # agent-flow-plugin
 
-Marketplace Claude Code chứa plugin [AgentFlow](agentflow/README.md): team agent DEV · Reviewer · QC tự chạy ticket trên GitHub Projects board tới cổng của con người.
+Marketplace Claude Code chứa plugin [AgentFlow](agentflow/README.md): team agent PO · SA · DEV (kiêm automation test trên staging) tự chạy ticket trên GitHub Projects board tới cổng của con người.
 
 ```bash
 claude plugin marketplace add wem2017/agent-flow-plugin

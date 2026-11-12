@@ -8,38 +8,41 @@
 
 ## Giải pháp
 
-- Chọn: … vì …
-- Đã cân nhắc và loại: …
+- Theo thiết kế SA: <link comment `[AF:SA] design`>
+- Lệch thiết kế: — <!-- hoặc: lệch gì, vì sao, bằng chứng -->
 
 ## Tiêu chí nghiệm thu
 
 - [ ]
 
-| AC | Code chính | Test |
+| AC | Code chính | TC | Flow |
+|---|---|---|---|
+| AC1 | | TC1 | |
+
+## Test tự động (trên staging)
+
+Staging @ <!-- deploy sha --> · <!-- k/k TC pass, flow mới pass 3/3 -->
+
+| Flow | TC | Kết quả |
 |---|---|---|
-| AC1 | | |
+| | | |
 
-## Test tự động
+## Kiểm chứng lại
 
-| File | AC | Kết quả local |
-|---|---|---|
-| | | pass 3/3 @ |
+### QC tay
 
-Ảnh chụp:
-
-## QC tay
-
-<!-- chỉ AC không tự động được: thiết bị thật, dịch vụ ngoài, cảm quan — bỏ mục này nếu không có -->
+<!-- chặn merge: case không tự động được (thiết bị thật, dịch vụ ngoài, cảm quan) — bước + kỳ vọng + môi trường. Không có: ghi "—" -->
 - [ ]
 
-## Cách test cho QC (trên staging)
+### Đề xuất kiểm chứng thêm
 
-- Tài khoản / dữ liệu cần:
-- Các bước:
+<!-- không chặn: regression ở vùng rủi ro và phần diff chạm mà flow không phủ — vùng → vì sao → cách kiểm -->
+-
 
 ## Ảnh chụp / Design
 
 ## Checklist
 
-- [ ] Tự review diff, đã tìm mọi nơi gọi của hàm/kiểu bị đổi
-- [ ] Đã chạy check + test của surface bị chạm, flow mới pass 3 lần liên tiếp
+- [ ] Tự review diff theo chuẩn kỹ thuật, đã tìm mọi nơi gọi của hàm/kiểu bị đổi
+- [ ] Đã gắn element id cho mọi phần tử flow chạm hoặc assert
+- [ ] Check + test có sẵn của surface bị chạm xanh; flow liên quan pass trên staging

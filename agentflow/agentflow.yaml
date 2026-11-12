@@ -11,10 +11,10 @@ board:
   # Stage của plugin → tên option Status THẬT trên board (khớp từng ký tự).
   status:
     backlog: "Backlog"               # PO — agent chỉ tạo issue vào đây
-    ready: "Ready"                   # PO đã kéo vào — DEV agent nhặt
-    in_progress: "In Progress"       # DEV đang làm / đang sửa
-    in_review: "In Review"           # draft PR đã mở — Reviewer agent, ✅ thì merge lên staging
-    in_qc: "In QC"                   # chờ pipeline staging, rồi QC agent (+ QC người nếu cần test tay)
+    ready: "Ready"                   # PO đã kéo vào — SA thiết kế (giải pháp, rủi ro, test case), rồi DEV nhặt
+    in_progress: "In Progress"       # DEV code + flow automation, deploy staging, chạy flow, tự sửa / sửa theo review
+    in_review: "In Review"           # flow đã pass trên staging — SA review
+    in_qc: "In QC"                   # chờ QC người test mục QC tay của PR
     ready_to_merge: "Ready to Merge" # người approve + merge
     done: "Done"
   # Field tuỳ chọn trên board. Xoá key nếu board không có field đó.
@@ -33,13 +33,12 @@ types:                         # tên type (hoặc label) → tiền tố nhánh
 
 # Tên label thật trên repo cho từng tín hiệu (init tạo nếu thiếu).
 labels:
-  agent: "agentflow"                     # ticket do agent sở hữu (DEV gắn khi nhận việc)
+  agent: "agentflow"                     # ticket do agent sở hữu (SA gắn khi thiết kế xong)
   blocked: "blocked"                     # chờ người gỡ — loop bỏ qua
   needs_info: "needs-info"               # thiếu thông tin — loop bỏ qua
-  changes_requested: "changes-requested" # review trả về — DEV sửa
-  qc_failed: "qc-failed"                 # QC trả về — DEV sửa
+  changes_requested: "changes-requested" # SA review trả về — DEV sửa
+  qc_failed: "qc-failed"                 # QC người trả về — DEV sửa
   qc_manual: "qc-manual"                 # chờ QC người test tay theo checklist
-  deploying: "deploying"                 # đã merge lên staging — chờ pipeline xong mới QC
 
 # ── GIT ──────────────────────────────────────────────────────────────────────
 git:
@@ -58,27 +57,27 @@ git:
 #     check: "pnpm typecheck && pnpm lint"
 #     test: "pnpm test"
 #     e2e: ""                  # tuỳ chọn — lệnh chạy cả suite e2e nhắm vào staging, có env STAGING_URL, vd "BASE_URL=$STAGING_URL pnpm e2e"
-#     e2e_dir: ""              # tuỳ chọn — thư mục test e2e trong surface, vd ".maestro" (Maestro, ưu tiên cho UI) hoặc "e2e": DEV viết test
-#                              # cho AC và commit vào PR; QC chỉ commit trong thư mục này (hook chặn file khác)
-#     e2e_ci: false            # true = CI chạy cả suite e2e_dir trên staging sau mỗi release và báo check lên commit staging:
-#                              # CI xanh là đủ QC cho surface này (không spawn QC agent). Cần e2e_dir
+#     e2e_dir: ""              # tuỳ chọn — thư mục test e2e trong surface, vd ".maestro" (Maestro, ưu tiên cho UI) hoặc "e2e": DEV commit flow vào đây
+#     install: ""              # mobile, tuỳ chọn — build + cài bản trỏ server staging lên emulator/simulator đang chạy,
+#                              # vd "flutter build apk --flavor staging && adb install -r build/app/outputs/flutter-apk/app-staging-release.apk"
 
 # Glob agent KHÔNG được sửa hay in nội dung (hợp với mặc định của plugin: .env*, *.pem, *.key, *.p12, *.pfx, *.jks, *.keystore, .netrc, .git-credentials, id_rsa, id_ed25519).
 forbidden: []
 
 # ── DESIGN (tuỳ chọn) ────────────────────────────────────────────────────────
 design:
-  figma: false                 # true = issue có link Figma → DEV/QC dùng Figma MCP
+  figma: false                 # true = issue có link Figma → SA/DEV dùng Figma MCP
   repo: []                     # path design/prototype trong repo, vd ["docs/design/"]
 
 # ── STAGING (bắt buộc) ───────────────────────────────────────────────────────
-# Nhánh chỉ để build và test: Reviewer merge dồn PR đã ✅ vào đây, không bao giờ merge ngược về PR hay master.
+# Nhánh chỉ để build và test: DEV merge dồn nhánh ticket vào đây rồi chạy flow, không bao giờ merge ngược về PR hay master.
 staging:
   branch: "staging"            # BẮT BUỘC — phải tồn tại trên origin, khác git.base
-  url: ""                      # URL API/web của môi trường staging. Trống ⇒ AC API/web thành checklist cho QC người
+  url: ""                      # URL API/web của môi trường staging. Trống ⇒ test case API/web thành mục QC tay
   build: ""                    # cách lấy bản build cho mobile/QC người, vd "artifact APK của workflow staging-release"
   notes: ""                    # app id, tài khoản/dữ liệu test: path secret folder của project (gitignored), vd "secret/staging/" — agent đọc file trong đó
   timeout_min: 30              # pipeline quá thời gian này ⇒ blocked, báo người
+  skip_checks: []              # glob tên check DEV không chờ — release mobile, vd ["distribute-mobile*", "testflight*"]
 
 # ── NGƯỜI (GitHub login, để @mention) ────────────────────────────────────────
 people:
@@ -91,11 +90,11 @@ run:
   parallel: 2                  # số ticket xử lý song song (git worktree)
   max_tasks: 5                 # số ticket đưa tới cổng người mỗi lượt /agentflow:run
   max_review_rounds: 3         # số ❌ review liên tiếp; lần kế tiếp → escalate
-  max_qc_rounds: 2             # số ❌ QC + QC người cho đến khi pass; lần kế tiếp → escalate
+  max_qc_rounds: 2             # số lần QC người fail cho đến khi pass; lần kế tiếp → escalate
+  max_test_rounds: 3           # số vòng DEV tự sửa khi flow fail trên staging trong một lượt; hết vòng → lỗi block lên issue
   models:
     dev: { default: opus }        # thêm key theo Size để đổi model, vd L: fable. Effort nằm ở frontmatter của agent
-    reviewer: opus
-    qc: opus                     # QC chỉ chạy khi REVIEWER chọn qc: agent hoặc pipeline staging fail
+    sa: opus                     # SA thiết kế trước DEV + review. Config bản 2.x ghi `reviewer:` vẫn được đọc
 
 # ── NOTIFY ───────────────────────────────────────────────────────────────────
 notify:
