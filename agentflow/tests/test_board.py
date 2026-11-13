@@ -34,6 +34,7 @@ URL = "https://github.com/orgs/acme/projects/3"
 OPTIONS = [{"id": "o%d" % i, "name": n, "color": "GRAY", "description": ""} for i, n in enumerate(
     ["Backlog", "Ready", "In Progress", "In Review", "In QC", "Ready to Merge", "Done"])]
 SHA = "a" * 40
+FULL = ", ".join(board.FULL_SCOPES)
 
 
 class FakeGitHub:
@@ -332,7 +333,7 @@ class Doctor(BoardCase):
                    "repositories": {"nodes": [{"nameWithOwner": "acme/app"}]}, "views": {"nodes": []},
                    "fields": {"nodes": [{"__typename": "ProjectV2SingleSelectField", "id": "F", "name": "Status", "dataType": "SINGLE_SELECT", "options": options}]}}
         self.gh.routes = []
-        self.gh.on("GET", "/user", {"login": "me"}, headers={"x-oauth-scopes": "repo, project, read:org"})
+        self.gh.on("GET", "/user", {"login": "me"}, headers={"x-oauth-scopes": FULL})
         self.gh.on("POST", "shortDescription", {"data": {"organization": {"projectV2": project}}})
         self.gh.on("POST", "workflows", {"data": {"node": {"workflows": {"nodes": [{"name": "Item closed", "enabled": True}]}}}})
         self.gh.on("GET", "/labels", [{"name": x} for x in labels])
@@ -449,8 +450,26 @@ class Doctor(BoardCase):
         self.gh.routes.insert(0, ("GET", "/user", {"login": "me"}, 200, {"x-oauth-scopes": "repo, read:org, gist"}))
         code, out = self.doctor()
         self.assertEqual(code, 1)
-        self.assertIn("gh auth refresh -s project", out)
+        self.assertIn("gh auth refresh -h github.com -s workflow,", out)
+        self.assertIn(",project,", out)
+        self.assertNotIn("-s repo", out, "scope đã có không bị xin lại")
         self.assertFalse([c for c in self.gh.calls if c[0] == "POST"], "board không được query khi thiếu scope project")
+
+    def test_minimal_scopes_fail_full_scope_is_required(self):
+        self.gh.routes.insert(0, ("GET", "/user", {"login": "me"}, 200, {"x-oauth-scopes": "repo, project, read:org, workflow"}))
+        code, out = self.doctor()
+        self.assertEqual(code, 1)
+        self.assertIn("✗ thiếu scope", out)
+        self.assertIn("delete_repo", out)
+        self.assertIn("admin:enterprise", out)
+        self.assertIn("board T", out, "có scope project thì vẫn đọc tiếp board để báo lỗi khác")
+
+    def test_token_without_scope_list_fails(self):
+        self.gh.routes.insert(0, ("GET", "/user", {"login": "me"}, 200, {}))
+        code, out = self.doctor()
+        self.assertEqual(code, 1)
+        self.assertIn("fine-grained", out)
+        self.assertIn("settings/tokens/new?description=agentflow&scopes=repo,workflow,", out)
 
     def test_telegram_needs_its_env_staging_notes_does_not(self):
         self.write_config(CONFIG.replace('url: "https://s.example"', 'url: "https://s.example", notes: "secret/staging/ APP_ID, E2E_EMAIL, E2E_PASSWORD"')
@@ -667,10 +686,18 @@ class Misc(BoardCase):
         created = json.loads(self.gh.calls[-1][2])
         self.assertEqual((created["color"], len(created["description"])), ("123456", 100))
 
-    def test_whoami_warns_on_broad_scope(self):
+    def test_whoami_fails_without_full_scope(self):
         self.gh.on("GET", "/user", {"login": "me"}, headers={"x-oauth-scopes": "repo, delete_repo"})
-        _, out = self.run_cmd("whoami")
-        self.assertIn("WARN", out)
+        code, out = self.run_cmd("whoami")
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL thiếu scope workflow,", out)
+        self.assertNotIn("quá rộng", out)
+
+    def test_whoami_accepts_full_scope(self):
+        self.gh.on("GET", "/user", {"login": "me"}, headers={"x-oauth-scopes": FULL})
+        code, out = self.run_cmd("whoami")
+        self.assertEqual(code, 0, out)
+        self.assertIn("OK token đủ full scope", out)
 
     def test_bad_board_url(self):
         code, _ = self.run_cmd("inspect", "https://github.com/acme/app")

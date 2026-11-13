@@ -31,11 +31,11 @@ Chưa `ignored` + `untracked` → **dừng**.
 
 ## 3. Token + quyền
 
-`agentflow-board whoami`. Token là token của `gh`: `$GH_TOKEN` → `$GITHUB_TOKEN` → `gh auth token` (cùng một hàm cho script và cho MCP — `scripts/mcp-headers.py` là `headersHelper` của GitHub MCP). Plugin không lưu token vào file nào.
-- `gh chưa có token` → người tự chạy `! gh auth login -s project,read:org` (thêm `workflow` nếu agent được sửa CI). Không đọc, in hay ghi token hộ — guard chặn `gh auth token`.
-- Thiếu scope (`project`, `read:org` nếu board của org) → `! gh auth refresh -s project,read:org`, rồi chạy lại `whoami`.
+`agentflow-board whoami`. Token là token của `gh`: `$GH_TOKEN` → `$GITHUB_TOKEN` → `gh auth token` (script và MCP dùng chung — `scripts/mcp-headers.py` là `headersHelper` của MCP). Plugin không lưu token vào file nào.
+Bắt buộc **full scope** (mọi scope classic token): `whoami` exit 1 ⇒ **dừng** tới khi đủ.
+- Người tự chạy `! <lệnh gh auth>` lỗi in ra, rồi chạy lại `whoami`. Không đọc/in/ghi token hộ — guard chặn `gh auth token`.
+- Refresh vẫn thiếu, hoặc token fine-grained → người tạo classic token theo link FAIL (ô tick sẵn), nạp ở terminal riêng: `gh auth login -h github.com --with-token`.
 - `agentflow-settings has GITHUB_TOKEN` exit 0 (token cũ từ bản < 2.2) → đề nghị `agentflow-settings unset GITHUB_TOKEN` (tương tự `GH_TOKEN`): biến trong `env` được Claude Code đưa vào session và thắng tài khoản `gh`. Người muốn giữ thì để, doctor chỉ báo ⚠.
-- Có `WARN token quá rộng` → nhắc thu hẹp scope (không chặn).
 - Probe MCP `get_me` (tool deferred — nạp bằng ToolSearch trước). Fail mà script chạy được → `/mcp` → `plugin:agentflow:github` → Reconnect (helper đọc lại token mỗi lần connect, không cần restart).
 
 ## 4. Repo + convention (đọc từ repo, đề xuất, người chốt)

@@ -102,6 +102,11 @@ API = [
     "gh api -X PUT repos/o/r/contents/a.txt -f branch=master", 'curl -X PUT -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/repos/o/r/pulls/1/merge',
     'curl -X POST https://api.github.com/graphql -d \'{"query":"mutation{mergePullRequest}"}\'', "curl -d x https://api.github.com/repos/o/r/merges",
     "wget --method=PUT https://api.github.com/repos/o/r/pulls/1/merge", "gh auth token", "gh auth status --show-token", "git credential fill",
+    # The token has full scope (delete_repo, delete:packages): deleting a repo or package must stay a human act.
+    "gh repo delete o/r --yes", "gh -R o/r repo delete --yes", "gh api -X DELETE repos/o/r", "gh api --method DELETE /repos/{owner}/{repo}",
+    "curl -X DELETE -H \"Authorization: Bearer $GITHUB_TOKEN\" https://api.github.com/repos/o/r", "gh api -X DELETE orgs/o/packages/npm/app",
+    "gh api -X DELETE /user/packages/container/app/versions/1", 'gh api graphql -f query="mutation{deletePackageVersion(input:{packageVersionId:\\"x\\"}){success}}"',
+    "python3 -c \"import os; os.system('gh repo delete o/r --yes')\"",
 ]
 SECRETS = [
     "cat < .env", "cat<.env", "jq . .claude/settings.local.json", "python3 -c \"print(open('.env').read())\"", "node -e \"require('fs').readFileSync('.env')\"",
@@ -123,6 +128,7 @@ NOT_OVERBLOCKED = [
     'python3 -I tests/test_guard.py', "agentflow-board doctor", "agentflow-settings set enabledPlugins.agentflow@x true", 'agentflow-settings set permissions.defaultMode \'"bypassPermissions"\'',
     'printf \'%s\\n\' "$T" | agentflow-settings set-secret TELEGRAM_BOT_TOKEN', "git log --oneline -5", "git diff --stat origin/master...HEAD", "git fetch -q origin master", "cat README.md | head -5", "sed -n 1,5p README.md",
     "git push origin feat/1:feat/1", "git push -o ci.skip origin feat/1", "gh pr ready 12", "gh pr ready 12 --undo", "echo done",
+    "gh api -X DELETE repos/o/r/issues/1/labels/blocked", "gh repo view o/r", "gh api repos/o/r", "gh api -X PATCH repos/o/r/issues/1 -f state=open",
     # Blocked by mistake until the same red-team pass: an unattended loop stalls on these.
     "flutter build web --dart-define-from-file=.env.staging", "dotenv -e .env.test -- pnpm test", "jq .env package.json", "grep -e .env .gitignore", "grep -A 3 .env README.md",
     "sed -i '' 's/.env/.env.local/' README.md", "tar --exclude=.env -czf x.tgz .", "tar czf x.tgz --exclude .env .", "find . -maxdepth 2 -name .env", "git grep .env", "git log -S .env --oneline",
@@ -163,6 +169,7 @@ MCP = [
     ("ALLOW", "mcp__plugin_agentflow_github__add_issue_comment", {"body": "[AF:DEV] start"}),
     ("BLOCK", "mcp__plugin_agentflow_github__create_or_update_file", {"path": "a.txt"}),
     ("BLOCK", "mcp__plugin_agentflow_github__delete_branch", {"branch": "feat/1"}),
+    ("BLOCK", "mcp__plugin_agentflow_github__delete_repository", {"owner": "o", "repo": "r"}),
     ("BLOCK", "mcp__plugin_agentflow_github__get_file_contents", {"path": ".env"}),
     ("ALLOW", "mcp__plugin_agentflow_github__get_file_contents", {"path": "README.md"}),
     ("BLOCK", "mcp__idea__execute_terminal_command", {"command": "gh pr merge 1"}),

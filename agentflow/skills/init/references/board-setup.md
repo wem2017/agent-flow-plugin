@@ -80,8 +80,8 @@ Ghi file vào working tree (người tự commit) — init không commit, không
 
 | Triệu chứng | Nguyên nhân | Sửa |
 |---|---|---|
-| Không có tool `projects_write` | Token của `gh` thiếu scope `project`, hoặc MCP chưa connect | `gh auth refresh -s project`; `/mcp` → `plugin:agentflow:github` → Reconnect |
+| Không có tool `projects_write` | Token của `gh` thiếu scope `project`, hoặc MCP chưa connect | Lệnh `gh auth refresh` mà `agentflow-board whoami` in; `/mcp` → `plugin:agentflow:github` → Reconnect |
 | `option_not_found` | Tên trong `board.status` lệch option trên board | Sửa yaml hoặc board cho khớp từng ký tự, chạy `agentflow-board doctor` |
 | Status đọc lại rỗng | Quên `field_names:["Status"]` | Luôn truyền `field_names` |
-| 404 board | Sai `board.url` hoặc thiếu `read:org` | Dán lại URL từ trình duyệt; thêm scope |
-| HTTP 400 `Authorization header is badly formatted` | `gh` chưa đăng nhập, hoặc không có `gh` trong PATH của Claude Code | `gh auth login -s project,read:org`, rồi `/mcp` → Reconnect |
+| 404 board | Sai `board.url`, hoặc token thiếu `admin:org` | Dán lại URL từ trình duyệt; cấp scope thiếu theo `agentflow-board whoami` |
+| HTTP 400 `Authorization header is badly formatted` | `gh` chưa đăng nhập, hoặc không có `gh` trong PATH của Claude Code | `agentflow-board whoami` in lệnh `gh auth login` với đủ scope; chạy xong `/mcp` → Reconnect |

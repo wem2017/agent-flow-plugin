@@ -2,8 +2,9 @@
 """AgentFlow PreToolUse guard. Exit 2 blocks the tool call; stderr is shown to Claude.
 
 Hard rules (DESIGN-NOTES.md §Non-goals): no PR merge, no PR approve, no workflow dispatch, no force-push or remote
-branch delete, no push to protected branches (the staging branch is not one; force-push stays blocked there too), no
-direct file write to staging via MCP, no edit/read/print of forbidden (secret) paths, no secret value in a tool call.
+branch delete, no repo or package delete (the token has full scope), no push to protected branches (the staging
+branch is not one; force-push stays blocked there too), no direct file write to staging via MCP, no edit/read/print
+of forbidden (secret) paths, no secret value in a tool call.
 Role rules apply inside an agentflow subagent, read from `agent_type` of the hook payload: SA reads and reviews, changes
 no file and pushes nothing; DEV writes only in its worktree `af-<n>` and its staging worktree `af-<n>-staging`, pushes
 staging only from that staging worktree and nothing else from it, never merges staging into its branch, never undrafts.
@@ -104,6 +105,9 @@ MSG_TOKEN = "không in token — test sự tồn tại bằng `[ -n \"${VAR:-}\"
 MSG_FORCE = "force-push / mirror / xoá nhánh trên remote bị cấm. Sync bằng `git merge` rồi push thường."
 MSG_UNDRAFT = "chỉ SA (review ✅) hoặc orchestrator (QC người pass) mới undraft PR."
 MSG_DRAFT = "PR luôn mở dạng draft: chưa qua test staging + review thì chưa được merge."
+MSG_DESTROY = "agent không xoá repo hay package — token full scope làm được nhưng không lấy lại được; báo người nếu cần."
+REPO_ROOT = re.compile(r"(^|/)repos/[^/\s]+/[^/\s?#]+/?(?=[\s?#]|$)")  # DELETE here deletes the repository itself
+PACKAGES = re.compile(r"(^|/)(user|users/[^/\s]+|orgs/[^/\s]+)/packages/")
 
 API_WRITES = [  # REST endpoints that must not receive a write
     (re.compile(r"/pulls/[^/\s]+/merge\b"), MSG_MERGE), (re.compile(r"/merges\b"), MSG_MERGE), (re.compile(r"/auto-merge\b"), MSG_MERGE),
@@ -114,6 +118,7 @@ GRAPHQL_BANNED = [
     (re.compile(r"\b(mergePullRequest|enablePullRequestAutoMerge|mergeBranch)\b"), MSG_MERGE),
     (re.compile(r"\b(updateRefs?|deleteRef|updateBranchProtectionRule|deleteBranchProtectionRule)\b"), MSG_REF),
     (re.compile(r"\b(addPullRequestReview|submitPullRequestReview)\b[\s\S]*\bAPPROVE\b"), MSG_APPROVE),
+    (re.compile(r"\bdeletePackageVersion\b"), MSG_DESTROY),
 ]
 APPROVE_EVENT = re.compile(r"event[\"':=\s]+APPROVE\b")
 # Text rules for code handed to an interpreter (and the last resort when a command cannot be parsed).
@@ -122,6 +127,7 @@ CODE_BANNED = [
     (re.compile(r"\bgh\b[^\n]*\bpr\b[^\n]*\bmerge\b"), MSG_MERGE),
     (re.compile(r"\bgh\b[^\n]*\bpr\b[^\n]*\breview\b[^\n]*(--approve|[\s\"',]-a\b)"), MSG_APPROVE),
     (re.compile(r"\bgh\b[^\n]*\b(workflow\b[^\n]*\brun|run\b[^\n]*\brerun)\b"), MSG_DISPATCH),
+    (re.compile(r"\bgh\b[^\n]*\brepo\b[^\n]*\bdelete\b"), MSG_DESTROY),
     (re.compile(r"\bgh\b[^\n]*\bauth\b[^\n]*\btoken\b"), MSG_TOKEN),
     (re.compile(r"(?<!\bin )os\.environ(?!\s*(\.get\b|\[))|process\.env(?![.\[])"), "không in toàn bộ env — có secret trong đó."),
     (re.compile(r"(print|console\.log|puts|echo|write)[^\n]*(environ|process\.env|ENV\b|ENVIRON|getenv)[^\n]*(%s)" % SECRET_WORD), MSG_TOKEN),
@@ -543,6 +549,8 @@ def check_api(endpoint, text, method, scope):
         block(MSG_APPROVE)
     if method == "GET":
         return
+    if method == "DELETE" and (REPO_ROOT.search(endpoint) or PACKAGES.search(endpoint)):
+        block(MSG_DESTROY)
     for pattern, reason in API_WRITES:
         if pattern.search(endpoint):
             block(reason)
@@ -608,6 +616,8 @@ def check_gh(args, session, scope, cmd):
         block(MSG_DRAFT)
     if head in (["workflow", "run"], ["run", "rerun"]):
         block(MSG_DISPATCH)
+    if head == ["repo", "delete"]:
+        block(MSG_DESTROY)
     if head == ["repo", "sync"]:
         block("`gh repo sync` có thể ghi đè nhánh trên remote. %s" % MSG_FORCE)
     if head[:1] == ["alias"] and head[1:] in (["set"], ["import"]):
@@ -1104,6 +1114,8 @@ def check_mcp(tool, ti, session):
         block(MSG_MERGE)
     if "delete_branch" in low or "delete_ref" in low or "update_ref" in low:
         block(MSG_REF)
+    if "delete_repo" in low or "delete_package" in low:
+        block(MSG_DESTROY)
     if "pull_request_review" in low and str(ti.get("event", "")).upper() == "APPROVE":
         block(MSG_APPROVE)
     for key in MCP_PATH_KEYS:  # another server's file tools reach the same secrets

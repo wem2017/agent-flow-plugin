@@ -16,4 +16,4 @@ AgentFlow chạy trên máy của bạn, bằng token của bạn. Plugin không
 - Journal friction: `~/.claude/agentflow/journal.jsonl`, một dòng cho mỗi friction, chuỗi giống token bị thay bằng `<secret>` trước khi ghi. Xoá file bất cứ lúc nào.
 - Log build/test: `/tmp/af-<n>*.log`.
 
-**Lưu ý**: agent dùng token của bạn nên mọi comment trên GitHub đứng tên bạn. Guard chặn gọi tool có tham số chứa chuỗi giống token thật, nhưng chỉ nhận ra các định dạng phổ biến. Xem [`DESIGN-NOTES.md`](DESIGN-NOTES.md) §Giới hạn đã biết.
+**Lưu ý**: agent dùng token của bạn nên mọi comment trên GitHub đứng tên bạn. Token phải có full scope (mọi scope của classic token), nên agent về kỹ thuật làm được mọi việc tài khoản của bạn làm được; hook guard chặn các thao tác không lấy lại được (merge/approve PR, force-push, xoá nhánh remote, xoá repo/package, dispatch workflow) nhưng chỉ ở mức best-effort. Token lộ ra ngoài cũng mang đủ quyền đó. Guard chặn gọi tool có tham số chứa chuỗi giống token thật, nhưng chỉ nhận ra các định dạng phổ biến. Xem [`DESIGN-NOTES.md`](DESIGN-NOTES.md) §Giới hạn đã biết.

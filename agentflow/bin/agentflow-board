@@ -6,7 +6,7 @@ options, create fields/views, link repo) and read-only reports that would be exp
 (pipeline checks, people's feedback on a PR).
 Auth: the token `gh` uses ($GH_TOKEN, $GITHUB_TOKEN, else `gh auth token`). Never prints the token.
 
-  whoami                                    login + token scopes (+ warnings)
+  whoami                                    login + token scopes; exit 1 when the token lacks a scope of FULL_SCOPES
   inspect <board-url> [--done NAME] [--repo O/R]   fields/options/views/repos + item count per Status
   items <board-url> [--open] [--fields A,B] [--repo O/R]  one compact line per item
   status-plan <board-url> --want A,B,..     show what apply would change (no write)
@@ -57,8 +57,13 @@ STATUS_DESC = {
     "ready_to_merge": "Review + QC đã pass, PR đã undraft. Người approve + merge. Muốn sửa: Request changes trên PR.",
     "done": "PR đã merge, issue đã đóng.",
 }
-BROAD_SCOPES = ("admin:enterprise", "admin:org", "delete_repo", "delete:packages", "admin:gpg_key",
-                "admin:public_key", "admin:ssh_signing_key", "admin:org_hook", "audit_log")
+# Token phải có mọi scope top-level của classic token (người dùng chọn 2026-11-12, DESIGN-NOTES.md). X-OAuth-Scopes trả
+# danh sách đã chuẩn hoá: scope cha thay cho scope con, nên so từng tên top-level là đủ.
+FULL_SCOPES = ("repo", "workflow", "write:packages", "delete:packages", "admin:org", "admin:public_key", "admin:repo_hook",
+               "admin:org_hook", "gist", "notifications", "user", "delete_repo", "write:discussion", "admin:enterprise",
+               "audit_log", "codespace", "copilot", "write:network_configurations", "project", "admin:gpg_key",
+               "admin:ssh_signing_key")
+CLASSIC_TOKEN_URL = "https://github.com/settings/tokens/new?description=agentflow&scopes=" + ",".join(FULL_SCOPES)
 RETRY_STATUS = (429, 502, 503, 504)
 _TOKEN = None
 
@@ -73,8 +78,25 @@ def token():
     if _TOKEN is None:
         _TOKEN = afconfig.github_token()
         if not _TOKEN:
-            die("gh chưa có token — gh auth login -s project,read:org", 3)
+            die("gh chưa có token — gh auth login -h github.com -s %s" % ",".join(FULL_SCOPES), 3)
     return _TOKEN
+
+
+def token_scopes(headers):
+    """Scopes from X-OAuth-Scopes; [] for a fine-grained or GitHub App token, which does not list them."""
+    return [s.strip() for s in (headers.get("x-oauth-scopes") or "").split(",") if s.strip()]
+
+
+def scope_problem(scopes):
+    """None when the token holds every scope in FULL_SCOPES, else what is missing and how to grant it."""
+    if not scopes:
+        return ("token không liệt kê scope (fine-grained hoặc GitHub App) — cần classic token tick mọi scope: %s, "
+                "rồi nạp vào gh bằng gh auth login -h github.com --with-token" % CLASSIC_TOKEN_URL)
+    missing = [s for s in FULL_SCOPES if s not in scopes]
+    if not missing:
+        return None
+    return ("thiếu scope %s — gh auth refresh -h github.com -s %s (GitHub không cấp đủ qua gh thì tạo classic token tick "
+            "mọi scope: %s, rồi gh auth login -h github.com --with-token)" % (", ".join(missing), ",".join(missing), CLASSIC_TOKEN_URL))
 
 
 def http(method, path, body=None, want_headers=False):
@@ -123,7 +145,7 @@ def get_project(url):
         " views(first:20){ nodes{ id name layout filter } } %s } } }" % (ref["kind"], FIELDS_Q)
     proj = (gql(q, l=ref["owner"], n=ref["number"]).get(ref["kind"]) or {}).get("projectV2")
     if not proj:
-        die("không resolve được board %s (sai URL, hoặc token thiếu scope project/read:org)" % url, 4)
+        die("không resolve được board %s (sai URL, hoặc token thiếu scope project/admin:org — agentflow-board whoami)" % url, 4)
     proj["ref"] = ref
     return proj
 
@@ -166,12 +188,14 @@ def iter_items(url, field_names):
 
 def cmd_whoami(_):
     user, headers = http("GET", "/user", want_headers=True)
-    scopes = [s.strip() for s in (headers.get("x-oauth-scopes") or "").split(",") if s.strip()]
+    scopes = token_scopes(headers)
     print("login: %s" % user["login"])
-    print("scopes: %s" % (", ".join(scopes) or "(fine-grained token — không liệt kê scope)"))
-    broad = [s for s in scopes if s in BROAD_SCOPES]
-    if broad:
-        print("WARN token quá rộng (%s) — plugin chỉ cần repo, project, read:org (+workflow nếu sửa CI)" % ", ".join(broad))
+    print("scopes: %s" % (", ".join(scopes) or "(không liệt kê — fine-grained hoặc GitHub App token)"))
+    problem = scope_problem(scopes)
+    if problem:
+        print("FAIL %s" % problem)
+        sys.exit(1)
+    print("OK token đủ full scope (%d scope của classic token)" % len(FULL_SCOPES))
 
 
 def cmd_inspect(a):
@@ -819,23 +843,21 @@ def cmd_doctor(a):
     except (RuntimeError, SystemExit) as err:
         fail("token không dùng được: %s" % err)
         sys.exit(1)
-    scopes = [s.strip() for s in (headers.get("x-oauth-scopes") or "").split(",") if s.strip()]
+    scopes = token_scopes(headers)
     ok("login %s" % user["login"])
     board = cfg.get("board") or {}
     ref = afconfig.parse_board_url(board.get("url"))
     if not ref:
         fail("board.url không hợp lệ: %r" % board.get("url"))
         sys.exit(1)
-    need = {"repo", "project"} | ({"read:org"} if ref["owner_type"] == "org" else set())
-    if scopes:
-        missing = [s for s in need if s not in scopes and not (s == "read:org" and "admin:org" in scopes)]
-        (fail if missing else ok)("scopes cần %s%s" % (", ".join(sorted(need)), (" — thiếu %s: gh auth refresh -s %s" % (", ".join(missing), ",".join(missing))) if missing else ""))
-        broad = [s for s in scopes if s in BROAD_SCOPES]
-        if broad:
-            warn("token có scope quá rộng: %s — nên tạo token mới chỉ với %s" % (", ".join(broad), ", ".join(sorted(need))))
-        if "project" in missing:  # every board query below fails without it, each with a long GraphQL error
-            print("KẾT QUẢ: %d lỗi — dừng trước khi đọc board" % len(bad))
-            sys.exit(1)
+    problem = scope_problem(scopes)
+    if problem:
+        fail(problem)
+    else:
+        ok("token đủ full scope (%d scope của classic token)" % len(FULL_SCOPES))
+    if scopes and "project" not in scopes:  # every board query below fails without it, each with a long GraphQL error
+        print("KẾT QUẢ: %d lỗi — dừng trước khi đọc board" % len(bad))
+        sys.exit(1)
     proj = get_project(board["url"])
     ok("board %s (%d item)" % (proj["title"], proj["items"]["totalCount"]))
     st = field(proj, "Status") or {"options": []}
