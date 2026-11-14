@@ -67,7 +67,7 @@ forbidden: []
 # ── DESIGN (tuỳ chọn) ────────────────────────────────────────────────────────
 design:
   figma: false                 # true = issue có link Figma → SA/DEV dùng Figma MCP
-  repo: []                     # path design/prototype trong repo, vd ["docs/design/"]
+  repo: []                     # path tài liệu thiết kế sản phẩm/prototype trong repo, vd ["docs/design/"] — /agentflow:task đọc để nắm sản phẩm
 
 # ── STAGING (bắt buộc) ───────────────────────────────────────────────────────
 # Nhánh chỉ để build và test: DEV merge dồn nhánh ticket vào đây rồi chạy flow, không bao giờ merge ngược về PR hay master.

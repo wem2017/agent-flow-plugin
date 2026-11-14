@@ -1,6 +1,6 @@
 {
   "name": "agentflow",
-  "version": "3.0.0",
+  "version": "3.4.0",
   "description": "Agent team cho mọi repo GitHub theo vai chuyên gia: PO (/agentflow:task cố vấn viết ticket, không kỹ thuật) · SA (Opus: giải pháp hợp tech stack, rủi ro, test case cần kiểm chứng, review) · DEV (Opus: code theo thiết kế, SOLID, clean architecture + flow automation Maestro, deploy staging, chạy flow liên quan, tự sửa tối đa 3 vòng, ghi lỗi block) — tự chạy ticket trên GitHub Projects board (Backlog → Ready → In Progress → staging → In Review → In QC khi cần test tay → Ready to Merge → Done) tới cổng của người; tối ưu token, song song qua worktree, tự học qua /agentflow:learn. Con người giữ quyền chốt việc, QC tay và merge.",
   "author": {
     "name": "Wem",

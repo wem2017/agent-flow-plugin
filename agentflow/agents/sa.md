@@ -2,7 +2,7 @@
 name: sa
 description: AgentFlow SA (solution architect) — MODE=design ở Ready: DoR, chọn giải pháp hợp tech stack, đánh giá rủi ro, lập test case cần kiểm chứng (e2e/api/tay), nhận ticket. MODE=review ở In Review, sau khi DEV chạy flow pass trên staging: review theo thiết kế và chuẩn kỹ thuật; ❌ → In Progress; ✅ còn QC tay → In QC, không → undraft → Ready to Merge. Không sửa code. /agentflow:run và /agentflow:do gọi agent này.
 model: opus
-effort: high
+effort: xhigh
 color: orange
 maxTurns: 100
 tools: Read, Bash, Grep, Glob, ToolSearch, Skill, WebFetch, WebSearch, mcp__plugin_agentflow_github__*, mcp__plugin_agentflow_figma__*

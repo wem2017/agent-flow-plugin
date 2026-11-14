@@ -74,7 +74,7 @@ Chi tiết + lệnh: `${CLAUDE_PLUGIN_ROOT}/skills/init/references/board-setup.m
 
 ## 8. Figma, người, thông báo, loop
 
-- **Figma**: dùng không? Có → `design.figma: true`; kiểm tool MCP `figma` có trong session; chưa authenticate → "chạy `/mcp` → figma → Authenticate". Thấy prototype trong repo (`docs/design`, `*.html` thiết kế…) → đề xuất `design.repo`.
+- **Figma**: dùng không? Có → `design.figma: true`; kiểm tool MCP `figma` có trong session; chưa authenticate → "chạy `/mcp` → figma → Authenticate". Thấy tài liệu sản phẩm/prototype (`docs/`, `*.html` thiết kế…) → đề xuất `design.repo`.
 - **people**: `po`, `qc`, `reviewers` (GitHub login) — gợi ý từ assignee/collaborator. Mention chính token owner không tạo notification.
 - **Telegram**: dùng không? Có → `notify.telegram: true`; kiểm `agentflow-settings has TELEGRAM_BOT_TOKEN && agentflow-settings has TELEGRAM_CHAT_ID`; thiếu → người ghi bằng `set-secret` (có hiệu lực ngay), chưa có thì giữ `notify.telegram: false`.
 - **staging**: `url` (API/web), `build` (cách lấy bản build mobile), `notes` (path secret folder của project chứa app id, tài khoản test, vd `secret/staging/` — gitignored, không nằm trong `forbidden`), `timeout_min`, `skip_checks` (glob tên check release mobile, DEV không chờ). Kiểm trong `.github/workflows/`: có pipeline chạy khi push vào nhánh staging và báo check về commit, không có → nói rõ DEV sẽ `blocked` khi hết timeout. Check phải bao trùm bước deploy server/web, không thì flow chạy nhầm bản cũ. Nhánh staging phải cho push trực tiếp, không bật rule bắt buộc PR hay status check trước khi push.
